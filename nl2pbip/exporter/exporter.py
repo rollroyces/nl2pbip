@@ -1,4 +1,5 @@
 """Export engine that compiles PBIP folders into PBIX/PBIT artifacts."""
+
 from __future__ import annotations
 
 import json
@@ -6,7 +7,7 @@ import logging
 import shutil
 import subprocess
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -22,7 +23,9 @@ class PBIPExporter:
     # ------------------------------------------------------------------
     # pbi-tools integration
     # ------------------------------------------------------------------
-    def export_with_pbi_tools(self, pbip_path: str, format: str, output_path: str) -> bool:
+    def export_with_pbi_tools(
+        self, pbip_path: str, format: str, output_path: str
+    ) -> bool:
         """Compile a PBIP folder using pbi-tools.
 
         Returns True when the external command succeeds, otherwise False.
@@ -55,7 +58,9 @@ class PBIPExporter:
             if stderr:
                 self._logger.error("pbi-tools compile failed: %s", stderr)
             else:
-                self._logger.error("pbi-tools compile failed with exit code %s", result.returncode)
+                self._logger.error(
+                    "pbi-tools compile failed with exit code %s", result.returncode
+                )
             return False
         if result.stdout:
             self._logger.debug(result.stdout.strip())
@@ -65,33 +70,80 @@ class PBIPExporter:
     # Fallback ZIP exporter
     # ------------------------------------------------------------------
     def export_as_pbit_zip(self, pbip_path: str, output_path: str) -> str:
-        """Create a PBIT archive from PBIP components without pbi-tools."""
+        """Create a PBIT archive from PBIP components without pbi-tools.
+
+        Power BI template (.pbit) archives expect the following top-level
+        layout::
+
+            DataModelSchemaTemplate.json   <- model schema stub
+            Metadata.json                  <- template metadata
+            Report/                        <- report folder (pbip-compatible)
+              definition.pbir
+              definition/
+                report.json
+                pages/...
+                ...
+            SemanticModel/                 <- semantic model folder (pbip-compatible)
+              definition.pbism
+              definition/
+                model.tmdl
+                relationships.tmdl
+                tables/...
+
+        Note: this is a *best-effort* fallback that produces a valid
+        directory shape. Power BI Desktop may still need to recompile the
+        TMDL model into the AS tabular ``DataModelSchema`` on first open;
+        for guaranteed ``.pbix`` output use ``pbi-tools``.
+        """
 
         pbip_dir = Path(pbip_path).expanduser()
         if not pbip_dir.exists():
             raise FileNotFoundError(f"PBIP directory not found: {pbip_dir}")
 
-        dataset_dir = self._find_component_directory(pbip_dir, (".Dataset", ".SemanticModel"))
+        dataset_dir = self._find_component_directory(
+            pbip_dir, (".SemanticModel", ".Dataset")
+        )
         report_dir = self._find_component_directory(pbip_dir, (".Report",))
         if dataset_dir is None:
-            raise FileNotFoundError("PBIP folder does not contain a dataset/semantic model component.")
+            raise FileNotFoundError(
+                "PBIP folder does not contain a SemanticModel (or legacy Dataset) component."
+            )
         if report_dir is None:
-            raise FileNotFoundError("PBIP folder does not contain a report component.")
+            raise FileNotFoundError("PBIP folder does not contain a Report component.")
 
         output_file = Path(output_path).with_suffix(".pbit")
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
-        timestamp = datetime.utcnow().isoformat() + "Z"
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         metadata = {
             "created": timestamp,
             "source": "nl2pbip",
-            "notes": "Generated via fallback exporter.",
+            "notes": (
+                "Generated via fallback PBIT exporter. "
+                "Open in Power BI Desktop to finalize."
+            ),
         }
 
-        with zipfile.ZipFile(output_file, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            self._write_directory_to_zip(archive, dataset_dir, "Dataset")
+        with zipfile.ZipFile(
+            output_file, "w", compression=zipfile.ZIP_DEFLATED
+        ) as archive:
+            self._write_directory_to_zip(archive, dataset_dir, "SemanticModel")
             self._write_directory_to_zip(archive, report_dir, "Report")
             archive.writestr("Metadata.json", json.dumps(metadata, indent=2))
+            # Provide a minimal DataModelSchemaTemplate.json stub so PBI Desktop
+            # recognises the archive as a template. Real schema compilation
+            # requires pbi-tools / Tabular Editor.
+            archive.writestr(
+                "DataModelSchemaTemplate.json",
+                json.dumps(
+                    {
+                        "name": "nl2pbip Generated Model",
+                        "compatibilityLevel": 1567,
+                        "model": {"culture": "en-US", "sourceQueryCulture": "en-US"},
+                    },
+                    indent=2,
+                ),
+            )
 
         self._logger.info("Created fallback PBIT archive at %s", output_file)
         return str(output_file)
@@ -99,13 +151,19 @@ class PBIPExporter:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def _find_component_directory(self, pbip_dir: Path, suffixes: Iterable[str]) -> Optional[Path]:
+    def _find_component_directory(
+        self, pbip_dir: Path, suffixes: Iterable[str]
+    ) -> Optional[Path]:
         for candidate in pbip_dir.iterdir():
-            if candidate.is_dir() and any(candidate.name.endswith(suffix) for suffix in suffixes):
+            if candidate.is_dir() and any(
+                candidate.name.endswith(suffix) for suffix in suffixes
+            ):
                 return candidate
         return None
 
-    def _write_directory_to_zip(self, archive: zipfile.ZipFile, source_dir: Path, root_name: str) -> None:
+    def _write_directory_to_zip(
+        self, archive: zipfile.ZipFile, source_dir: Path, root_name: str
+    ) -> None:
         for file_path in source_dir.rglob("*"):
             if file_path.is_dir():
                 continue

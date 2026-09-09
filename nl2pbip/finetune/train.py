@@ -1,4 +1,5 @@
 """Unsloth-based fine-tuning pipeline for nl2pbip."""
+
 from __future__ import annotations
 
 import argparse
@@ -25,7 +26,9 @@ DEFAULT_MODEL_NAME = "unsloth/Qwen2.5-Coder-7B-Instruct"
 
 def _ensure_unsloth() -> None:
     if FastLanguageModel is None or get_chat_template is None:
-        raise ImportError("unsloth must be installed to run fine-tuning") from _UNSLOTH_IMPORT_ERROR
+        raise ImportError(
+            "unsloth must be installed to run fine-tuning"
+        ) from _UNSLOTH_IMPORT_ERROR
 
 
 def _prepare_model(model_name: str = DEFAULT_MODEL_NAME):
@@ -51,18 +54,29 @@ def _prepare_model(model_name: str = DEFAULT_MODEL_NAME):
 def _format_example(example: Dict, template) -> str:
     messages = example.get("messages")
     if not messages:
-        raise ValueError("Each dataset row must contain a 'messages' list in ChatML format.")
-    return template.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+        raise ValueError(
+            "Each dataset row must contain a 'messages' list in ChatML format."
+        )
+    return template.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=False
+    )
 
 
-def export_to_gguf(model, tokenizer, output_dir: Path, quantization: str = "q4_k_m") -> Path:
+def export_to_gguf(
+    model, tokenizer, output_dir: Path, quantization: str = "q4_k_m"
+) -> Path:
     _ensure_unsloth()
     exporter = getattr(FastLanguageModel, "export_gguf", None)
     if exporter is None:
         raise RuntimeError("Installed unsloth version does not support GGUF export.")
     gguf_dir = output_dir / "gguf"
     gguf_dir.mkdir(parents=True, exist_ok=True)
-    exporter(model=model, tokenizer=tokenizer, save_path=str(gguf_dir), quantization=quantization)
+    exporter(
+        model=model,
+        tokenizer=tokenizer,
+        save_path=str(gguf_dir),
+        quantization=quantization,
+    )
     return gguf_dir
 
 
@@ -104,7 +118,9 @@ def train(
         num_train_epochs=num_train_epochs,
         logging_steps=logging_steps,
         save_steps=save_steps,
-        evaluation_strategy="steps" if eval_dataset is not None else "no",
+        # ``evaluation_strategy`` was renamed to ``eval_strategy`` in transformers >= 4.36
+        # (old name removed entirely in >= 4.46). Use the new name.
+        eval_strategy="steps" if eval_dataset is not None else "no",
         eval_steps=eval_steps,
         save_total_limit=2,
         bf16=True,
@@ -132,12 +148,16 @@ def train(
 
     artifacts: Dict[str, Path] = {"adapter_dir": adapter_dir}
     if export_gguf_flag:
-        artifacts["gguf_dir"] = export_to_gguf(trainer.model, tokenizer, output_dir, quantization=gguf_quantization)
+        artifacts["gguf_dir"] = export_to_gguf(
+            trainer.model, tokenizer, output_dir, quantization=gguf_quantization
+        )
     return artifacts
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Fine-tune nl2pbip using Unsloth + QLoRA.")
+    parser = argparse.ArgumentParser(
+        description="Fine-tune nl2pbip using Unsloth + QLoRA."
+    )
     parser.add_argument("--train-file", type=Path, default=Path("finetune/train.jsonl"))
     parser.add_argument("--val-file", type=Path, default=Path("finetune/val.jsonl"))
     parser.add_argument("--output-dir", type=Path, default=Path("finetune/output"))

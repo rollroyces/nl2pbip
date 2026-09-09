@@ -19,14 +19,6 @@ jobs:
           - "3.10"
           - "3.11"
           - "3.12"
-    env:
-      OPENAI_API_KEY: "sk-ci-dummy-key"
-      DEEPSEEK_API_KEY: "sk-ci-dummy-key"
-      DASHSCOPE_API_KEY: "sk-ci-dummy-key"
-      ZHIPU_API_KEY: "sk-ci-dummy-key"
-      MOONSHOT_API_KEY: "sk-ci-dummy-key"
-      AZURE_OPENAI_API_KEY: "sk-ci-dummy-key"
-      AZURE_OPENAI_ENDPOINT: "https://dummy.openai.azure.com"
 
     steps:
       - name: Checkout repository
@@ -46,7 +38,13 @@ jobs:
           elif [ -f pyproject.toml ]; then
             pip install .
           fi
-          pip install pytest pytest-mock pytest-cov ruff black
+          # Test-only extras: pytest, lint, formatter. The finetune + anthropic
+          # extras require heavy ML libs and are not needed for unit tests.
+          pip install ".[dev]" ".[anthropic]"
+          # finetune.train does top-level imports of transformers/trl/datasets,
+          # so we need them installed for the test_orchestrator/test_finetune
+          # test discovery even though no GPU-backed training is exercised.
+          pip install datasets pydantic "transformers>=4.40" trl 
 
       - name: Check formatting with Black
         run: black --check .

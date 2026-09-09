@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import List
 from unittest.mock import MagicMock, patch
 
-from nl2pbip.finetune.dataset_generator import synthesize_dataset
 from nl2pbip.finetune import train as train_module
+from nl2pbip.finetune.dataset_generator import synthesize_dataset
 from nl2pbip.providers.local_finetuned import LocalFineTunedProvider
 
 
@@ -54,10 +54,12 @@ def test_synthesize_dataset_persists_chatml(tmp_path: Path) -> None:
 
 
 def test_local_finetuned_provider_parses_payload() -> None:
-    provider = LocalFineTunedProvider(model="local-model", base_url="http://localhost:9999")
+    provider = LocalFineTunedProvider(
+        model="local-model", base_url="http://localhost:9999"
+    )
     fake_response = MagicMock()
     fake_response.json.return_value = {
-        "choices": [{"message": {"content": "{\"plan\": []}"}}]
+        "choices": [{"message": {"content": '{"plan": []}'}}]
     }
     fake_response.raise_for_status.return_value = None
     provider._session.post = MagicMock(return_value=fake_response)  # type: ignore[attr-defined]
@@ -65,16 +67,18 @@ def test_local_finetuned_provider_parses_payload() -> None:
     content = provider.generate([{"role": "user", "content": "Hi"}])
 
     provider._session.post.assert_called_once()
-    assert content == "{\"plan\": []}"
+    assert content == '{"plan": []}'
 
 
 @patch("nl2pbip.finetune.train.export_to_gguf")
 @patch("nl2pbip.finetune.train.SFTTrainer")
 @patch("nl2pbip.finetune.train.get_chat_template")
 @patch("nl2pbip.finetune.train.FastLanguageModel")
+@patch("nl2pbip.finetune.train.TrainingArguments")
 @patch("nl2pbip.finetune.train.load_dataset")
 def test_train_invokes_unsloth_pipeline(
     mock_load_dataset,
+    mock_training_args,
     mock_fast_lm,
     mock_get_template,
     mock_trainer_cls,
@@ -111,9 +115,18 @@ def test_train_invokes_unsloth_pipeline(
     )
 
     mock_fast_lm.from_pretrained.assert_called_once()
+    # TrainingArguments must have been constructed with bf16 enabled
+    # (the train module sets bf16=True in the call).
+    mock_training_args.assert_called_once()
+    train_kwargs = mock_training_args.call_args.kwargs
+    assert train_kwargs.get("bf16") is True
+    assert train_kwargs.get("eval_strategy") == "steps"
+    # The trainer should have been constructed with train_on_responses_only
+    # and the mocked TrainingArguments instance.
     mock_trainer_cls.assert_called_once()
     trainer_kwargs = mock_trainer_cls.call_args.kwargs
     assert trainer_kwargs["train_on_responses_only"] is True
+    assert trainer_kwargs["args"] is mock_training_args.return_value
     trainer_instance.train.assert_called_once()
     mock_model.save_pretrained.assert_called()
     mock_tokenizer.save_pretrained.assert_called()

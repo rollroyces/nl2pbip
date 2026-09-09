@@ -1,10 +1,12 @@
 """Validation helpers for PBIR page and visual JSON payloads."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence, Tuple
 
-from jsonschema import Draft7Validator, ValidationError as JSONSchemaValidationError
+from jsonschema import Draft7Validator
+from jsonschema import ValidationError as JSONSchemaValidationError
 
 if TYPE_CHECKING:  # pragma: no cover - used only for typing
     try:
@@ -161,7 +163,9 @@ class PBIRValidator:
                 nested_path = f"visualContainers/{idx}"
                 if exc.path:
                     nested_path = f"{nested_path}/{exc.path}"
-                raise PBIRValidationError(exc.file_type, exc.message, path=nested_path) from exc
+                raise PBIRValidationError(
+                    exc.file_type, exc.message, path=nested_path
+                ) from exc
 
     def validate_visual(
         self,
@@ -171,8 +175,12 @@ class PBIRValidator:
         self._require_schema_uri(visual_json, PBIR_VISUAL_SCHEMA_URI, "visualContainer")
         self._run_validator(self._visual_validator, visual_json, "visualContainer")
         layout = visual_json["layout"]
-        x = self._require_number(layout.get("x"), "layout.x", allow_zero=True, file_type="visualContainer")
-        y = self._require_number(layout.get("y"), "layout.y", allow_zero=True, file_type="visualContainer")
+        x = self._require_number(
+            layout.get("x"), "layout.x", allow_zero=True, file_type="visualContainer"
+        )
+        y = self._require_number(
+            layout.get("y"), "layout.y", allow_zero=True, file_type="visualContainer"
+        )
         width = self._require_number(
             layout.get("width"),
             "layout.width",
@@ -187,11 +195,15 @@ class PBIRValidator:
         )
         z = layout.get("z")
         if isinstance(z, bool) or not isinstance(z, int):
-            raise PBIRValidationError("visualContainer", "layout.z must be an integer.", path="layout.z")
+            raise PBIRValidationError(
+                "visualContainer", "layout.z must be an integer.", path="layout.z"
+            )
         bounds = page_bounds or self._default_canvas
         canvas_w, canvas_h = bounds
         if x < 0 or y < 0:
-            raise PBIRValidationError("visualContainer", "layout coordinates must be non-negative.")
+            raise PBIRValidationError(
+                "visualContainer", "layout coordinates must be non-negative."
+            )
         if x + width > canvas_w or y + height > canvas_h:
             raise PBIRValidationError(
                 "visualContainer",
@@ -207,7 +219,9 @@ class PBIRValidator:
         single_visual = visual_json.get("config", {}).get("singleVisual", {})
         projections = single_visual.get("projections")
         if projections is None:
-            raise PBIRValidationError("visualContainer", "singleVisual.projections is required.")
+            raise PBIRValidationError(
+                "visualContainer", "singleVisual.projections is required."
+            )
         inner_type = single_visual.get("visualType")
         if inner_type and inner_type != visual_type:
             raise PBIRValidationError(
@@ -228,13 +242,21 @@ class PBIRValidator:
     ) -> None:
         try:
             validator.validate(payload)
-        except JSONSchemaValidationError as exc:  # pragma: no cover - jsonschema already tested
-            raise PBIRValidationError(file_type, exc.message, path=_format_error_path(exc.absolute_path)) from exc
+        except (
+            JSONSchemaValidationError
+        ) as exc:  # pragma: no cover - jsonschema already tested
+            raise PBIRValidationError(
+                file_type, exc.message, path=_format_error_path(exc.absolute_path)
+            ) from exc
 
-    def _require_schema_uri(self, payload: Dict[str, Any], expected: str, file_type: str) -> None:
+    def _require_schema_uri(
+        self, payload: Dict[str, Any], expected: str, file_type: str
+    ) -> None:
         uri = payload.get("$schema")
         if not uri:
-            raise PBIRValidationError(file_type, f"$schema must be '{expected}'.", path="$schema")
+            raise PBIRValidationError(
+                file_type, f"$schema must be '{expected}'.", path="$schema"
+            )
         if uri != expected:
             raise PBIRValidationError(
                 file_type,
@@ -253,9 +275,13 @@ class PBIRValidator:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise PBIRValidationError(file_type, f"{path} must be numeric.", path=path)
         if value < 0:
-            raise PBIRValidationError(file_type, f"{path} must be non-negative.", path=path)
+            raise PBIRValidationError(
+                file_type, f"{path} must be non-negative.", path=path
+            )
         if not allow_zero and value == 0:
-            raise PBIRValidationError(file_type, f"{path} must be greater than zero.", path=path)
+            raise PBIRValidationError(
+                file_type, f"{path} must be greater than zero.", path=path
+            )
         return float(value)
 
     # ------------------------------------------------------------------
@@ -263,7 +289,9 @@ class PBIRValidator:
     # ------------------------------------------------------------------
     def _validate_projections(self, projections: Dict[str, Any]) -> None:
         if not isinstance(projections, dict) or not projections:
-            raise PBIRValidationError("visualContainer", "singleVisual.projections must contain bindings.")
+            raise PBIRValidationError(
+                "visualContainer", "singleVisual.projections must contain bindings."
+            )
         for role, entries in projections.items():
             if not isinstance(entries, list) or not entries:
                 raise PBIRValidationError(

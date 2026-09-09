@@ -34,11 +34,7 @@ Optional extras provide heavyweight dependencies only when you need them:
   pip install "nl2pbip[finetune]"
   ```
 
-- PBIX/PBIT exports via `pbi-tools` integration:
-
-  ```bash
-  pip install "nl2pbip[export]"
-  ```
+- PBIX/PBIT exports via `pbi-tools` integration (see `dotnet tool install --global TabularEditor.Tools.PBITools` below).
 
 > **Tip:** Install `pbi-tools` separately (`dotnet tool install --global TabularEditor.Tools.PBITools`) so `nl2pbip export` can emit `.pbix`. Without it, the exporter automatically creates a zipped `.pbit` template.
 

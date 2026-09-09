@@ -1,4 +1,5 @@
 """Package nl2pbip intermediate artifacts into a PBIP folder."""
+
 from __future__ import annotations
 
 import json
@@ -6,8 +7,13 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict
 
-from pbir_engine import REPORT_PATH_KEY
-from tmdl_engine import MODEL_PATH_KEY, TMDLModel, parse_tmdl_text, roles_workspace_dir
+from nl2pbip.pbir_engine import REPORT_PATH_KEY
+from nl2pbip.tmdl_engine import (
+    MODEL_PATH_KEY,
+    TMDLModel,
+    parse_tmdl_text,
+    roles_workspace_dir,
+)
 
 PBIP_VERSION = "1.0"
 ROLES_DEFINITION_PATH = "definition/roles"
@@ -192,21 +198,28 @@ def _write_report_files(
         page_dir = pages_dir / page_id
         visuals_dir = page_dir / "visuals"
         visuals_dir.mkdir(parents=True, exist_ok=True)
-        (page_dir / "page.json").write_text(json.dumps(page, indent=2), encoding="utf-8")
+        (page_dir / "page.json").write_text(
+            json.dumps(page, indent=2), encoding="utf-8"
+        )
         visuals_map: Dict[str, str] = {}
         for visual in page.get("visualContainers", []):
             visual_name = visual.get("name") or f"visual_{len(visuals_map) + 1}"
             visual_path = visuals_dir / f"{visual_name}.json"
             visual_path.write_text(json.dumps(visual, indent=2), encoding="utf-8")
             visuals_map[visual_name] = str(visual_path)
-        recorded_pages[page_id] = {"page": str(page_dir / "page.json"), "visuals": visuals_map}
+        recorded_pages[page_id] = {
+            "page": str(page_dir / "page.json"),
+            "visuals": visuals_map,
+        }
 
     definition_pbir = {
         "version": PBIP_VERSION,
         "name": project_name,
         "reportDefinition": "definition/report.json",
     }
-    (report_dir / "definition.pbir").write_text(json.dumps(definition_pbir, indent=2), encoding="utf-8")
+    (report_dir / "definition.pbir").write_text(
+        json.dumps(definition_pbir, indent=2), encoding="utf-8"
+    )
 
     return {"report": str(report_json_path), "pages": recorded_pages}
 
@@ -215,7 +228,9 @@ def _write_report_files(
 # Utilities
 # ---------------------------------------------------------------------------
 def _safe_name(name: str) -> str:
-    return "".join(char if char.isalnum() or char in ("-", "_") else "_" for char in name)
+    return "".join(
+        char if char.isalnum() or char in ("-", "_") else "_" for char in name
+    )
 
 
 def _ensure_roles_directory(definition_dir: Path) -> Path:

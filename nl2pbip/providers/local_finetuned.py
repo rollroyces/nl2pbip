@@ -1,7 +1,7 @@
 """Local provider that targets an OpenAI-compatible endpoint (Ollama or vLLM)."""
+
 from __future__ import annotations
 
-import json
 import os
 from typing import Dict, List, Optional
 
@@ -23,7 +23,11 @@ class LocalFineTunedProvider:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout = timeout
-        self.base_url = (base_url or os.getenv("NL2PBIP_LOCAL_LLM_URL") or "http://localhost:11434/v1").rstrip("/")
+        self.base_url = (
+            base_url
+            or os.getenv("NL2PBIP_LOCAL_LLM_URL")
+            or "http://localhost:11434/v1"
+        ).rstrip("/")
         self._session = requests.Session()
 
     def generate(self, messages: List[Dict[str, str]]) -> str:
@@ -52,7 +56,9 @@ class LocalFineTunedProvider:
             raise ValueError("Local endpoint returned empty content.")
         return content
 
-    def __enter__(self) -> "LocalFineTunedProvider":  # pragma: no cover - context helper
+    def __enter__(
+        self,
+    ) -> "LocalFineTunedProvider":  # pragma: no cover - context helper
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:  # pragma: no cover - context helper
