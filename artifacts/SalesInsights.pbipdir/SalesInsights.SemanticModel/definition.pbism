@@ -1,0 +1,6 @@
+{
+  "version": "1.0",
+  "name": "SalesInsights",
+  "modelDefinition": "definition/model.tmdl",
+  "relationshipsDefinition": "definition/relationships.tmdl"
+}

@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nl2pbip"
+version = "0.1.0"
+description = "Natural Language to Power BI Project generator"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "Royce", email = "rollroyces@users.noreply.github.com" }
+]
+keywords = ["power-bi", "pbip", "llm", "analytics", "dax"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development",
+  "Topic :: Scientific/Engineering :: Information Analysis"
+]
+dependencies = [
+  "jsonschema>=4.19",
+  "openai>=1.20",
+  "requests>=2.31"
+]
+
+[project.optional-dependencies]
+anthropic = [
+  "anthropic>=0.26"
+]
+finetune = [
+  "datasets>=2.19",
+  "transformers>=4.38",
+  "trl>=0.9",
+  "unsloth>=2024.7.0",
+  "instructor>=1.3",
+  "pydantic>=2.6"
+]
+dev = [
+  "black>=24.3",
+  "ruff>=0.5",
+  "pytest>=7.4",
+  "pytest-cov>=4.1",
+  "build>=1.2"
+]
+
+[project.scripts]
+nl2pbip = "nl2pbip.cli:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["nl2pbip*"]
+
+[tool.setuptools.package-data]
+"nl2pbip" = [
+  "dax_library.json"
+]

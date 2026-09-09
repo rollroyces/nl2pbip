@@ -1,0 +1,94 @@
+{
+  "pbir": {
+    "pages": [
+      {
+        "name": "Main",
+        "displayName": "Executive Overview",
+        "pageSize": {
+          "width": 1280,
+          "height": 720
+        },
+        "background": null,
+        "themeTokens": {},
+        "visualContainers": [
+          {
+            "name": "visual_2154fc94",
+            "visualType": "columnChart",
+            "title": "Revenue by Region",
+            "layout": {
+              "x": 24,
+              "y": 220,
+              "width": 520,
+              "height": 300,
+              "z": 1
+            },
+            "filters": [],
+            "config": {
+              "singleVisual": {
+                "visualType": "columnChart",
+                "projections": {
+                  "Category": [
+                    {
+                      "queryRef": "Sales[Region]"
+                    }
+                  ],
+                  "Values": [
+                    {
+                      "queryRef": "Sales[Total Revenue]"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "settings": {
+      "displayOption": "fitToPage"
+    }
+  },
+  "internal": {
+    "pages": [
+      {
+        "name": "Main",
+        "display_name": "Executive Overview",
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "theme_tokens": {},
+        "background": null,
+        "visuals": [
+          {
+            "visual_id": "visual_2154fc94",
+            "visual_type": "columnChart",
+            "title": "Revenue by Region",
+            "bindings": [
+              {
+                "role": "Category",
+                "expressions": [
+                  "Sales[Region]"
+                ]
+              },
+              {
+                "role": "Values",
+                "expressions": [
+                  "Sales[Total Revenue]"
+                ]
+              }
+            ],
+            "filters": [],
+            "position": {
+              "x": 24,
+              "y": 220,
+              "width": 520,
+              "height": 300,
+              "z": 1
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

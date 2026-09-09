@@ -1,0 +1,9 @@
+relationship "Sales_Date_Date_Date" {
+  fromTable = "Sales"
+  fromColumn = "Date"
+  toTable = "Date"
+  toColumn = "Date"
+  cardinality = manyToOne
+  crossFilterDirection = single
+  isActive = true
+}

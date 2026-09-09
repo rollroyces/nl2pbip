@@ -1,0 +1,13 @@
+table "Date" {
+  columns = [
+    column "Date" {
+      dataType = date
+    }
+    column "Month" {
+      dataType = string
+    }
+    column "Year" {
+      dataType = wholeNumber
+    }
+  ]
+}

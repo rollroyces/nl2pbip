@@ -1,0 +1,24 @@
+table "Sales" {
+  columns = [
+    column "SaleId" {
+      dataType = string
+    }
+    column "Region" {
+      dataType = string
+    }
+    column "Amount" {
+      dataType = decimal
+    }
+    column "Date" {
+      dataType = date
+    }
+  ]
+  measures = [
+    measure "Total Revenue" {
+      expression = '''
+SUM(Sales[Amount])
+'''
+      formatString = "$#,0.00"
+    }
+  ]
+}

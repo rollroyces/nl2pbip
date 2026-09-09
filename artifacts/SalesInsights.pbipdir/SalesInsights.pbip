@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "name": "SalesInsights",
+  "components": [
+    {
+      "type": "semanticModel",
+      "path": "SalesInsights.SemanticModel"
+    },
+    {
+      "type": "report",
+      "path": "SalesInsights.Report"
+    }
+  ]
+}
