@@ -41,7 +41,10 @@ jobs:
           # Test-only extras: pytest, lint, formatter. The finetune + anthropic
           # extras require heavy ML libs and are not needed for unit tests.
           pip install ".[dev]" ".[anthropic]"
-          pip install datasets pydantic  # required by finetune module imports
+          # finetune.train does top-level imports of transformers/trl/datasets,
+          # so we need them installed for the test_orchestrator/test_finetune
+          # test discovery even though no GPU-backed training is exercised.
+          pip install datasets pydantic "transformers>=4.40" trl 
 
       - name: Check formatting with Black
         run: black --check .
