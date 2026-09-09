@@ -5,26 +5,31 @@ specialized tooling that materializes PBIP artifacts. The class defined here is
 LLM-agnostic; plug in any client that exposes a ``generate`` method compatible
 with the ``LLMClient`` protocol below.
 """
+
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Protocol
 
-from dax_catalog import DAXCatalog
-from packager import package_pbip_handler
-from pbir_engine import add_report_page_handler, add_visual_handler, set_page_layout_handler
-from pbir_validator import PBIRValidationError
-from tmdl_engine import (
+from nl2pbip.dax_catalog import DAXCatalog
+from nl2pbip.packager import package_pbip_handler
+from nl2pbip.pbir_engine import (
+    add_report_page_handler,
+    add_visual_handler,
+    set_page_layout_handler,
+)
+from nl2pbip.pbir_validator import PBIRValidationError
+from nl2pbip.tmdl_engine import (
     add_calculation_group_handler,
     add_measure_handler,
-    add_pattern_measure_handler,
     add_ols_role_handler,
+    add_pattern_measure_handler,
     add_rls_role_handler,
     create_table_handler,
     define_relationship_handler,
 )
-from tmdl_linter import TMDLValidationError
+from nl2pbip.tmdl_linter import TMDLValidationError
 
 
 class LLMClient(Protocol):
@@ -131,7 +136,9 @@ class Orchestrator:
             ToolSpec(name=name, description=description, schema=schema, handler=handler)
         )
 
-    def run(self, user_prompt: str, context: Optional[Dict[str, Any]] = None) -> List[ToolResult]:
+    def run(
+        self, user_prompt: str, context: Optional[Dict[str, Any]] = None
+    ) -> List[ToolResult]:
         """Full cycle with validation-aware self correction."""
 
         context = context or {}
@@ -144,7 +151,12 @@ class Orchestrator:
             plan = self._parse_plan(plan_response)
             try:
                 return self._execute_plan(plan, context)
-            except (TMDLValidationError, PBIRValidationError, ValueError, TypeError) as exc:
+            except (
+                TMDLValidationError,
+                PBIRValidationError,
+                ValueError,
+                TypeError,
+            ) as exc:
                 last_error = exc
                 feedback.append(self._feedback_for_exception(exc))
                 if attempt == max_attempts:
@@ -162,7 +174,7 @@ class Orchestrator:
                 "role": "system",
                 "content": (
                     "You are an agentic planner for Power BI PBIP generation. Follow these rules:\n"
-                    "1. Always output valid JSON using the schema: {\"plan\": [{\"tool\": str, \"args\": object}]}.\n"
+                    '1. Always output valid JSON using the schema: {"plan": [{"tool": str, "args": object}]}.\n'
                     "2. Create dimension tables (Date, Customer, Product, etc.) before fact tables.\n"
                     "3. Define relationships immediately after the tables they reference.\n"
                     "4. Build visuals only after required tables, measures, and relationships exist.\n"
@@ -176,7 +188,9 @@ class Orchestrator:
             },
             {
                 "role": "user",
-                "content": json.dumps(self._planner_payload(user_prompt, context), indent=2),
+                "content": json.dumps(
+                    self._planner_payload(user_prompt, context), indent=2
+                ),
             },
         ]
         return self._llm.generate(planning_messages)
@@ -191,7 +205,9 @@ class Orchestrator:
             raw_plan = raw_plan["plan"]
 
         if not isinstance(raw_plan, list):
-            raise ValueError("Planner output must be a JSON array of tool calls or an object with a 'plan' array.")
+            raise ValueError(
+                "Planner output must be a JSON array of tool calls or an object with a 'plan' array."
+            )
 
         plan: List[ToolCall] = []
         for step in raw_plan:
@@ -228,7 +244,9 @@ class Orchestrator:
             "schema": spec.schema,
         }
 
-    def _planner_payload(self, user_prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def _planner_payload(
+        self, user_prompt: str, context: Dict[str, Any]
+    ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "prompt": user_prompt,
             "context": context,

@@ -60,8 +60,10 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 include = ["nl2pbip*"]
+exclude = ["tests*"]
 
 [tool.setuptools.package-data]
 "nl2pbip" = [
-  "dax_library.json"
+  "dax_library.json",
+  "py.typed",
 ]

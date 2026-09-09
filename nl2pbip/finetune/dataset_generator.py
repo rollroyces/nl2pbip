@@ -1,4 +1,5 @@
 """Synthetic dataset generator for Power BI fine-tuning."""
+
 from __future__ import annotations
 
 import argparse
@@ -43,7 +44,9 @@ class DatasetRecord:
     artifact: SyntheticArtifact
 
     def to_chatml(self, system_prompt: str) -> dict:
-        assistant_content = json.dumps(self.artifact.model_dump(), separators=(",", ":"))
+        assistant_content = json.dumps(
+            self.artifact.model_dump(), separators=(",", ":")
+        )
         return {
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -56,7 +59,9 @@ class DatasetRecord:
 class DatasetGenerator:
     """Thin wrapper around an instructor client to generate structured samples."""
 
-    def __init__(self, client: object, model: str, system_prompt: str = DEFAULT_SYSTEM_PROMPT) -> None:
+    def __init__(
+        self, client: object, model: str, system_prompt: str = DEFAULT_SYSTEM_PROMPT
+    ) -> None:
         self._client = client
         self._model = model
         self._system_prompt = system_prompt
@@ -98,7 +103,9 @@ def synthesize_dataset(
 ) -> tuple[List[DatasetRecord], List[DatasetRecord]]:
     if not 0 < val_ratio < 1:
         raise ValueError("val_ratio must be between 0 and 1")
-    generator = DatasetGenerator(client=client, model=model, system_prompt=system_prompt)
+    generator = DatasetGenerator(
+        client=client, model=model, system_prompt=system_prompt
+    )
     rng = random.Random(seed)
     prompts_list = list(prompts)
     if not prompts_list:
@@ -118,7 +125,9 @@ def synthesize_dataset(
     return train_records, val_records
 
 
-def _write_chatml_jsonl(records: Sequence[DatasetRecord], output_path: Path, system_prompt: str) -> None:
+def _write_chatml_jsonl(
+    records: Sequence[DatasetRecord], output_path: Path, system_prompt: str
+) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as handle:
         for record in records:
@@ -145,9 +154,13 @@ def _default_prompts() -> List[str]:
 
 def _build_instructor_client(api_key: Optional[str], base_url: Optional[str]) -> object:
     if OpenAI is None:
-        raise ImportError("openai package is required to call the dataset generator client.")
+        raise ImportError(
+            "openai package is required to call the dataset generator client."
+        )
     if instructor is None:
-        raise ImportError("instructor package is required to enforce JSON schema outputs.")
+        raise ImportError(
+            "instructor package is required to enforce JSON schema outputs."
+        )
     client_kwargs = {}
     if api_key:
         client_kwargs["api_key"] = api_key
@@ -158,9 +171,18 @@ def _build_instructor_client(api_key: Optional[str], base_url: Optional[str]) ->
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate synthetic ChatML datasets for nl2pbip fine-tuning.")
-    parser.add_argument("--prompt-file", type=Path, default=None, help="Optional newline-delimited prompt file.")
-    parser.add_argument("--train-output", type=Path, default=Path("finetune/train.jsonl"))
+    parser = argparse.ArgumentParser(
+        description="Generate synthetic ChatML datasets for nl2pbip fine-tuning."
+    )
+    parser.add_argument(
+        "--prompt-file",
+        type=Path,
+        default=None,
+        help="Optional newline-delimited prompt file.",
+    )
+    parser.add_argument(
+        "--train-output", type=Path, default=Path("finetune/train.jsonl")
+    )
     parser.add_argument("--val-output", type=Path, default=Path("finetune/val.jsonl"))
     parser.add_argument("--model", default="gpt-4o-mini")
     parser.add_argument("--val-ratio", type=float, default=0.1)

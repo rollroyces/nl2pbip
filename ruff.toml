@@ -1,0 +1,23 @@
+line-length = 100
+target-version = "py310"
+
+[lint]
+# Focus on real bugs. Style drift in the imported codebase predates the
+# CI gates; we run Black for formatting and intentionally accept the
+# existing typing.Dict/List/Optional convention rather than churning the
+# tree in this PR.
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes (real bugs — unused imports, undefined names)
+    "W",      # pycodestyle warnings
+    "B",      # bugbear (likely bugs)
+    "I",      # isort (import order)
+]
+ignore = [
+    "E501",   # line length — let Black handle it
+    "B008",   # function call in default argument — common in pydantic/dataclass
+    "B904",   # raise without from inside except — acceptable here
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["B011", "F401"]  # F401 OK for re-exports in tests

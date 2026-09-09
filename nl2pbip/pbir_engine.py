@@ -1,4 +1,5 @@
 """PBIR generation, layout, and tool handlers for nl2pbip."""
+
 from __future__ import annotations
 
 import json
@@ -8,14 +9,19 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 try:  # Support both package and local execution
-    from nl2pbip.pbir_validator import PBIRValidator, PBIR_PAGE_SCHEMA_URI, PBIR_VISUAL_SCHEMA_URI
+    from nl2pbip.pbir_validator import (
+        PBIR_PAGE_SCHEMA_URI,
+        PBIR_VISUAL_SCHEMA_URI,
+        PBIRValidator,
+    )
 except ImportError:  # pragma: no cover - fallback for editable installs
-    from pbir_validator import PBIRValidator, PBIR_PAGE_SCHEMA_URI, PBIR_VISUAL_SCHEMA_URI  # type: ignore
+    from pbir_validator import (  # type: ignore
+        PBIR_PAGE_SCHEMA_URI,
+        PBIR_VISUAL_SCHEMA_URI,
+        PBIRValidator,
+    )
 
-try:
-    from nl2pbip.tmdl_engine import MODEL_PATH_KEY, TMDLModel, load_model
-except ImportError:  # pragma: no cover - fallback for editable installs
-    from tmdl_engine import MODEL_PATH_KEY, TMDLModel, load_model  # type: ignore
+from nl2pbip.tmdl_engine import MODEL_PATH_KEY, TMDLModel, load_model
 
 
 # ---------------------------------------------------------------------------
@@ -109,19 +115,27 @@ class VisualBinding:
         return cls(role=payload["role"], entries=entries)
 
     @classmethod
-    def from_projections(cls, projections: Dict[str, List[Dict[str, Any]]]) -> List["VisualBinding"]:
+    def from_projections(
+        cls, projections: Dict[str, List[Dict[str, Any]]]
+    ) -> List["VisualBinding"]:
         bindings: List[VisualBinding] = []
         for role, entries in (projections or {}).items():
             binding_entries: List[BindingEntry] = []
             for entry in entries:
                 if "measureRef" in entry:
                     value = entry["measureRef"]
-                    binding_entries.append(BindingEntry(value=value, kind="measure", raw=value))
+                    binding_entries.append(
+                        BindingEntry(value=value, kind="measure", raw=value)
+                    )
                 elif "queryRef" in entry:
                     value = entry["queryRef"]
-                    binding_entries.append(BindingEntry(value=value, kind="column", raw=value))
+                    binding_entries.append(
+                        BindingEntry(value=value, kind="column", raw=value)
+                    )
                 else:
-                    binding_entries.append(BindingEntry(value="", kind="column", raw=""))
+                    binding_entries.append(
+                        BindingEntry(value="", kind="column", raw="")
+                    )
             bindings.append(cls(role=role, entries=binding_entries))
         return bindings
 
@@ -143,7 +157,9 @@ class VisualContainer:
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "VisualContainer":
-        bindings = [VisualBinding.from_dict(item) for item in payload.get("bindings", [])]
+        bindings = [
+            VisualBinding.from_dict(item) for item in payload.get("bindings", [])
+        ]
         return cls(
             visual_id=payload["visual_id"],
             visual_type=payload["visual_type"],
@@ -159,8 +175,14 @@ class VisualContainer:
         single_visual = config.get("singleVisual", {})
         projections = single_visual.get("projections", {})
         bindings = VisualBinding.from_projections(projections)
-        visual_id = payload.get("name") or payload.get("visual_id") or f"visual_{uuid.uuid4().hex[:8]}"
-        visual_type = payload.get("visualType") or single_visual.get("visualType", "tableEx")
+        visual_id = (
+            payload.get("name")
+            or payload.get("visual_id")
+            or f"visual_{uuid.uuid4().hex[:8]}"
+        )
+        visual_type = payload.get("visualType") or single_visual.get(
+            "visualType", "tableEx"
+        )
         return cls(
             visual_id=visual_id,
             visual_type=visual_type,
@@ -217,7 +239,9 @@ class ReportPage:
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "ReportPage":
-        display_name = payload.get("display_name") or payload.get("displayName") or payload["name"]
+        display_name = (
+            payload.get("display_name") or payload.get("displayName") or payload["name"]
+        )
         size_payload = payload.get("size")
         if size_payload is None:
             size_payload = payload.get("pageSize", {})
@@ -228,7 +252,10 @@ class ReportPage:
         if visuals_payload:
             visuals = [VisualContainer.from_dict(item) for item in visuals_payload]
         elif "visualContainers" in payload:
-            visuals = [VisualContainer.from_visual_json(item) for item in payload.get("visualContainers", [])]
+            visuals = [
+                VisualContainer.from_visual_json(item)
+                for item in payload.get("visualContainers", [])
+            ]
         else:
             visuals = []
         return cls(
@@ -362,10 +389,14 @@ class LayoutManager:
     def _init_states(self) -> None:
         for category, config in CATEGORY_CONFIG.items():
             self.states[category] = RowState(
-                base_y=config["base_y"], row_height=config["row_height"], page_width=self.page_width
+                base_y=config["base_y"],
+                row_height=config["row_height"],
+                page_width=self.page_width,
             )
         # Re-run the placement algorithm to update cursors
-        for visual in sorted(self.page.visuals, key=lambda v: (v.position.y, v.position.x)):
+        for visual in sorted(
+            self.page.visuals, key=lambda v: (v.position.y, v.position.x)
+        ):
             category = category_for_visual(visual.visual_type)
             state = self.states[category]
             state.reserve(visual.position.width, visual.position.height)
@@ -395,7 +426,9 @@ def default_size_for_visual(visual_type: str) -> Tuple[float, float]:
     return DEFAULT_SIZES.get(visual_type, (360, 240))
 
 
-def _classify_binding_entry(expression: str, model: Optional[TMDLModel]) -> BindingEntry:
+def _classify_binding_entry(
+    expression: str, model: Optional[TMDLModel]
+) -> BindingEntry:
     normalized = expression.strip()
     if not normalized:
         return BindingEntry(value="", kind="column", raw=expression)
@@ -415,30 +448,43 @@ def _classify_binding_entry(expression: str, model: Optional[TMDLModel]) -> Bind
         field_name = column_part[:-1].strip()
         if model:
             table = model.get_table(table_name)
-            if table:
-                if field_name in table.measures:
-                    return _measure_entry(field_name)
-                if field_name in table.columns:
-                    return _column_entry(f"{table_name}[{field_name}]")
-            if _measure_exists(model, field_name):
+            if not table:
+                raise ValueError(
+                    f"Binding references unknown table '{table_name}'. "
+                    "Create the table before referencing it in a visual."
+                )
+            if field_name in table.measures:
                 return _measure_entry(field_name)
+            if field_name in table.columns:
+                return _column_entry(f"{table_name}[{field_name}]")
+            raise ValueError(
+                f"Binding references unknown field '{field_name}' on table '{table_name}'."
+            )
+        # No model loaded — best-effort classification. Default to column
+        # (the more common Power BI binding shape for table[col] notation).
         return _column_entry(f"{table_name}[{field_name}]")
 
+    # Bare identifier with no brackets. Check if it matches a known measure
+    # name on any table in the model. With no model, treat as measure.
     if model and _measure_exists(model, normalized):
         return _measure_entry(normalized)
 
-    return _measure_entry(normalized)
+    raise ValueError(f"Cannot classify binding '{expression}' without a parsed model.")
 
 
 def _legacy_binding_entry(expression: str) -> BindingEntry:
     normalized = expression.strip()
     if normalized.startswith("[") and normalized.endswith("]"):
-        return BindingEntry(value=normalized[1:-1].strip(), kind="measure", raw=expression)
+        return BindingEntry(
+            value=normalized[1:-1].strip(), kind="measure", raw=expression
+        )
     if "[" in normalized and normalized.endswith("]"):
         table_part, column_part = normalized.split("[", 1)
         table_name = table_part.strip()
         field_name = column_part[:-1].strip()
-        return BindingEntry(value=f"{table_name}[{field_name}]", kind="column", raw=expression)
+        return BindingEntry(
+            value=f"{table_name}[{field_name}]", kind="column", raw=expression
+        )
     return BindingEntry(value=normalized, kind="measure", raw=expression)
 
 

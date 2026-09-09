@@ -1,4 +1,5 @@
 """Load and manage organizational DAX templates and calculation groups."""
+
 from __future__ import annotations
 
 import json
@@ -33,7 +34,12 @@ class CalculationGroupConfig:
 class DAXCatalog:
     """Central registry for organization-approved DAX assets."""
 
-    def __init__(self, patterns: Dict[str, DAXPattern], calculation_groups: Dict[str, CalculationGroupConfig], source_path: Path):
+    def __init__(
+        self,
+        patterns: Dict[str, DAXPattern],
+        calculation_groups: Dict[str, CalculationGroupConfig],
+        source_path: Path,
+    ):
         self._patterns = patterns
         self._calculation_groups = calculation_groups
         self.source_path = source_path
@@ -50,7 +56,8 @@ class DAXCatalog:
                 description=value.get("description", ""),
                 template=value["template"],
                 format_string=value.get("format_string"),
-                parameters=value.get("parameters") or _infer_parameters(value["template"]),
+                parameters=value.get("parameters")
+                or _infer_parameters(value["template"]),
             )
             for key, value in (data.get("patterns") or {}).items()
         }
@@ -65,7 +72,9 @@ class DAXCatalog:
             )
             for key, value in (data.get("calculation_groups") or {}).items()
         }
-        return cls(patterns=patterns, calculation_groups=calc_groups, source_path=file_path)
+        return cls(
+            patterns=patterns, calculation_groups=calc_groups, source_path=file_path
+        )
 
     # ------------------------------------------------------------------
     # Pattern helpers
@@ -111,7 +120,9 @@ class DAXCatalog:
     def get_calculation_group(self, group_key: str) -> CalculationGroupConfig:
         group = self._calculation_groups.get(group_key)
         if not group:
-            raise ValueError(f"Calculation group '{group_key}' not found in DAX catalog.")
+            raise ValueError(
+                f"Calculation group '{group_key}' not found in DAX catalog."
+            )
         return group
 
     def prompt_payload(self) -> Dict[str, Any]:

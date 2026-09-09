@@ -17,7 +17,7 @@ def test_normalize_plan_handles_markdown_fence() -> None:
 
 def test_normalize_plan_extracts_first_json_object() -> None:
     client = StructuredLLMClient(provider="openai")
-    response = "Plan summary before JSON.\n{\n  \"plan\": [{\"tool\": \"add_report_page\", \"args\": {\"page\": \"Main\"}}]\n}\nThanks!"
+    response = 'Plan summary before JSON.\n{\n  "plan": [{"tool": "add_report_page", "args": {"page": "Main"}}]\n}\nThanks!'
 
     normalized = client._normalize_plan(response)
     payload = json.loads(normalized)

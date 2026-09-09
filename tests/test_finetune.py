@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import List
 from unittest.mock import MagicMock, patch
 
-from nl2pbip.finetune.dataset_generator import synthesize_dataset
 from nl2pbip.finetune import train as train_module
+from nl2pbip.finetune.dataset_generator import synthesize_dataset
 from nl2pbip.providers.local_finetuned import LocalFineTunedProvider
 
 
@@ -54,10 +54,12 @@ def test_synthesize_dataset_persists_chatml(tmp_path: Path) -> None:
 
 
 def test_local_finetuned_provider_parses_payload() -> None:
-    provider = LocalFineTunedProvider(model="local-model", base_url="http://localhost:9999")
+    provider = LocalFineTunedProvider(
+        model="local-model", base_url="http://localhost:9999"
+    )
     fake_response = MagicMock()
     fake_response.json.return_value = {
-        "choices": [{"message": {"content": "{\"plan\": []}"}}]
+        "choices": [{"message": {"content": '{"plan": []}'}}]
     }
     fake_response.raise_for_status.return_value = None
     provider._session.post = MagicMock(return_value=fake_response)  # type: ignore[attr-defined]
@@ -65,7 +67,7 @@ def test_local_finetuned_provider_parses_payload() -> None:
     content = provider.generate([{"role": "user", "content": "Hi"}])
 
     provider._session.post.assert_called_once()
-    assert content == "{\"plan\": []}"
+    assert content == '{"plan": []}'
 
 
 @patch("nl2pbip.finetune.train.export_to_gguf")

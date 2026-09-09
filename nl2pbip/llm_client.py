@@ -1,4 +1,5 @@
 """Provider-agnostic LLM client that emits structured nl2pbip plans."""
+
 from __future__ import annotations
 
 import json
@@ -8,8 +9,10 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
 
 try:  # Optional dependency
-    from openai import OpenAI
-    from openai import AzureOpenAI  # type: ignore
+    from openai import (
+        AzureOpenAI,  # type: ignore
+        OpenAI,
+    )
 except ImportError:  # pragma: no cover - optional import
     OpenAI = None  # type: ignore
     AzureOpenAI = None  # type: ignore
@@ -206,7 +209,9 @@ class StructuredLLMClient:
 
     def _call_azure_openai(self, messages: List[Dict[str, str]]) -> str:
         if AzureOpenAI is None:
-            raise ImportError("openai package >=1.18 is required for Azure OpenAI support.")
+            raise ImportError(
+                "openai package >=1.18 is required for Azure OpenAI support."
+            )
         api_key = self._resolve_api_key()
         if not api_key:
             env_names = ", ".join(self._provider_config.env_keys)
@@ -245,16 +250,20 @@ class StructuredLLMClient:
             raise ImportError("anthropic package is required for provider 'anthropic'.")
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
-            raise EnvironmentError("ANTHROPIC_API_KEY must be set for Anthropic provider.")
+            raise EnvironmentError(
+                "ANTHROPIC_API_KEY must be set for Anthropic provider."
+            )
         if self._anthropic_client is None:
             self._anthropic_client = anthropic.Anthropic(api_key=api_key)
         system_prompt, chat_messages = self._split_messages(messages)
-        response = self._anthropic_client.messages.create(  # pragma: no cover - network code
-            model=self.model,
-            system=system_prompt,
-            messages=self._to_anthropic_messages(chat_messages),
-            temperature=self.temperature,
-            max_tokens=self.max_output_tokens,
+        response = (
+            self._anthropic_client.messages.create(  # pragma: no cover - network code
+                model=self.model,
+                system=system_prompt,
+                messages=self._to_anthropic_messages(chat_messages),
+                temperature=self.temperature,
+                max_tokens=self.max_output_tokens,
+            )
         )
         text_parts = [part.text for part in response.content if part.type == "text"]
         return "".join(text_parts)
@@ -262,7 +271,9 @@ class StructuredLLMClient:
     # ------------------------------------------------------------------
     # Message helpers
     # ------------------------------------------------------------------
-    def _split_messages(self, messages: List[Dict[str, str]]) -> tuple[str, List[Dict[str, str]]]:
+    def _split_messages(
+        self, messages: List[Dict[str, str]]
+    ) -> tuple[str, List[Dict[str, str]]]:
         system_chunks: List[str] = []
         forward: List[Dict[str, str]] = []
         for message in messages:
@@ -280,7 +291,9 @@ class StructuredLLMClient:
         system_prompt = "\n\n".join(chunk for chunk in base_prompt if chunk)
         return system_prompt, forward
 
-    def _to_anthropic_messages(self, messages: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+    def _to_anthropic_messages(
+        self, messages: List[Dict[str, str]]
+    ) -> List[Dict[str, Any]]:
         converted: List[Dict[str, Any]] = []
         for message in messages:
             converted.append(
@@ -366,7 +379,9 @@ class StructuredLLMClient:
     def _get_provider_config(cls, provider: str) -> ProviderConfig:
         if provider not in _PROVIDER_CONFIGS:
             supported = ", ".join(sorted(_PROVIDER_CONFIGS))
-            raise ValueError(f"Unsupported LLM provider '{provider}'. Supported providers: {supported}.")
+            raise ValueError(
+                f"Unsupported LLM provider '{provider}'. Supported providers: {supported}."
+            )
         return _PROVIDER_CONFIGS[provider]
 
     def _resolve_api_key(self) -> Optional[str]:
@@ -386,7 +401,11 @@ class StructuredLLMClient:
         return self._provider_config.base_url
 
     def _resolve_api_version(self) -> Optional[str]:
-        return self._api_version_override or os.getenv("AZURE_OPENAI_API_VERSION") or self._provider_config.default_api_version
+        return (
+            self._api_version_override
+            or os.getenv("AZURE_OPENAI_API_VERSION")
+            or self._provider_config.default_api_version
+        )
 
     @staticmethod
     def _lookup_env(names: Sequence[str]) -> Optional[str]:
