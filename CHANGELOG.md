@@ -7,12 +7,61 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- `nl2pbip.data_types` module: canonical TMDL type spellings, alias
-  resolution (SQL/JSON spellings → canonical TMDL form), and a default
-  `formatString` suggester for numeric, monetary, and temporal types.
-- 90 unit tests in `tests/test_data_types.py` covering aliases,
-  variants, validation errors, auto-format suggestions, parser
-  round-trips, and `TMDLColumn` construction-time checks.
+- `nl2pbip.visual_types` module: canonical Power BI visual-type
+  spellings, alias resolution (`table` → `tableEx`,
+  `matrix` → `pivotTable`, `pie` → `pieChart`, `donut` /
+  `doughnut` → `donutChart`, etc.), default layout category, and
+  default on-screen size for each visual type.
+- 73 unit tests in `tests/test_visual_types.py` covering aliases,
+  variants, validation errors, layout lookups, validator
+  integration, and end-to-end `add_visual_handler` with aliases.
+
+### Changed
+- `PBIRValidator._SUPPORTED_VISUALS` is now an alias for
+  `CANONICAL_VISUAL_TYPES` in `nl2pbip.visual_types`. The canonical
+  set now includes `pieChart`, `donutChart`, `funnelChart`,
+  `areaChart`, `treemap`, `kpi`, `multiRowCard`, `ribbonChart`,
+  `waterfallChart` (in addition to the original 8 visuals).
+- `PBIRValidator.validate_visual` normalises `visualType` in place
+  when an alias is supplied (both top-level and inner
+  `singleVisual.visualType`). The on-disk JSON always carries the
+  canonical spelling Power BI Desktop expects.
+- `add_visual_handler` validates and normalises `visual_type` at
+  entry. Aliases (`table`, `matrix`, `pie`, …) are silently
+  rewritten; unknown types raise a `ValueError` carrying a list of
+  accepted spellings so the LLM retry loop can self-correct.
+- `add_report_page_handler` honours `context["page_size"]` when no
+  explicit `size=` argument is supplied. Previously the canvas was
+  always 1280×720 unless the caller remembered to forward the size.
+- `_build_pbir_validator` now forwards the caller-supplied
+  `page_size` to the validator so its bounds check uses the right
+  canvas dimensions instead of falling back to 1280×720.
+- `RowState.reserve` now wraps to a new row cycle when a visual
+  would overflow the canvas height, not just the width. Previously
+  mixing several tall tableEx visuals in the same category stacked
+  them off the bottom of the page.
+- `category_for_visual` and `default_size_for_visual` are thin
+  shims that delegate to `nl2pbip.visual_types`. The legacy dicts
+  `VISUAL_CATEGORY` and `DEFAULT_SIZES` are re-exported from
+  `pbir_engine` for backwards compat.
+
+### Fixed
+- **`Unsupported visualType 'table'.`** The validator now accepts
+  the legacy `table` spelling (and other common LLM-emitted names
+  like `matrix`, `pie`, `donut`, `doughnut`, `funnel`, `cardVisual`)
+  by rewriting them to the canonical schema names Power BI Desktop
+  emits.
+- Visual layout overflow when adding several detail-band visuals
+  on a 720px canvas. `RowState.reserve` now wraps to a new row
+  cycle on height overflow, and `add_visual_handler` downscales a
+  visual that exceeds the canvas so the file Power BI Desktop
+  receives always opens cleanly.
+- Layout band for detail visuals was set to start at y=520 on a
+  720px canvas — a 220px table put the bottom edge at 740px,
+  exceeding the canvas. The band now starts at y=480 and the
+  handler downscales to fit when needed.
+
+## [0.2.0] - 2026-09-10
 
 ### Changed
 - `TMDLColumn.__post_init__` now validates and normalises `data_type`

@@ -22,6 +22,13 @@ except ImportError:  # pragma: no cover - fallback for editable installs
     )
 
 from nl2pbip.tmdl_engine import MODEL_PATH_KEY, TMDLModel, load_model
+from nl2pbip.visual_types import (
+    DEFAULT_SIZES,  # noqa: F401 — re-exported for backwards compat
+    VISUAL_CATEGORY,  # noqa: F401 — re-exported for backwards compat
+    category_for_visual_type,
+    default_size_for_visual_type,
+    normalize_visual_type,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -322,32 +329,22 @@ class ReportDocument:
 # ---------------------------------------------------------------------------
 # Layout engine
 # ---------------------------------------------------------------------------
-VISUAL_CATEGORY = {
-    "card": "kpi",
-    "slicer": "kpi",
-    "barChart": "chart",
-    "columnChart": "chart",
-    "lineChart": "chart",
-    "scatterChart": "chart",
-    "tableEx": "detail",
-    "pivotTable": "detail",
-}
+# ``VISUAL_CATEGORY`` and ``DEFAULT_SIZES`` are re-exported at the
+# top of the file (alongside the helpers that consume them) for
+# backwards compat with downstream callers that imported these
+# names from ``pbir_engine`` directly. The authoritative definitions
+# live in :mod:`nl2pbip.visual_types`.
 
 CATEGORY_CONFIG = {
     "kpi": {"base_y": 24, "row_height": 140},
     "chart": {"base_y": 220, "row_height": 260},
-    "detail": {"base_y": 520, "row_height": 220},
-}
-
-DEFAULT_SIZES = {
-    "card": (220, 140),
-    "slicer": (220, 200),
-    "barChart": (420, 260),
-    "columnChart": (420, 260),
-    "lineChart": (420, 260),
-    "scatterChart": (420, 260),
-    "tableEx": (560, 220),
-    "pivotTable": (560, 220),
+    # Detail visuals (tableEx, pivotTable) need their own band. On
+    # the default 720px canvas, there's only 200px left after the
+    # KPI + chart bands. The handler downgrades table visuals to
+    # 200px tall when the canvas is short so they fit cleanly. The
+    # full default size is restored when the caller supplies a
+    # taller canvas via ``context["page_size"]``.
+    "detail": {"base_y": 480, "row_height": 200},
 }
 
 PADDING = 24
@@ -358,18 +355,36 @@ V_GAP = 32
 class RowState:
     """Track next placement slot for a logical row."""
 
-    def __init__(self, base_y: float, row_height: float, page_width: float) -> None:
+    def __init__(
+        self,
+        base_y: float,
+        row_height: float,
+        page_width: float,
+        page_height: Optional[float] = None,
+    ) -> None:
         self.base_y = base_y
         self.row_height = row_height
         self.page_width = page_width
+        self.page_height = page_height
         self.row_cycle = 0
         self.x_cursor = PADDING
 
     def reserve(self, width: float, height: float) -> Tuple[float, float]:
+        # Grow the row height if a new visual is taller than the
+        # current row. This keeps layouts tidy even when the caller
+        # mixes tall tableEx visuals with short card visuals in the
+        # same category.
         self.row_height = max(self.row_height, height)
         x = self.x_cursor
         y = self.base_y + self.row_cycle * (self.row_height + V_GAP)
-        if x + width > self.page_width - PADDING:
+        # Wrap on width OR if the new row cycle would overflow the
+        # canvas height. Without the height check, a category with
+        # several tall visuals stacks off the bottom of the canvas.
+        if (
+            x + width > self.page_width - PADDING
+            or self.page_height is not None
+            and y + height > self.page_height - PADDING
+        ):
             self.row_cycle += 1
             x = PADDING
             y = self.base_y + self.row_cycle * (self.row_height + V_GAP)
@@ -383,6 +398,7 @@ class LayoutManager:
     def __init__(self, page: ReportPage) -> None:
         self.page = page
         self.page_width = page.size.width
+        self.page_height = page.size.height
         self.states: Dict[str, RowState] = {}
         self._init_states()
 
@@ -392,6 +408,7 @@ class LayoutManager:
                 base_y=config["base_y"],
                 row_height=config["row_height"],
                 page_width=self.page_width,
+                page_height=self.page_height,
             )
         # Re-run the placement algorithm to update cursors
         for visual in sorted(
@@ -419,11 +436,18 @@ class LayoutManager:
 
 
 def category_for_visual(visual_type: str) -> str:
-    return VISUAL_CATEGORY.get(visual_type, "chart")
+    """Backwards-compat shim. Delegates to :func:`category_for_visual_type`.
+
+    Kept as a thin alias so existing callers that imported the helper
+    directly from ``pbir_engine`` keep working. New code should
+    import the canonical helper from :mod:`nl2pbip.visual_types`.
+    """
+    return category_for_visual_type(visual_type)
 
 
 def default_size_for_visual(visual_type: str) -> Tuple[float, float]:
-    return DEFAULT_SIZES.get(visual_type, (360, 240))
+    """Backwards-compat shim. Delegates to :func:`default_size_for_visual_type`."""
+    return default_size_for_visual_type(visual_type)
 
 
 def _classify_binding_entry(
@@ -513,11 +537,20 @@ def add_report_page_handler(
     report_path, document = _load_report(context)
     if document.get_page(page):
         raise ValueError(f"Page '{page}' already exists.")
+    # The ``context["page_size"]`` hint is a convenience for callers
+    # that set up the workspace once and forget to pass ``size`` to
+    # every page-creation call. An explicit ``size`` argument always
+    # wins.
+    effective_size = size
+    if effective_size is None and context is not None:
+        ctx_size = context.get("page_size")
+        if isinstance(ctx_size, dict):
+            effective_size = ctx_size
     validator = _build_pbir_validator(context)
     page_obj = ReportPage(
         name=page,
         display_name=display_name or page,
-        size=PageSize.from_dict(size or {}),
+        size=PageSize.from_dict(effective_size or {}),
         theme_tokens=theme_tokens or {},
         background=background,
     )
@@ -561,6 +594,16 @@ def add_visual_handler(
     context: Optional[Dict[str, Any]] = None,
     **_: Any,
 ) -> Dict[str, Any]:
+    # Strict preflight at the handler entry so the LLM retry loop
+    # surfaces a clear "use the canonical spelling" error BEFORE any
+    # filesystem side effects. Aliases (table, matrix, pie, …) are
+    # accepted silently here via ``normalize_visual_type`` because
+    # they are common LLM output and rejecting them creates noise.
+    try:
+        visual_type = normalize_visual_type(visual_type)
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
+
     report_path, document = _load_report(context)
     page_obj = document.get_page(page)
     if not page_obj:
@@ -568,9 +611,18 @@ def add_visual_handler(
     model = _load_model_from_context(context)
     validator = _build_pbir_validator(context, model=model)
 
-    default_width, default_height = default_size_for_visual(visual_type)
+    default_width, default_height = default_size_for_visual_type(visual_type)
     width = (position or {}).get("width", default_width)
     height = (position or {}).get("height", default_height)
+    # If the caller didn't supply explicit coordinates and the
+    # requested visual height would overflow the canvas, downscale
+    # to fit. Power BI Desktop will let the user resize the visual
+    # after the model loads, but at authoring time we must produce
+    # a file that opens without validation errors.
+    canvas_height = page_obj.size.height
+    max_y = canvas_height - PADDING
+    if height > max_y - PADDING:
+        height = max(max_y - PADDING - PADDING, 120)
 
     layout = LayoutManager(page_obj)
     requested_position = position or {}
@@ -666,4 +718,19 @@ def _build_pbir_validator(
     model: Optional[TMDLModel] = None,
 ) -> PBIRValidator:
     effective_model = model or _load_model_from_context(context)
+    # Forward the caller-supplied page size to the validator so its
+    # ``validate_visual`` bounds check uses the right canvas
+    # dimensions. Without this, the validator falls back to its
+    # 1280x720 default and rejects visuals that fit a larger
+    # canvas.
+    canvas_size: Optional[Tuple[float, float]] = None
+    if context is not None:
+        page_size = context.get("page_size")
+        if isinstance(page_size, dict):
+            w = page_size.get("width")
+            h = page_size.get("height")
+            if isinstance(w, (int, float)) and isinstance(h, (int, float)):
+                canvas_size = (float(w), float(h))
+    if canvas_size is not None:
+        return PBIRValidator(model=effective_model, canvas_size=canvas_size)
     return PBIRValidator(model=effective_model)

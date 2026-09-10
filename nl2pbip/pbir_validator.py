@@ -8,6 +8,12 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence, Tuple
 from jsonschema import Draft7Validator
 from jsonschema import ValidationError as JSONSchemaValidationError
 
+from nl2pbip.visual_types import (
+    CANONICAL_VISUAL_TYPES,
+    VisualTypeError,
+    normalize_visual_type,
+)
+
 if TYPE_CHECKING:  # pragma: no cover - used only for typing
     try:
         from nl2pbip.tmdl_engine import TMDLModel
@@ -47,16 +53,10 @@ class PBIRValidationError(Exception):
 class PBIRValidator:
     """Validate PBIR JSON artifacts using schema + semantic checks."""
 
-    _SUPPORTED_VISUALS = {
-        "card",
-        "barChart",
-        "columnChart",
-        "lineChart",
-        "scatterChart",
-        "slicer",
-        "tableEx",
-        "pivotTable",
-    }
+    # Alias for backwards compatibility — the canonical set is now
+    # maintained in :mod:`nl2pbip.visual_types` along with alias
+    # resolution and default layout hints.
+    _SUPPORTED_VISUALS = CANONICAL_VISUAL_TYPES
 
     _PAGE_SCHEMA: Dict[str, Any] = {
         "$id": "https://powerbi.microsoft.com/schema/page.v1.json",
@@ -172,6 +172,16 @@ class PBIRValidator:
         visual_json: Dict[str, Any],
         page_bounds: Optional[Tuple[float, float]] = None,
     ) -> None:
+        # Check visualType presence BEFORE running the JSON schema
+        # validator so a missing field surfaces a clearer message
+        # than the jsonschema "required property" boilerplate.
+        visual_type = visual_json.get("visualType")
+        if not isinstance(visual_type, str) or not visual_type:
+            raise PBIRValidationError(
+                "visualContainer",
+                "visualType is required and must be a non-empty string.",
+                path="visualType",
+            )
         self._require_schema_uri(visual_json, PBIR_VISUAL_SCHEMA_URI, "visualContainer")
         self._run_validator(self._visual_validator, visual_json, "visualContainer")
         layout = visual_json["layout"]
@@ -210,10 +220,37 @@ class PBIRValidator:
                 f"Visual layout exceeds canvas dimensions ({int(canvas_w)}x{int(canvas_h)}).",
             )
         visual_type = visual_json.get("visualType")
-        if visual_type not in self._SUPPORTED_VISUALS:
+        if not isinstance(visual_type, str) or not visual_type:
             raise PBIRValidationError(
                 "visualContainer",
-                f"Unsupported visualType '{visual_type}'.",
+                "visualType is required and must be a non-empty string.",
+                path="visualType",
+            )
+        # Accept both the canonical spelling and any friendly alias
+        # (``table``, ``matrix``, ``pie`` …). We normalise first so the
+        # on-disk JSON always carries the canonical spelling Power BI
+        # Desktop expects. ``normalize_visual_type`` raises
+        # ``VisualTypeError`` for unrecognised inputs; we surface that
+        # as a ``PBIRValidationError`` so the orchestrator's retry
+        # loop sees a single error type from this validator.
+        try:
+            canonical_type = normalize_visual_type(visual_type)
+        except VisualTypeError as exc:
+            raise PBIRValidationError(
+                "visualContainer",
+                f"Unsupported visualType {visual_type!r}. {exc}",
+                path="visualType",
+            ) from exc
+        if canonical_type != visual_type:
+            visual_json["visualType"] = canonical_type
+        if canonical_type not in CANONICAL_VISUAL_TYPES:
+            # Defensive: normalize_visual_type should have raised
+            # already if the type isn't canonical, but a future
+            # change to the alias map might let something through.
+            raise PBIRValidationError(
+                "visualContainer",
+                f"Unsupported visualType {visual_type!r}. "
+                f"Canonical types: {sorted(CANONICAL_VISUAL_TYPES)}.",
                 path="visualType",
             )
         single_visual = visual_json.get("config", {}).get("singleVisual", {})
@@ -223,12 +260,20 @@ class PBIRValidator:
                 "visualContainer", "singleVisual.projections is required."
             )
         inner_type = single_visual.get("visualType")
-        if inner_type and inner_type != visual_type:
-            raise PBIRValidationError(
-                "visualContainer",
-                "config.singleVisual.visualType must match visualType.",
-                path="config/singleVisual/visualType",
-            )
+        if inner_type:
+            # Also normalise the inner visualType so a caller who
+            # supplied the alias in both places ends up with both
+            # spellings canonicalised on disk.
+            canonical_inner = normalize_visual_type(inner_type)
+            if canonical_inner != inner_type:
+                single_visual["visualType"] = canonical_inner
+                inner_type = canonical_inner
+            if inner_type != canonical_type:
+                raise PBIRValidationError(
+                    "visualContainer",
+                    "config.singleVisual.visualType must match visualType.",
+                    path="config/singleVisual/visualType",
+                )
         self._validate_projections(projections)
 
     # ------------------------------------------------------------------
