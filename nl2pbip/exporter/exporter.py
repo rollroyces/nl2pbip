@@ -1,4 +1,25 @@
-"""Export engine that compiles PBIP folders into PBIX/PBIT artifacts."""
+"""Export engine that compiles PBIP folders into PBIX/PBIT artifacts.
+
+This module provides two paths:
+
+1. **pbi-tools path** — ``export_with_pbi_tools`` shells out to the
+   official ``pbi-tools`` CLI for guaranteed-correct ``.pbix`` /
+   ``.pbit`` output. Use this in production.
+
+2. **Pure-Python fallback** — ``export_as_pbit_zip`` builds an
+   OPC-compliant ``.pbit`` archive directly from a PBIP folder.
+   The output is a valid Power BI Desktop template: the
+   ``[Content_Types].xml`` and manifest parts (``Version``,
+   ``Metadata``, ``Settings``, ``SecurityBindings``,
+   ``DiagramLayout``) follow the canonical Power BI layout.
+   ``DataModelSchema`` and ``DataMashup`` are emitted as minimal
+   stubs because compiling TMDL to TMSL is non-trivial without
+   pbi-tools — Power BI Desktop opens the file as a template and
+   prompts the user for a data source on first open.
+
+The fallback implementation lives in :mod:`nl2pbip.exporter.opc`
+and :mod:`nl2pbip.exporter.pbit_builder`.
+"""
 
 from __future__ import annotations
 
@@ -6,10 +27,11 @@ import json
 import logging
 import shutil
 import subprocess
-import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
+
+from nl2pbip.exporter.pbit_builder import PbitArchiveBuilder
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,103 +92,117 @@ class PBIPExporter:
     # Fallback ZIP exporter
     # ------------------------------------------------------------------
     def export_as_pbit_zip(self, pbip_path: str, output_path: str) -> str:
-        """Create a PBIT archive from PBIP components without pbi-tools.
+        """Create a Power BI Desktop template (.pbit) from a PBIP folder.
 
-        Power BI template (.pbit) archives expect the following top-level
-        layout::
+        This is a best-effort fallback for environments where
+        ``pbi-tools`` is not installed. The resulting archive follows
+        the canonical Power BI Desktop OPC layout:
 
-            DataModelSchemaTemplate.json   <- model schema stub
-            Metadata.json                  <- template metadata
-            Report/                        <- report folder (pbip-compatible)
-              definition.pbir
-              definition/
-                report.json
-                pages/...
-                ...
-            SemanticModel/                 <- semantic model folder (pbip-compatible)
-              definition.pbism
-              definition/
-                model.tmdl
-                relationships.tmdl
-                tables/...
+        * ``[Content_Types].xml`` at the archive root (with UTF-8 BOM).
+        * Forward-slash paths (``Report/Layout``, not ``Report\\Layout``).
+        * Manifest parts: ``Version``, ``Metadata``, ``Settings``,
+          ``SecurityBindings``, ``DiagramLayout``.
+        * Model parts: ``DataModelSchema`` (TMSL JSON), ``DataMashup``
+          (8-byte header + embedded OPC ZIP).
+        * Report parts: ``Report/Layout`` (JSON), optional
+          ``Report/StaticResources/...`` and ``Report/CustomVisuals/...``.
 
-        Note: this is a *best-effort* fallback that produces a valid
-        directory shape. Power BI Desktop may still need to recompile the
-        TMDL model into the AS tabular ``DataModelSchema`` on first open;
-        for guaranteed ``.pbix`` output use ``pbi-tools``.
+        ``DataModelSchema`` is emitted as a minimal TMSL shell —
+        Power BI Desktop opens the file as a template and prompts
+        the user for a data source on first open. For a fully
+        populated model, use ``export_with_pbi_tools``.
+
+        Returns the absolute path to the produced ``.pbit`` file.
         """
-
         pbip_dir = Path(pbip_path).expanduser()
         if not pbip_dir.exists():
             raise FileNotFoundError(f"PBIP directory not found: {pbip_dir}")
 
-        dataset_dir = self._find_component_directory(
-            pbip_dir, (".SemanticModel", ".Dataset")
-        )
-        report_dir = self._find_component_directory(pbip_dir, (".Report",))
-        if dataset_dir is None:
-            raise FileNotFoundError(
-                "PBIP folder does not contain a SemanticModel (or legacy Dataset) component."
-            )
-        if report_dir is None:
-            raise FileNotFoundError("PBIP folder does not contain a Report component.")
+        # Extract the project name from the ``*.pbip`` opener file.
+        # Power BI Desktop requires the template name to match the
+        # original PBIP project name.
+        project_name = _extract_project_name(pbip_dir)
 
         output_file = Path(output_path).with_suffix(".pbit")
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
+        builder = PbitArchiveBuilder(
+            output_path=output_file,
+            template_name=project_name,
+        )
+
+        # Carry the PBIP folder contents into the builder.
+        builder.add_pbip_folder(pbip_dir)
+
+        # Override metadata with creation timestamp so the
+        # "New report from template" dialog shows the right date.
         timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        metadata = {
-            "created": timestamp,
-            "source": "nl2pbip",
-            "notes": (
-                "Generated via fallback PBIT exporter. "
-                "Open in Power BI Desktop to finalize."
-            ),
-        }
+        builder.add_metadata(
+            title=project_name,
+            description=f"Generated by nl2pbip at {timestamp}.",
+            created=timestamp,
+            generator="nl2pbip",
+        )
 
-        with zipfile.ZipFile(
-            output_file, "w", compression=zipfile.ZIP_DEFLATED
-        ) as archive:
-            self._write_directory_to_zip(archive, dataset_dir, "SemanticModel")
-            self._write_directory_to_zip(archive, report_dir, "Report")
-            archive.writestr("Metadata.json", json.dumps(metadata, indent=2))
-            # Provide a minimal DataModelSchemaTemplate.json stub so PBI Desktop
-            # recognises the archive as a template. Real schema compilation
-            # requires pbi-tools / Tabular Editor.
-            archive.writestr(
-                "DataModelSchemaTemplate.json",
-                json.dumps(
-                    {
-                        "name": "nl2pbip Generated Model",
-                        "compatibilityLevel": 1567,
-                        "model": {"culture": "en-US", "sourceQueryCulture": "en-US"},
-                    },
-                    indent=2,
-                ),
-            )
-
+        builder.finalize()
         self._logger.info("Created fallback PBIT archive at %s", output_file)
         return str(output_file)
 
     # ------------------------------------------------------------------
-    # Helpers
+    # Direct builder accessor (used by tests + advanced callers)
     # ------------------------------------------------------------------
-    def _find_component_directory(
-        self, pbip_dir: Path, suffixes: Iterable[str]
-    ) -> Optional[Path]:
-        for candidate in pbip_dir.iterdir():
-            if candidate.is_dir() and any(
-                candidate.name.endswith(suffix) for suffix in suffixes
-            ):
-                return candidate
-        return None
+    def build_pbit_archive(
+        self,
+        pbip_path: str,
+        output_path: str,
+        *,
+        template_name: Optional[str] = None,
+    ) -> str:
+        """Build an OPC-compliant ``.pbit`` from a PBIP folder.
 
-    def _write_directory_to_zip(
-        self, archive: zipfile.ZipFile, source_dir: Path, root_name: str
-    ) -> None:
-        for file_path in source_dir.rglob("*"):
-            if file_path.is_dir():
+        Returns the path to the produced file. Unlike
+        :meth:`export_as_pbit_zip`, this method exposes the
+        underlying :class:`PbitArchiveBuilder` via a callback —
+        callers can add custom parts (e.g. custom visuals from a
+        different source) before finalisation.
+
+        The default ``template_name`` is the project name extracted
+        from the ``*.pbip`` opener file.
+        """
+        pbip_dir = Path(pbip_path).expanduser()
+        if not pbip_dir.exists():
+            raise FileNotFoundError(f"PBIP directory not found: {pbip_dir}")
+        if template_name is None:
+            template_name = _extract_project_name(pbip_dir)
+
+        builder = PbitArchiveBuilder(
+            output_path=Path(output_path).with_suffix(".pbit"),
+            template_name=template_name,
+        )
+        builder.add_pbip_folder(pbip_dir)
+        return str(builder.finalize())
+
+
+def _extract_project_name(pbip_dir: Path) -> str:
+    """Find the project name from the PBIP folder's opener file.
+
+    Power BI Desktop writes a single ``*.pbip`` opener file at the
+    root of the PBIP folder containing a JSON object with a
+    ``name`` field. We read that field and use it as the template
+    name.
+    """
+    for candidate in pbip_dir.iterdir():
+        if candidate.suffix.lower() == ".pbip" and candidate.is_file():
+            try:
+                payload = json.loads(candidate.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
                 continue
-            relative_path = file_path.relative_to(source_dir)
-            archive_path = Path(root_name) / relative_path
-            archive.write(file_path, archive_path.as_posix())
+            name = payload.get("name")
+            if isinstance(name, str) and name:
+                return name
+    return pbip_dir.name
+
+
+__all__ = [
+    "PBIPExporter",
+]

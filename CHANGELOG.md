@@ -7,14 +7,50 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- `nl2pbip.visual_types` module: canonical Power BI visual-type
-  spellings, alias resolution (`table` → `tableEx`,
-  `matrix` → `pivotTable`, `pie` → `pieChart`, `donut` /
-  `doughnut` → `donutChart`, etc.), default layout category, and
-  default on-screen size for each visual type.
-- 73 unit tests in `tests/test_visual_types.py` covering aliases,
-  variants, validation errors, layout lookups, validator
-  integration, and end-to-end `add_visual_handler` with aliases.
+- `nl2pbip.exporter.opc` module: Open Packaging Conventions primitives
+  for Power BI archives. Includes `_ContentTypeRegistry` for building
+  `[Content_Types].xml`, manifest-part helpers (`make_version_part`,
+  `make_data_mashup_stub`, `make_minimal_data_model_schema`,
+  `make_metadata_json`, `make_settings_json`,
+  `make_security_bindings_json`, `make_diagram_layout_json`), and
+  the OPC namespace constant.
+- `nl2pbip.exporter.pbit_builder` module: high-level
+  `PbitArchiveBuilder` that assembles a `.pbit` archive from a PBIP
+  folder. Supports custom parts, recursive directory ingestion, glob
+  filters, and a fluent API for callers that want to extend the
+  manifest.
+- 49 unit tests in `tests/test_opc_export.py` covering the content-
+  type registry, manifest helpers, builder API, glob matching,
+  component-directory discovery, report-layout reconstruction,
+  project-name extraction, and end-to-end export.
+
+### Changed
+- `PBIPExporter.export_as_pbit_zip` now uses the OPC-compliant
+  builder and emits the canonical Power BI Desktop manifest parts
+  (`Version`, `Metadata`, `Settings`, `SecurityBindings`,
+  `DiagramLayout`) plus `[Content_Types].xml` with a UTF-8 BOM and
+  forward-slash archive paths.
+- The fallback exporter collapses the PBIP folder structure into the
+  monolithic `Report/Layout` JSON part Power BI expects, and carries
+  `Report/StaticResources/...` and `Report/CustomVisuals/...`
+  across.
+- Template name is now read from the `*.pbip` opener file's
+  `name` field rather than the folder name.
+
+### Fixed
+- **OPC compliance of the fallback `.pbit` archive.** The previous
+  implementation produced archives that Power BI Desktop rejected on
+  open because they were missing `[Content_Types].xml` entirely.
+  Archives now include the BOM-prefixed XML at the archive root,
+  register every Power BI part via Override entries, use
+  forward-slash paths, and emit the canonical manifest parts
+  Power BI Desktop looks up by name.
+- **Windows-zip backslash paths.** `Compress-Archive` /
+  `ZipFile.CreateFromDirectory` on Windows produce `Report\Layout`
+  paths which Power BI rejects; the new builder normalises all paths
+  to forward slashes before writing.
+
+## [0.3.0] - 2026-09-10
 
 ### Changed
 - `PBIRValidator._SUPPORTED_VISUALS` is now an alias for
