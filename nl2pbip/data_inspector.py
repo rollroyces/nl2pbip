@@ -343,8 +343,17 @@ def _profile_column(name: str, values: List[Any], top_n: int = 5) -> ColumnProfi
     if numeric_count and numeric_count / non_null_count >= 0.95:
         inferred = "numeric"
 
-    distinct = list({_jsonable(v) for v in non_null})
+    distinct = {_jsonable(v) for v in non_null}
     distinct_count = len(distinct)
+
+    # For the examples list, prefer the **most frequent** distinct
+    # values. Sets in Python have arbitrary iteration order, but
+    # the LLM uses these examples to reason about the data domain
+    # — top-N by frequency gives the most informative sample.
+    # Counter.most_common returns (value, count) tuples in
+    # frequency-descending order.
+    value_counts = Counter(_jsonable(v) for v in non_null)
+    distinct_examples = [v for v, _ in value_counts.most_common(top_n)]
 
     profile = ColumnProfile(
         name=name,
@@ -352,7 +361,7 @@ def _profile_column(name: str, values: List[Any], top_n: int = 5) -> ColumnProfi
         non_null_count=non_null_count,
         distinct_count=distinct_count,
         null_rate=round(null_rate, 4),
-        distinct_examples=distinct[:top_n],
+        distinct_examples=distinct_examples,
     )
 
     if inferred == "numeric":
@@ -563,31 +572,66 @@ def suggest_relationships(
                 small_side = (right_table, right_col)
                 large_side = (left_table, left_col)
             # Distinct-value overlap.
+            #
+            # We work from the **examples** lists (top-N most-frequent
+            # values), not the full distinct set, because the
+            # inspector doesn't carry the full set — only the top-N
+            # examples per column. This means the overlap ratio is a
+            # **lower bound** on the true Jaccard overlap: every value
+            # in the examples that matches is a confirmed match, but
+            # values outside the examples may also match. We surface
+            # this honestly in the rationale so the LLM doesn't
+            # over-trust a near-1.0 ratio computed against a small
+            # sample.
             small_set = {_jsonable(v) for v in small_prof.distinct_examples}
             large_set = {_jsonable(v) for v in large_prof.distinct_examples}
             if not small_set:
                 continue
             overlap = small_set & large_set
-            ratio = len(overlap) / len(small_set)
-            if ratio < min_overlap_ratio:
+            # Compute the overlap ratio against the SMALLER side's
+            # examples. Note: when ``small_prof.distinct_count`` is
+            # larger than ``len(small_set)`` (i.e. the column has
+            # more distinct values than fit in the examples list),
+            # this ratio is a lower bound on the true overlap.
+            ratio_lower_bound = len(overlap) / len(small_set)
+            ratio_is_lower_bound = small_prof.distinct_count > len(small_set)
+            if ratio_lower_bound < min_overlap_ratio:
                 continue
-            confidence = round(ratio, 4)
+            confidence = round(ratio_lower_bound, 4)
             # Naming-pattern boost: ``X.fk_id`` ↔ ``Y.id`` style.
             if _naming_pattern_match(small_side, large_side):
                 confidence = min(confidence + 0.1, 1.0)
+            # Build the rationale. When the ratio is a lower bound
+            # we note that explicitly so the LLM doesn't think every
+            # sample value matched (the examples set is capped).
+            examples_seen = len(small_set)
+            total_small = small_prof.distinct_count
+            if ratio_is_lower_bound:
+                rationale = (
+                    f"{len(overlap)} of {examples_seen} sampled distinct values "
+                    f"from {small_side[0]}.{small_side[1]} match values in "
+                    f"{large_side[0]}.{large_side[1]} (sampled from "
+                    f"{total_small} total distinct values; ratio is a "
+                    f"lower bound on the true overlap)"
+                )
+            else:
+                rationale = (
+                    f"{len(overlap)} of {total_small} distinct values from "
+                    f"{small_side[0]}.{small_side[1]} match values in "
+                    f"{large_side[0]}.{large_side[1]}"
+                )
             suggestions.append(
                 {
                     "from_table": small_side[0],
                     "from_column": small_side[1],
                     "to_table": large_side[0],
                     "to_column": large_side[1],
-                    "overlap_ratio": ratio,
+                    "overlap_ratio": ratio_lower_bound,
                     "confidence": confidence,
-                    "rationale": (
-                        f"{len(overlap)} of {len(small_set)} distinct values from "
-                        f"{small_side[0]}.{small_side[1]} match values in "
-                        f"{large_side[0]}.{large_side[1]}"
-                    ),
+                    "ratio_is_lower_bound": ratio_is_lower_bound,
+                    "examples_seen": examples_seen,
+                    "total_small_distinct": total_small,
+                    "rationale": rationale,
                 }
             )
     # Sort by confidence desc, then overlap_ratio desc, keep top N.
