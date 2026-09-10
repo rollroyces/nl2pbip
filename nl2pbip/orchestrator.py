@@ -261,9 +261,73 @@ class Orchestrator:
         model_summary = self._summarise_model(context)
         if model_summary is not None:
             payload["model_state"] = model_summary
+        # Profile any data sources the caller has registered so
+        # the LLM sees actual values, distinct counts, and column
+        # ranges before designing relationships or visuals.
+        # Without this, an LLM asked for "revenue per region"
+        # has no idea what values ``Region`` actually takes.
+        data_summary = self._summarise_data_sources(context)
+        if data_summary is not None:
+            payload["data_profile"] = data_summary
         if self._dax_catalog:
             payload["dax_catalog"] = self._dax_catalog.prompt_payload()
         return payload
+
+    def _summarise_data_sources(
+        self, context: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Profile registered data sources and emit JSON summary.
+
+        The orchestrator's caller can register data sources via
+        ``context["data_sources"]`` (a ``{name: source}`` mapping
+        where ``source`` is a CSV/JSON/Parquet path, an in-memory
+        list of records, or a callable returning a DataFrame-like
+        object). The summary includes per-column type inference,
+        distinct counts, top examples, and numeric/date range stats
+        — plus heuristic relationship suggestions so the LLM has
+        candidate foreign-key endpoints ready.
+
+        Returns ``None`` when no data sources are registered, or
+        when all sources fail to load. The summary is intentionally
+        compact (top-5 examples per column) so the planner payload
+        stays bounded.
+        """
+        sources = context.get("data_sources")
+        if not isinstance(sources, dict) or not sources:
+            return None
+        # Local import to avoid pulling the inspector onto the
+        # cold-start path of every orchestrator operation.
+        from nl2pbip.data_inspector import (
+            inspect_data_sources,
+            suggest_relationships,
+        )
+
+        max_rows = int(context.get("data_profile_max_rows", 1000))
+        redact = bool(context.get("data_profile_redact_values", False))
+        try:
+            profiles = inspect_data_sources(
+                sources,
+                max_rows_per_source=max_rows,
+                redact_distinct_values=redact,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            return {
+                "tables": [],
+                "warnings": [f"data_inspector failed: {exc}"],
+                "suggested_relationships": [],
+            }
+
+        # Heuristic relationship suggestions across profiled
+        # tables. These are ranked hints, not verified joins; the
+        # actual ``define_relationship`` call goes through the
+        # validation we added in PR #5.
+        suggestions = suggest_relationships(profiles)
+        return {
+            "tables": [
+                profile.to_json(redact_distinct_values=redact) for profile in profiles
+            ],
+            "suggested_relationships": suggestions,
+        }
 
     def _summarise_model(self, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Return a JSON-serialisable summary of the current model state.
