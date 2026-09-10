@@ -77,19 +77,25 @@ _LOGGER = logging.getLogger(__name__)
 class ColumnSemantics:
     """LLM-inferred semantic information for one column."""
 
+    table: str
     name: str
     role: str  # "dimension" | "measure" | "identifier" | "date" | "unknown"
     description: str
     suggested_measure_name: Optional[str] = (
         None  # populated only when role == "measure"
     )
+    ontology_match: Optional[str] = (
+        None  # populated when a curated ontology term matches the column
+    )
 
     def to_json(self) -> Dict[str, Any]:
         return {
+            "table": self.table,
             "name": self.name,
             "role": self.role,
             "description": self.description,
             "suggested_measure_name": self.suggested_measure_name,
+            "ontology_match": self.ontology_match,
         }
 
 
@@ -340,6 +346,7 @@ class SchemaAdvisor:
             suggested_name = entry.get("suggested_measure_name")
             result.column_semantics.append(
                 ColumnSemantics(
+                    table=table,
                     name=name,
                     role=role,
                     description=description,
