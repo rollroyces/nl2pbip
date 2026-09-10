@@ -278,9 +278,51 @@ class Orchestrator:
             ai_summary = self._summarise_ai_schema(context, data_summary)
             if ai_summary is not None:
                 payload["ai_schema_hints"] = ai_summary
+            # Curated ontology (schema.org + PROV-O) — maps common
+            # column names to typed vocabulary entries. This gives
+            # the LLM a real anchor to pick from rather than
+            # inventing column semantics from scratch. Disabled
+            # by context["ontology_hints_enabled"] = False.
+            if context.get("ontology_hints_enabled", True) is not False:
+                ontology_summary = self._summarise_ontology(data_summary)
+                if ontology_summary is not None:
+                    payload["ontology_hints"] = ontology_summary
         if self._dax_catalog:
             payload["dax_catalog"] = self._dax_catalog.prompt_payload()
         return payload
+
+    def _summarise_ontology(
+        self, data_summary: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Build an ontology-hints summary from the data profile.
+
+        Walks every column in the deterministic profile, asks the
+        curated ontology for fuzzy-matched suggestions, and emits
+        a JSON-serialisable block the LLM can use as a vocabulary
+        anchor. Disabled by ``context["ontology_hints_enabled"] =
+        False``.
+
+        Returns ``None`` when no columns have ontology matches (the
+        LLM doesn't need empty blocks).
+        """
+        from nl2pbip.ontology import build_planner_summary
+
+        # Collect every column name across every source/table.
+        column_names: List[str] = []
+        for source_entry in data_summary.get("tables", []) or []:
+            for table_data in source_entry.get("tables", []) or []:
+                for col in table_data.get("columns", []) or []:
+                    name = col.get("name")
+                    if isinstance(name, str) and name:
+                        column_names.append(name)
+        if not column_names:
+            return None
+        summary = build_planner_summary(column_names)
+        # If no column has a match, the LLM gets nothing useful —
+        # skip the block to keep the planner payload small.
+        if not summary["columns"]:
+            return None
+        return summary
 
     def _summarise_ai_schema(
         self,

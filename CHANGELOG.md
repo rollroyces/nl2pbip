@@ -7,7 +7,37 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- `nl2pbip.schema_advisor` module: AI-driven schema enrichment
+- `nl2pbip.ontology` module: a curated subset of public
+  ontologies (schema.org + PROV-O + an alias index of ~70
+  common data-warehouse column names) embedded as plain
+  Python data. No external dependencies, no network calls,
+  no RDF/SPARQL parser. ~50 KB total.
+  - `lookup_type(iri)`, `lookup_property(iri)` — direct IRI
+    fragment lookup.
+  - `suggest_matches(column_name)` — fuzzy match column
+    names to ontology terms using token-overlap scoring +
+    camelCase splitting. Alias hits (e.g. `customerEmail` →
+    `schema.org/email`) score 1.0 and take precedence.
+  - `build_planner_summary(column_names)` — bounded JSON
+    shape for the orchestrator's planner payload.
+- `ontology_hints` block in the planner payload: emitted
+  alongside `data_profile` when data sources are registered.
+  Each column name gets up to 2 ontology candidates (with
+  IRI, label, comment, score, source). Disabled via
+  `context["ontology_hints_enabled"] = False`.
+- Fix: `ColumnSemantics` now carries `table` and `ontology_match`
+  fields. The earlier `table` field was dropped during JSON
+  parsing, leaving the LLM with column names but no table
+  context.
+- 42 tests in `tests/test_ontology.py` covering tokenisation,
+  token-overlap scoring, lookup, curated-subset integrity,
+  suggest_matches for common business column names, planner
+  summary shape, and orchestrator integration.
+
+### Tests
+Total: 336 passed (was 294).
+
+## [0.7.0] - 2026-09-10
   for the LLM planner payload. Wraps the orchestrator's LLM
   client and asks it to enrich the deterministic data profile
   with column-semantics, measure-suggestions, and
