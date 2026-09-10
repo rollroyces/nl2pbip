@@ -7,11 +7,40 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- `nl2pbip.ontology` module: a curated subset of public
-  ontologies (schema.org + PROV-O + an alias index of ~70
-  common data-warehouse column names) embedded as plain
-  Python data. No external dependencies, no network calls,
-  no RDF/SPARQL parser. ~50 KB total.
+- `nl2pbip.data_understanding` module: cross-table data analysis
+  that fills the gaps between the deterministic inspector
+  (per-column stats) and the AI advisor (LLM-inferred column
+  roles). Four deterministic analyses:
+  - **Primary-key detection** — flags columns with
+    `distinct_count == row_count` as strong PK candidates, with
+    weaker confidence tiers for high-but-not-perfect ratios.
+  - **FK coverage** — for every suggested FK pair, computes
+    actual matching / orphan counts against the data. Replaces
+    the inspector's heuristic overlap with a concrete number
+    the LLM can trust.
+  - **Cardinality hints** — `oneToOne` / `manyToOne` /
+    `manyToMany` / `oneToMany` derived from the ratio of
+    distinct values + coverage.
+  - **Numeric quantiles** — P25/P50/P75/P95 + skewness hint +
+    outlier count for every numeric column.
+  - **Time range** — min/max dates for every date column, so
+    the LLM doesn't suggest year-over-year measures on data
+    that only spans a month.
+- `data_understanding` block in the planner payload: emitted
+  alongside `data_profile` and `ontology_hints` when data
+  sources are registered. Disabled via
+  `context["data_understanding_enabled"] = False`.
+- 24 tests in `tests/test_data_understanding.py` covering
+  primary-key detection (strong/likely/weak), FK coverage with
+  orphans, cardinality hints (oneToOne/manyToOne/manyToMany/
+  oneToMany), numeric quantiles + skew, time range for ISO
+  dates, top-level analyzer with realistic data, and orchestrator
+  integration (with/without data sources, opt-out).
+
+### Tests
+Total: 360 passed (was 336).
+
+## [0.8.0] - 2026-09-10
   - `lookup_type(iri)`, `lookup_property(iri)` — direct IRI
     fragment lookup.
   - `suggest_matches(column_name)` — fuzzy match column

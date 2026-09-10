@@ -287,9 +287,52 @@ class Orchestrator:
                 ontology_summary = self._summarise_ontology(data_summary)
                 if ontology_summary is not None:
                     payload["ontology_hints"] = ontology_summary
+            # Cross-table data understanding — primary keys,
+            # FK coverage stats (matching / orphan counts),
+            # cardinality hints, numeric distributions, time
+            # ranges. The LLM uses these to design relationships
+            # and measures with concrete numbers, not guesses.
+            understanding = self._summarise_data_understanding(context, data_summary)
+            if understanding is not None:
+                payload["data_understanding"] = understanding
         if self._dax_catalog:
             payload["dax_catalog"] = self._dax_catalog.prompt_payload()
         return payload
+
+    def _summarise_data_understanding(
+        self,
+        context: Dict[str, Any],
+        data_summary: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Cross-table data understanding for the planner payload.
+
+        Builds PK / FK-coverage / distribution / time-range
+        statistics that the LLM can use to design relationships
+        and measures with concrete numbers rather than guesses.
+
+        Disabled by ``context["data_understanding_enabled"] = False``.
+
+        Returns ``None`` when ``data_sources`` isn't set (the
+        data needed to compute the stats isn't available).
+        """
+        if context.get("data_understanding_enabled", True) is False:
+            return None
+        # Re-import here to keep the cold-start path slim.
+        from nl2pbip.data_inspector import inspect_data_sources
+        from nl2pbip.data_understanding import analyze_data_understanding
+
+        sources = context.get("data_sources")
+        if not isinstance(sources, dict) or not sources:
+            return None
+        try:
+            profiles = inspect_data_sources(
+                sources,
+                max_rows_per_source=int(context.get("data_profile_max_rows", 1000)),
+            )
+        except Exception:
+            return None
+        understanding = analyze_data_understanding(profiles, records_by_source=sources)
+        return understanding.to_json()
 
     def _summarise_ontology(
         self, data_summary: Dict[str, Any]
