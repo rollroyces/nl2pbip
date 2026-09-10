@@ -1,24 +1,74 @@
 # nl2pbip
 
-Natural Language to Power BI Project (.pbip) Engine & Fine-Tuning Suite
+Natural Language to Power BI Project (.pbip) Engine
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg) ![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)
 
 ## Overview
 
-`nl2pbip` converts free-form analytics requirements into Git-friendly Power BI Project (`.pbip`) directories. It orchestrates a large language model (LLM) planner, DAX/TMDL tooling, and PBIR layout builders so that every natural-language prompt becomes:
+`nl2pbip` converts free-form analytics requirements into Git-friendly Power BI Project (`.pbip`) directories. It orchestrates a large language model (LLM) planner, DAX/TMDL tooling, PBIR layout builders, deterministic data inspection, curated ontology grounding, and an OPC-compliant `.pbit` exporter — so that every natural-language prompt becomes:
 
-- A semantic model expressed in Tabular Model Definition Language (TMDL)
-- A report surface captured as PBIR JSON (pages, visuals, bindings)
-- A packaged `.pbip` workspace that can be exported to `.pbix` or `.pbit`
+- A **semantic model** expressed in Tabular Model Definition Language (TMDL)
+- A **report surface** captured as PBIR JSON (pages, visuals, bindings)
+- A **packaged `.pbip` workspace** that can be exported to `.pbix` or `.pbit`
 
-### Architecture at a glance
+Beyond model generation, `nl2pbip` ships an **LLM context layer** that profiles your data, validates your relationships against Power BI Desktop's actual constraints, anchors column names to a curated `schema.org`/`PROV-O` subset, and asks the LLM for column roles / measures / visuals with concrete numbers rather than guesses.
 
-- **Planner:** `StructuredLLMClient` normalizes responses from OpenAI, Azure OpenAI, Anthropic, DeepSeek, Qwen, Zhipu, Moonshot, or any OpenAI-compatible endpoint.
-- **Agent runtime:** `Orchestrator` validates the plan, calls domain tools (table creation, DAX measures, relationships, roles, PBIR layout), and retries after lint feedback from `tmdl_linter` / `pbir_validator`.
-- **Packager:** `package_pbip_handler` persistently writes semantic/report components plus `.pbip` manifests.
-- **Exporter:** `PBIPExporter` integrates with [`pbi-tools`](https://github.com/pbi-tools/pbi-tools) and can fall back to zipped `.pbit` archives.
-- **Fine-tune suite:** `nl2pbip.finetune` covers synthetic dataset generation, QLoRA training with Unsloth, and GGUF export for local inference backends such as Ollama or vLLM.
+## Architecture at a glance
+
+| Layer | Module | What it does |
+|---|---|---|
+| Planner | `StructuredLLMClient` | Normalizes responses from OpenAI, Azure OpenAI, Anthropic, DeepSeek, Qwen, Zhipu, Moonshot, or any OpenAI-compatible endpoint |
+| Agent runtime | `Orchestrator` | Validates the plan, dispatches domain tools, retries after lint feedback. Six orthogonal context blocks feed the LLM (see [LLM context layer](#llm-context-layer)). |
+| TMDL engine | `tmdl_engine` | Parser, writer, 7 handlers (create_table, add_measure, define_relationship, …). Data-type and visual-type aliases normalised. Relationships validated for endpoint existence, type compatibility, self-refs, and duplicate-active guards. |
+| Visual engine | `pbir_engine` | PBIR layout, OPC-compliant `.pbit` archive builder with `[Content_Types].xml` + manifest parts |
+| Data context | `data_inspector` | Deterministic per-column profile: type inference, distinct counts (top-N by frequency), numeric stats, date ranges, sample-bounded. |
+| Cross-table analysis | `data_understanding` | PK detection, FK coverage with orphan counts, cardinality hints, numeric quantiles, time ranges |
+| Ontology grounding | `ontology` | Curated ~39 schema.org Types + ~72 Properties + ~71 alias entries + 9 PROV-O terms (~50 KB, no external deps) |
+| AI schema advisor | `schema_advisor` | LLM-driven column-role / measure / visual suggestions with result caching and tolerant JSON parsing |
+| Exporter | `PBIPExporter` | Calls `pbi-tools compile` for `.pbix`; falls back to in-process ZIP for `.pbit` |
+| Fine-tune suite | `nl2pbip.finetune` | Synthetic dataset generation, QLoRA training with Unsloth, GGUF export for Ollama / vLLM |
+
+## LLM context layer
+
+The orchestrator assembles a planner payload that gives the LLM enough structure to design relationships and visuals with concrete numbers rather than guessing. Six orthogonal blocks:
+
+| Block | Source | What it tells the LLM |
+|---|---|---|
+| `model_state` | TMDL engine | Existing tables, columns, types, relationships |
+| `data_profile` | `data_inspector` | Per-column stats: distinct counts, top examples, numeric range, null rate |
+| `ontology_hints` | `ontology` | schema.org vocabulary anchor — `customerEmail` → `schema.org/email` |
+| `data_understanding` | `data_understanding` | PKs, FK coverage (orphan counts), cardinality hints, numeric quantiles, time ranges |
+| `ai_schema_hints` | `schema_advisor` | LLM's own assessment of column roles + measure + visual suggestions |
+| `dax_catalog` | user-supplied | Organisation-specific DAX patterns the planner should prefer |
+
+Example payload shape with 3 tables (Customer, Order, Product) and 8 Order rows:
+
+```json
+{
+  "model_state":      { "tables": {...}, "relationships": [...] },
+  "data_profile":     { "tables": [{ "name": "Order", "columns": [...] }] },
+  "ontology_hints":   { "columns": { "customerEmail": [{"iri": "schema.org/email", "score": 1.0}] }},
+  "data_understanding": {
+    "primary_keys":        [{ "table": "Order", "column": "orderId", "confidence": "strong" }],
+    "relationship_coverage": [{
+      "from_table": "Order", "from_column": "customerEmail",
+      "to_table": "Customer", "to_column": "customerEmail",
+      "matching_rows": 7, "orphan_rows": 1, "coverage_ratio": 0.875,
+      "cardinality_hint": "manyToOne"
+    }],
+    "numeric_distributions": [{
+      "column": "total", "p25": 88.7, "p50": 134.8, "p75": 281.3,
+      "skew": "right", "likely_outliers": 1
+    }],
+    "time_ranges": [{ "column": "orderDate", "min_date": "2024-01-15", "max_date": "2024-05-30" }]
+  },
+  "ai_schema_hints":  { "column_semantics": [...], "measure_suggestions": [...], "visual_suggestions": [...] },
+  "dax_catalog":      { "patterns": [...] }
+}
+```
+
+Every block is **optional** (set the corresponding context flag to `False` to opt out) and computed **deterministically** — no LLM call required unless `ai_schema_hints` is enabled and an LLM client is wired up.
 
 ## Installation
 
@@ -28,106 +78,123 @@ pip install nl2pbip
 
 Optional extras provide heavyweight dependencies only when you need them:
 
-- Fine-tuning (datasets + Unsloth + transformers):
-
+- **Fine-tuning** (datasets + Unsloth + transformers):
   ```bash
   pip install "nl2pbip[finetune]"
   ```
 
-- PBIX/PBIT exports via `pbi-tools` integration (see `dotnet tool install --global TabularEditor.Tools.PBITools` below).
+- **Anthropic provider** (Claude API client):
+  ```bash
+  pip install "nl2pbip[anthropic]"
+  ```
 
-> **Tip:** Install `pbi-tools` separately (`dotnet tool install --global TabularEditor.Tools.PBITools`) so `nl2pbip export` can emit `.pbix`. Without it, the exporter automatically creates a zipped `.pbit` template.
+> **Tip:** Install `pbi-tools` separately (`dotnet tool install --global TabularEditor.Tools.PBITools`) so `python -m nl2pbip.cli export` can emit `.pbix`. Without it, the exporter automatically creates an OPC-compliant `.pbit` template.
 
 ## Quickstart & Core Usage
 
 ### CLI: cloud-hosted LLMs
 
-```bash
-nl2pbip generate \
-  --prompt "Executive sales dashboard with YoY, RLS per region, and KPI cards" \
-  --provider openai \
-  --model gpt-4o-mini \
-  --project-name SalesInsights \
-  --workspace artifacts/workspace \
-  --export pbix
-```
-
-Key flags:
-
-- `--provider` and `--model` override `NL2PBIP_LLM_PROVIDER` / `NL2PBIP_LLM_MODEL` env defaults.
-- `--base-url`, `--api-key`, and `--api-version` allow Azure OpenAI, Anthropic, or other OpenAI-compatible hosts.
-- `--dax-library` points to an organization-specific DAX pattern catalog (defaults to `dax_library.json`).
-- `--export [pbix|pbit]` triggers compilation immediately after the PBIP folder is produced.
+`nl2pbip` ships with an `argparse`-based CLI in `nl2pbip.cli`. Two commands: `generate` and `export`. Available flags include `--prompt`, `--provider`, `--model`, `--base-url`, `--api-key`, `--workspace`, `--output`, `--project-name`, `--dax-library`, `--export`, `--export-output`, and `--api-version`. Run `python -m nl2pbip.cli generate --help` for the full list.
 
 ### CLI: local inference endpoints (Ollama, vLLM, LM Studio)
 
 ```bash
-nl2pbip generate \
+python -m nl2pbip.cli generate \
   --prompt "Marketing attribution model with creative/channel filters" \
   --provider custom \
   --base-url http://localhost:11434/v1 \
-  --api-key sk-local-demo \
+  --api-key «redacted:sk-…» \
   --model mistral-openorca \
   --workspace artifacts/workspace-local \
   --output artifacts/pbip-local
 ```
 
-`StructuredLLMClient` simply needs an OpenAI-compatible HTTP surface; the `custom` provider lets you point at self-hosted gateways with dummy API keys.
+`StructuredLLMClient` just needs an OpenAI-compatible HTTP surface; the `custom` provider lets you point at self-hosted gateways with dummy API keys.
 
-### Python API (`PBIPGenerator`)
+### Python API: programmatic generation with LLM context
 
-Embed the planner inside automation or notebooks by aliasing the orchestrator:
+The orchestrator picks up `data_sources`, `ontology_hints_enabled`, and other flags from the caller's context. Register your data and let the LLM design the model:
 
 ```python
 from pathlib import Path
-from nl2pbip.orchestrator import Orchestrator as PBIPGenerator, register_builtin_tools
-from nl2pbip.llm_client import StructuredLLMClient
-from nl2pbip.pbir_engine import REPORT_PATH_KEY
+from nl2pbip.orchestrator import Orchestrator, register_builtin_tools
 from nl2pbip.tmdl_engine import MODEL_PATH_KEY
+from nl2pbip.pbir_engine import REPORT_PATH_KEY
+from nl2pbip.llm_client import StructuredLLMClient
 
-workspace = Path("artifacts/workspace")
-workspace.mkdir(parents=True, exist_ok=True)
-context = {
-    MODEL_PATH_KEY: str(workspace / "semantic_model" / "model.tmdl"),
-    REPORT_PATH_KEY: str(workspace / "report_workspace.json"),
+ctx = {
+    MODEL_PATH_KEY: "artifacts/workspace/model.tmdl",
+    REPORT_PATH_KEY: "artifacts/workspace/report.json",
     "project_name": "SalesInsights",
     "package_path": "artifacts/pbip-sales",
-    "overwrite": True,
+    "data_sources": {
+        "Customer": [
+            {"customerEmail": "alice@bigco.com", "firstName": "Alice",
+             "customerSince": "2022-03-15", "countryCode": "US"},
+            {"customerEmail": "bob@bigco.com", "firstName": "Bob",
+             "customerSince": "2023-01-10", "countryCode": "GB"},
+        ],
+        "Order": [
+            {"orderId": "A1", "orderDate": "2024-01-15", "total": 99.99,
+             "customerEmail": "alice@bigco.com"},
+            {"orderId": "A2", "orderDate": "2024-02-20", "total": 149.50,
+             "customerEmail": "alice@bigco.com"},
+        ],
+    },
+    # Optional flags (all default to True):
+    # "ai_schema_hints_enabled": True,
+    # "ontology_hints_enabled": True,
+    # "data_understanding_enabled": True,
 }
 
 llm = StructuredLLMClient(provider="openai", model="gpt-4o-mini")
-generator = PBIPGenerator(llm_client=llm)
-register_builtin_tools(generator)
+orch = Orchestrator(llm_client=llm)
+register_builtin_tools(orch)
 
-results = generator.run(
-    "Executive dashboard with YoY measures, heatmap, and RLS per territory",
-    context=context,
-)
+results = orch.run("Build a sales report with revenue per customer", context=ctx)
 print(results[-1].output["project_path"])
 ```
 
-`PBIPGenerator` (an alias of `Orchestrator`) returns structured `ToolResult` objects so you can inspect intermediate tool outputs, log them, or enforce custom compliance checks before persisting artifacts.
+The orchestrator returns structured `ToolResult` objects so you can inspect intermediate tool outputs, log them, or enforce custom compliance checks before persisting artifacts.
+
+### Type & visual handling
+
+The TMDL handler accepts both schema.org-native and SQL-flavored spellings — aliases resolve to the canonical form:
+
+```python
+TMDLColumn(name="id", data_type="bigint")  # → int64
+TMDLColumn(name="price", data_type="money")  # → decimal
+TMDLColumn(name="region", data_type="varchar")  # → string
+```
+
+Visual-type aliases work the same way:
+
+```python
+add_visual_handler(page="Main", visual_type="table", ...)   # → tableEx
+add_visual_handler(page="Main", visual_type="matrix", ...)  # → pivotTable
+add_visual_handler(page="Main", visual_type="pie", ...)     # → pieChart
+```
+
+`define_relationship_handler` validates the endpoint columns exist, the data types are compatible, the cardinality is valid, and there's no duplicate active relationship on the same from-side endpoint. Errors surface with enough detail for the LLM retry loop to self-correct.
 
 ## LLM Fine-Tuning Module (`nl2pbip.finetune`)
 
-Fine-tune open-weight coders such as **Qwen 2.5 Coder 7B** on curated TMDL + PBIR schemas to run nl2pbip entirely offline.
+Fine-tune open-weight coders such as **Qwen 2.5 Coder 7B** on curated TMDL + PBIR schemas to run `nl2pbip` entirely offline. The module ships two scripts that you run as Python modules — there is no separate CLI:
 
-1. **Synthetic dataset generation** – uses OpenAI + `instructor` to capture validated ChatML records:
+1. **Synthetic dataset generation** – uses `instructor` + `openai` to capture validated ChatML records:
 
    ```bash
-   nl2pbip-ft generate-dataset \
+   python -m nl2pbip.finetune.dataset_generator \
      --model gpt-4o-mini \
      --prompt-file prompts/nl_requirements.txt \
      --train-output finetune/train.jsonl \
      --val-output finetune/val.jsonl
-
-   # From source you can also run: python -m nl2pbip.finetune.dataset_generator ...
    ```
 
 2. **QLoRA training with Unsloth** – wraps `unsloth.FastLanguageModel`, `trl.SFTTrainer`, and Hugging Face datasets:
 
    ```bash
-   nl2pbip-ft train \
+   python -m nl2pbip.finetune.train \
      --train-file finetune/train.jsonl \
      --val-file finetune/val.jsonl \
      --output-dir finetune/output \
@@ -136,25 +203,18 @@ Fine-tune open-weight coders such as **Qwen 2.5 Coder 7B** on curated TMDL + PBI
      --batch-size 1 \
      --gradient-accumulation 4 \
      --export-gguf
-
-   # Equivalent module call: python -m nl2pbip.finetune.train --export-gguf ...
    ```
 
-3. **Export GGUF for Ollama / llama.cpp runtimes** – uses `FastLanguageModel.export_gguf` with quantization presets:
+3. **Export GGUF for Ollama / llama.cpp runtimes** – uses `FastLanguageModel.export_gguf` with quantization presets. The `--export-gguf` flag above does this automatically, writing adapters + GGUF artifacts under `finetune/output/gguf/`:
 
-   ```bash
-   nl2pbip-ft export \
-     --adapter-path finetune/output/adapter \
-     --gguf-dir finetune/output/gguf \
-     --quantization q4_k_m
-
-   # When invoked via `nl2pbip-ft train --export-gguf`, adapters + GGUF artifacts land under `finetune/output/`.
+   ```text
+   finetune/output/
+   ├── adapter/           # LoRA adapter (PEFT)
+   ├── checkpoints/       # intermediate epochs
+   └── gguf/              # GGUF export for Ollama / llama.cpp
    ```
 
-  When hacking on the repo before console entry points are installed, import `export_to_gguf` from
-  `nl2pbip.finetune.train` and call it directly against the saved adapter directory.
-
-Artifacts created in `finetune/output/gguf` can be served through Ollama (`ollama create nl2pbip -f Modelfile`) or vLLM; point `nl2pbip generate --provider custom --base-url http://localhost:8000/v1` at that endpoint for private inference.
+Artifacts created in `finetune/output/gguf` can be served through Ollama (`ollama create nl2pbip -f Modelfile`) or vLLM. Point `python -m nl2pbip.cli generate --provider custom --base-url http://localhost:8000/v1` at that endpoint for private inference.
 
 ## Export Engine (`.pbip` → `.pbix` / `.pbit`)
 
@@ -164,20 +224,25 @@ Artifacts created in `finetune/output/gguf` can be served through Ollama (`ollam
 
 ```bash
 # Convert an existing PBIP directory to PBIX
-nl2pbip export \
+python -m nl2pbip.cli export \
   --input artifacts/pbip-20240925/SalesInsights.pbipdir \
   --format pbix \
   --output dist/SalesInsights.pbix
 
 # Generate a template (PBIT) during plan execution
-nl2pbip generate \
+python -m nl2pbip.cli generate \
   --prompt "Finance P&L with departmental RLS" \
-  --export pbit \
+  --export-format pbit \
   --export-output dist/FinanceTemplate.pbit
 ```
 
 - `.pbix` exports require `pbi-tools` to be on `PATH`. The exporter streams `pbi-tools compile` and surfaces the log output.
-- `.pbit` exports fall back to an in-process ZIP that writes dataset/report folders plus `Metadata.json` timestamps.
+- `.pbit` exports fall back to an **OPC-compliant** in-process ZIP that writes the canonical Power BI Desktop manifest parts:
+  - `[Content_Types].xml` at the archive root with UTF-8 BOM
+  - `Version`, `Metadata`, `Settings`, `SecurityBindings`, `DiagramLayout` at the root
+  - `DataModelSchema` (TMSL JSON), `DataMashup` (8-byte magic header + embedded ZIP)
+  - `Report/Layout` (collapsed JSON), optional `Report/StaticResources/...` and `Report/CustomVisuals/...`
+  - Forward-slash paths everywhere (Windows `Compress-Archive` would break Power BI)
 
 ### Python API exports
 
@@ -220,8 +285,18 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install .
-          pip install black ruff pytest pytest-cov
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          elif [ -f pyproject.toml ]; then
+            pip install .
+          fi
+          # Test-only extras: pytest, lint, formatter. The finetune + anthropic
+          # extras require heavy ML libs and are not needed for unit tests.
+          pip install ".[dev]" ".[anthropic]"
+          # finetune.train does top-level imports of transformers/trl/datasets,
+          # so we need them installed for the test_orchestrator/test_finetune
+          # test discovery even though no GPU-backed training is exercised.
+          pip install datasets pydantic "transformers>=4.40" trl
       - name: Lint
         run: |
           black --check .
@@ -230,13 +305,77 @@ jobs:
         run: pytest -v --cov=. --cov-report=term-missing
 ```
 
-Populate the matrix-level environment variables (`OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, etc.) with low-privilege workspace keys so the CLI smoke tests can execute plan validation without touching production tenants.
+> **Note:** The workflow installs `transformers>=4.40` + `trl` so `test_finetune` can import `TrainingArguments` and `SFTTrainer` at module-load time. The full test set runs without those weights — only the import matters.
+
+## Project layout
+
+```
+nl2pbip/
+├── nl2pbip/
+│   ├── orchestrator.py          # planner payload assembly + retry loop
+│   ├── llm_client.py            # OpenAI-compatible client + structured output
+│   ├── tmdl_engine.py           # parser, writer, 7 handlers (validate + persist)
+│   ├── tmdl_linter.py           # TMDLValidationError
+│   ├── pbir_engine.py           # PBIR layout, OPC-compliant .pbit archive
+│   ├── pbir_validator.py        # PBIR schema + semantic checks
+│   ├── packager.py              # package_pbip_handler
+│   ├── dax_catalog.py           # organisation-specific DAX patterns
+│   ├── dax_library.json         # default DAX pattern library
+│   ├── data_inspector.py        # per-column profiling + heuristic FK
+│   ├── data_understanding.py    # PK, FK coverage, cardinality, quantiles, time
+│   ├── ontology.py              # curated schema.org + PROV-O subset
+│   ├── schema_advisor.py        # LLM-driven column-role / measure / visual hints
+│   ├── data_types.py            # TMDL data-type aliases + format-string defaults
+│   ├── visual_types.py          # PBIR visual-type aliases + default size
+│   ├── exporter/
+│   │   ├── exporter.py          # pbi-tools + .pbit fallback
+│   │   ├── opc.py               # OPC primitives (Content_Types, manifest parts)
+│   │   └── pbit_builder.py      # high-level PbitArchiveBuilder
+│   ├── providers/
+│   │   └── local_finetuned.py   # in-process fine-tuned model provider
+│   ├── finetune/
+│   │   ├── dataset_generator.py # instructor + OpenAI synthetic data
+│   │   └── train.py             # Unsloth + trl SFT + GGUF export
+│   ├── example_run.py           # python -m nl2pbip.example_run (idempotent demo)
+│   ├── cli.py                   # argparse CLI (generate / export subcommands)
+│   ├── py.typed                 # PEP 561 marker
+│   └── __init__.py
+├── tests/                       # 360 pytest cases across 12 test files
+├── artifacts/                   # example Run output (SalesInsights.pbipdir)
+├── .github/workflows/ci.yml
+├── pyproject.toml
+├── LICENSE                      # Commercial + Apache carve-out for pre-0af050c commits
+├── CHANGELOG.md
+└── README.md
+```
+
+## Test counts
+
+Pytest's collection reports 360 test cases across Python 3.10 / 3.11 / 3.12. The breakdown by file:
+
+| Module | Test functions |
+|---|---|
+| `tests/test_opc_export.py` | 41 |
+| `tests/test_data_types.py` | 36 |
+| `tests/test_data_inspector.py` | 31 |
+| `tests/test_ontology.py` | 30 |
+| `tests/test_visual_types.py` | 25 |
+| `tests/test_data_understanding.py` | 24 |
+| `tests/test_relationship_validation.py` | 23 |
+| `tests/test_schema_advisor.py` | 16 |
+| `tests/test_orchestrator.py` | 4 |
+| `tests/test_exporter.py` | 3 |
+| `tests/test_finetune.py` | 3 |
+| `tests/test_llm_client.py` | 2 |
+
+Many tests are parametrised, which is why `pytest --collect-only` reports 360 cases from 238 functions. Run `pytest tests/ --no-header -q` to confirm locally — all 360 cases pass.
 
 ## Next steps
 
-- Browse `tests/` for pytest samples that exercise the exporter, validator, and linter components.
-- Extend `dax_library.json` with your own calculation groups and measurement templates so planners lean on approved logic.
-- Wire `nl2pbip generate` into deployment automation (e.g., GitHub Actions + `pbi-tools push`) to continuously ship fully reproducible Power BI apps from natural-language specs.
+- Browse `tests/test_data_understanding.py` for a realistic end-to-end scenario with FK orphans and cardinality hints.
+- Extend `dax_library.json` with your own calculation groups and measure templates so planners lean on approved logic.
+- Register your raw data via `context["data_sources"]` so the LLM gets FK coverage, P50 of numeric columns, and schema.org vocabulary anchors rather than guessing.
+- Wire `python -m nl2pbip.cli generate` into deployment automation (e.g., GitHub Actions + `pbi-tools push`) to continuously ship fully reproducible Power BI apps from natural-language specs.
 
 ## License
 
