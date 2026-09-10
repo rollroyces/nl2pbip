@@ -7,6 +7,51 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `nl2pbip.prompts` module: extracted every string the orchestrator
+  sends to the LLM into a single importable module with explicit
+  versioning.
+  - `REPORT_GENERATION_SYSTEM_PROMPT` — the new system prompt
+    tuned for report generation. 30 numbered rules organised in
+    7 sections: output contract, report composition (narrative
+    flow: overview → breakdown → detail), visual selection (data
+    shape → visual type mapping), layout (no overlap, slicer
+    strip, consistent margins), measure–visual pairing, filters,
+    and TMDL / security / final-package rules.
+  - `LEGACY_GENERIC_SYSTEM_PROMPT` — the original 9-rule generic
+    prompt preserved verbatim for callers that opt out.
+  - `select_system_prompt(context)` — picks focused vs. legacy
+    based on `context["report_focus_enabled"]`. Defaults to the
+    tuned prompt for new callers.
+  - `build_user_message(user_prompt, payload)` — assembles the
+    user-side message (prompt + indented JSON payload).
+  - `build_feedback_message(error)` — retry-feedback message
+    with type-specific guidance for `TMDLValidationError` and
+    `PBIRValidationError`.
+  - `prompt_metadata(context)` — exposes `{version, name,
+    focused_on_report_generation}` in the planner payload's new
+    `prompt_meta` block.
+  - `PROMPT_CHANGELOG` — append-only changelog with one entry
+    per version bump.
+- Orchestrator integration: the inline 9-rule prompt is replaced
+  by `select_system_prompt(context)`. The planner payload now
+  includes a `prompt_meta` block so callers can audit which
+  prompt version produced a given plan. The retry-feedback
+  builder routes through `build_feedback_message` for consistent
+  format and richer guidance.
+- 38 tests in `tests/test_prompts.py` covering versioning
+  (positive version, monotonic changelog, current entry has
+  metadata), prompt content (every section keyword present),
+  legacy prompt availability, user-message assembly (prompt
+  prepended, payload JSON indented, payload not mutated),
+  feedback builder (TMDL/PBIR reminders + generic fallback),
+  prompt selection (default focused, opt-out legacy, version
+  header present), prompt metadata (focused vs. legacy, stable
+  keys), and orchestrator integration (system prompt reflects
+  opt-out, payload exposes `prompt_meta`, user message starts
+  with user text).
+
+### Tests
+Total: 398 passed (was 360).
 - `nl2pbip.data_understanding` module: cross-table data analysis
   that fills the gaps between the deterministic inspector
   (per-column stats) and the AI advisor (LLM-inferred column
@@ -36,9 +81,6 @@ to [Semantic Versioning](https://semver.org/).
   oneToMany), numeric quantiles + skew, time range for ISO
   dates, top-level analyzer with realistic data, and orchestrator
   integration (with/without data sources, opt-out).
-
-### Tests
-Total: 360 passed (was 336).
 
 ## [0.8.0] - 2026-09-10
   - `lookup_type(iri)`, `lookup_property(iri)` — direct IRI
