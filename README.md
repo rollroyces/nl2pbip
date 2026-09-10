@@ -12,14 +12,15 @@ Natural Language to Power BI Project (.pbip) Engine
 - A **report surface** captured as PBIR JSON (pages, visuals, bindings)
 - A **packaged `.pbip` workspace** that can be exported to `.pbix` or `.pbit`
 
-Beyond model generation, `nl2pbip` ships an **LLM context layer** that profiles your data, validates your relationships against Power BI Desktop's actual constraints, anchors column names to a curated `schema.org`/`PROV-O` subset, and asks the LLM for column roles / measures / visuals with concrete numbers rather than guesses.
+Beyond model generation, `nl2pbip` ships an **LLM context layer** that profiles your data, validates your relationships against Power BI Desktop's actual constraints, anchors column names to a curated `schema.org`/`PROV-O` subset, and asks the LLM for column roles / measures / visuals with concrete numbers rather than guesses. The system prompt that guides the LLM is **tuned for report generation** — 30 rules covering narrative flow, visual selection by data shape, layout, and measure–visual pairing — so plans produce layouts a senior Power BI designer would approve of rather than a pile of charts.
 
 ## Architecture at a glance
 
 | Layer | Module | What it does |
 |---|---|---|
 | Planner | `StructuredLLMClient` | Normalizes responses from OpenAI, Azure OpenAI, Anthropic, DeepSeek, Qwen, Zhipu, Moonshot, or any OpenAI-compatible endpoint |
-| Agent runtime | `Orchestrator` | Validates the plan, dispatches domain tools, retries after lint feedback. Six orthogonal context blocks feed the LLM (see [LLM context layer](#llm-context-layer)). |
+| **Prompts** | `prompts` | Versioned system + user messages tuned for report generation. 30 numbered rules covering narrative flow, visual selection by data shape, layout, measure–visual pairing, filters, and TMDL/relationship/RLS/OLS plumbing. Legacy prompt preserved for opt-out. |
+| Agent runtime | `Orchestrator` | Validates the plan, dispatches domain tools, retries after lint feedback. Six orthogonal context blocks feed the LLM (see [LLM context layer](#llm-context-layer)). The planner payload exposes a `prompt_meta` block (`version`, `name`, `focused_on_report_generation`) so callers can audit which prompt produced a given plan. |
 | TMDL engine | `tmdl_engine` | Parser, writer, 7 handlers (create_table, add_measure, define_relationship, …). Data-type and visual-type aliases normalised. Relationships validated for endpoint existence, type compatibility, self-refs, and duplicate-active guards. |
 | Visual engine | `pbir_engine` | PBIR layout, OPC-compliant `.pbit` archive builder with `[Content_Types].xml` + manifest parts |
 | Data context | `data_inspector` | Deterministic per-column profile: type inference, distinct counts (top-N by frequency), numeric stats, date ranges, sample-bounded. |
@@ -69,6 +70,35 @@ Example payload shape with 3 tables (Customer, Order, Product) and 8 Order rows:
 ```
 
 Every block is **optional** (set the corresponding context flag to `False` to opt out) and computed **deterministically** — no LLM call required unless `ai_schema_hints` is enabled and an LLM client is wired up.
+
+## Planner prompts
+
+Every string the orchestrator sends to the LLM lives in `nl2pbip.prompts`:
+
+| Symbol | Purpose |
+|---|---|
+| `REPORT_GENERATION_SYSTEM_PROMPT` | The 30-rule system prompt tuned for report generation. Output contract, narrative composition (overview → breakdown → detail), visual selection (data shape → visual type), layout (no overlap, slicer strip), measure–visual pairing, filters, and TMDL/security rules. |
+| `LEGACY_GENERIC_SYSTEM_PROMPT` | The original 9-rule generic prompt, preserved verbatim for callers that opt out. |
+| `select_system_prompt(context)` | Returns the focused prompt by default, or the legacy prompt if `context["report_focus_enabled"] = False`. The returned string is prefixed with `[nl2pbip prompt vN (name)]` so callers can log / pin the version they received. |
+| `build_user_message(user_prompt, payload)` | Assembles the user-side message: `user_prompt + indented JSON payload`. |
+| `build_feedback_message(error)` | Retry-feedback message with type-specific guidance for `TMDLValidationError` and `PBIRValidationError`. |
+| `prompt_metadata(context)` | Returns `{version, name, focused_on_report_generation}` for the planner payload's `prompt_meta` block. |
+| `PROMPT_VERSION` / `PROMPT_CHANGELOG` | Numeric version and append-only changelog. Tests assert the current version has an entry so silent drift is caught. |
+
+Visual-selection rules (a sample of what's in the prompt):
+
+| Data shape | Visual type |
+|---|---|
+| Single scalar | `card` or `kpi` (with comparison target if YoY) |
+| Categorical comparison | `barChart` (horizontal if labels long) or `columnChart` |
+| Trend over time | `lineChart` / `areaChart` / `ribbonChart` |
+| Two-variable distribution | `scatterChart` |
+| Geographic | `map` |
+| Hierarchical breakdown | `treemap` or `decompositionTree` |
+| Parts of whole (≤6 slices) | `pieChart`; ≤8 → `donutChart`; otherwise sorted `barChart` |
+| Multi-dimensional grid | `pivotTable`; flat row × column → `tableEx` |
+| Process funnel | `funnel` |
+| Single value vs target | `gauge` or `kpi` |
 
 ## Installation
 
@@ -337,10 +367,11 @@ nl2pbip/
 │   │   ├── dataset_generator.py # instructor + OpenAI synthetic data
 │   │   └── train.py             # Unsloth + trl SFT + GGUF export
 │   ├── example_run.py           # python -m nl2pbip.example_run (idempotent demo)
+│   ├── prompts.py               # versioned LLM planner prompts (system + user + feedback)
 │   ├── cli.py                   # argparse CLI (generate / export subcommands)
 │   ├── py.typed                 # PEP 561 marker
 │   └── __init__.py
-├── tests/                       # 360 pytest cases across 12 test files
+├── tests/                       # 398 pytest cases across 13 test files
 ├── artifacts/                   # example Run output (SalesInsights.pbipdir)
 ├── .github/workflows/ci.yml
 ├── pyproject.toml
@@ -351,7 +382,7 @@ nl2pbip/
 
 ## Test counts
 
-Pytest's collection reports 360 test cases across Python 3.10 / 3.11 / 3.12. The breakdown by file:
+Pytest's collection reports 398 test cases across Python 3.10 / 3.11 / 3.12. The breakdown by file:
 
 | Module | Test functions |
 |---|---|
@@ -362,19 +393,22 @@ Pytest's collection reports 360 test cases across Python 3.10 / 3.11 / 3.12. The
 | `tests/test_visual_types.py` | 25 |
 | `tests/test_data_understanding.py` | 24 |
 | `tests/test_relationship_validation.py` | 23 |
+| `tests/test_prompts.py` | 38 |
 | `tests/test_schema_advisor.py` | 16 |
 | `tests/test_orchestrator.py` | 4 |
 | `tests/test_exporter.py` | 3 |
 | `tests/test_finetune.py` | 3 |
 | `tests/test_llm_client.py` | 2 |
 
-Many tests are parametrised, which is why `pytest --collect-only` reports 360 cases from 238 functions. Run `pytest tests/ --no-header -q` to confirm locally — all 360 cases pass.
+Many tests are parametrised, which is why `pytest --collect-only` reports 398 cases from 276 functions. Run `pytest tests/ --no-header -q` to confirm locally — all 398 cases pass.
 
 ## Next steps
 
+- Browse `tests/test_prompts.py` for the report-generation system prompt's content rules — every section keyword has a test that catches silent drift.
 - Browse `tests/test_data_understanding.py` for a realistic end-to-end scenario with FK orphans and cardinality hints.
 - Extend `dax_library.json` with your own calculation groups and measure templates so planners lean on approved logic.
 - Register your raw data via `context["data_sources"]` so the LLM gets FK coverage, P50 of numeric columns, and schema.org vocabulary anchors rather than guessing.
+- Pin a specific prompt version via the planner payload's `prompt_meta.version` block for reproducible plan generation.
 - Wire `python -m nl2pbip.cli generate` into deployment automation (e.g., GitHub Actions + `pbi-tools push`) to continuously ship fully reproducible Power BI apps from natural-language specs.
 
 ## License
