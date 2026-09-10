@@ -170,29 +170,15 @@ class Orchestrator:
     # Planning helpers
     # ------------------------------------------------------------------
     def _request_plan(self, user_prompt: str, context: Dict[str, Any]) -> str:
+        from nl2pbip.prompts import build_user_message, select_system_prompt
+
+        system_prompt = select_system_prompt(context)
+        user_message = build_user_message(
+            user_prompt, self._planner_payload(user_prompt, context)
+        )
         planning_messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are an agentic planner for Power BI PBIP generation. Follow these rules:\n"
-                    '1. Always output valid JSON using the schema: {"plan": [{"tool": str, "args": object}]}.\n'
-                    "2. Create dimension tables (Date, Customer, Product, etc.) before fact tables.\n"
-                    "3. Define relationships immediately after the tables they reference.\n"
-                    "4. Build visuals only after required tables, measures, and relationships exist.\n"
-                    "5. DAX expressions must be syntactically valid, e.g., SUM(Sales[Amount]).\n"
-                    "6. Prefer organization-approved DAX patterns and calculation groups before inventing new expressions.\n"
-                    "7. When prompts mention data restriction, role-based access, or row-level filtering, add an add_rls_role tool call. Use USERPRINCIPALNAME() or CUSTOMDATA() for dynamic filters and dimension attributes for static filters.\n"
-                    "8. When prompts mention sensitive data, PII, 'hide salary column', or 'restrict access to employee table', add an add_ols_role tool call so metadataPermission is set to none where needed.\n"
-                    "9. Always finish with a package_pbip tool call.\n"
-                    "Use values from the provided context (paths, project names, DAX catalog) when constructing arguments."
-                ),
-            },
-            {
-                "role": "user",
-                "content": json.dumps(
-                    self._planner_payload(user_prompt, context), indent=2
-                ),
-            },
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
         ]
         return self._llm.generate(planning_messages)
 
@@ -248,10 +234,16 @@ class Orchestrator:
     def _planner_payload(
         self, user_prompt: str, context: Dict[str, Any]
     ) -> Dict[str, Any]:
+        from nl2pbip.prompts import prompt_metadata
+
         payload: Dict[str, Any] = {
             "prompt": user_prompt,
             "context": context,
             "tools": [self._tool_stub(spec) for spec in self._tools.all_specs()],
+            # Expose which system prompt version the LLM received so
+            # callers / audit logs / regression tests can pin what
+            # produced a given plan.
+            "prompt_meta": prompt_metadata(context),
         }
         # Include a snapshot of the current model state so the LLM
         # can produce accurate relationships without guessing at
@@ -577,17 +569,9 @@ class Orchestrator:
         return f"{base_prompt}\n\n{feedback[-1]}"
 
     def _feedback_for_exception(self, error: Exception) -> str:
-        if isinstance(error, TMDLValidationError):
-            return (
-                "System feedback: The generated TMDL failed validation with error: "
-                f"{error}. Please correct the syntax and retry the tool call."
-            )
-        if isinstance(error, PBIRValidationError):
-            return (
-                "System feedback: The generated PBIR visual JSON failed validation with error: "
-                f"{error}. Please adjust the visual properties/coordinates and retry the tool call."
-            )
-        return f"System feedback: {error}"  # pragma: no cover - fallback path
+        from nl2pbip.prompts import build_feedback_message
+
+        return build_feedback_message(error)
 
 
 # ----------------------------------------------------------------------
