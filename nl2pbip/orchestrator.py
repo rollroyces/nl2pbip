@@ -21,6 +21,7 @@ from nl2pbip.pbir_engine import (
 )
 from nl2pbip.pbir_validator import PBIRValidationError
 from nl2pbip.tmdl_engine import (
+    MODEL_PATH_KEY,
     add_calculation_group_handler,
     add_measure_handler,
     add_ols_role_handler,
@@ -252,9 +253,70 @@ class Orchestrator:
             "context": context,
             "tools": [self._tool_stub(spec) for spec in self._tools.all_specs()],
         }
+        # Include a snapshot of the current model state so the LLM
+        # can produce accurate relationships without guessing at
+        # table/column names. Without this, an LLM asked to wire
+        # ``Sales → Date`` typically invents column names that don't
+        # exist on the tables it just created.
+        model_summary = self._summarise_model(context)
+        if model_summary is not None:
+            payload["model_state"] = model_summary
         if self._dax_catalog:
             payload["dax_catalog"] = self._dax_catalog.prompt_payload()
         return payload
+
+    def _summarise_model(self, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Return a JSON-serialisable summary of the current model state.
+
+        Includes each table's columns with their data types and the
+        list of existing relationships. ``None`` is returned when
+        no model file is set in the context (first iteration of an
+        empty workspace) or the file doesn't exist yet.
+
+        The summary is intentionally compact — the LLM doesn't need
+        the full TMDL text, just the schema shape — but it's rich
+        enough to detect foreign-key column conventions like
+        ``<table>_id`` / ``<table>Id`` and pick the right endpoint
+        for a relationship.
+        """
+        from pathlib import Path as _Path
+
+        model_path_str = context.get(MODEL_PATH_KEY)
+        if not isinstance(model_path_str, str):
+            return None
+        model_path = _Path(model_path_str)
+        if not model_path.exists():
+            return None
+        try:
+            from nl2pbip.tmdl_engine import load_model
+
+            model = load_model(model_path)
+        except (FileNotFoundError, OSError, ValueError):
+            return None
+
+        tables_summary: Dict[str, Dict[str, Any]] = {}
+        for table_name, table in model.tables.items():
+            tables_summary[table_name] = {
+                "columns": {
+                    col_name: col.data_type for col_name, col in table.columns.items()
+                }
+            }
+        relationships_summary = [
+            {
+                "name": rel.name,
+                "from": f"{rel.from_table}[{rel.from_column}]",
+                "to": f"{rel.to_table}[{rel.to_column}]",
+                "cardinality": rel.cardinality,
+                "active": rel.is_active,
+            }
+            for rel in model.relationships
+        ]
+        return {
+            "tables": tables_summary,
+            "relationships": relationships_summary,
+            "table_count": len(model.tables),
+            "relationship_count": len(model.relationships),
+        }
 
     def _augment_prompt(self, base_prompt: str, feedback: List[str]) -> str:
         if not feedback:
