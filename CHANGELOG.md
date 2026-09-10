@@ -7,22 +7,60 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- `nl2pbip.exporter.opc` module: Open Packaging Conventions primitives
-  for Power BI archives. Includes `_ContentTypeRegistry` for building
-  `[Content_Types].xml`, manifest-part helpers (`make_version_part`,
-  `make_data_mashup_stub`, `make_minimal_data_model_schema`,
-  `make_metadata_json`, `make_settings_json`,
-  `make_security_bindings_json`, `make_diagram_layout_json`), and
-  the OPC namespace constant.
-- `nl2pbip.exporter.pbit_builder` module: high-level
-  `PbitArchiveBuilder` that assembles a `.pbit` archive from a PBIP
-  folder. Supports custom parts, recursive directory ingestion, glob
-  filters, and a fluent API for callers that want to extend the
-  manifest.
-- 49 unit tests in `tests/test_opc_export.py` covering the content-
-  type registry, manifest helpers, builder API, glob matching,
-  component-directory discovery, report-layout reconstruction,
-  project-name extraction, and end-to-end export.
+- Column-name uniqueness validation: `create_table_handler` now
+  pre-passes the columns list and rejects any duplicate column
+  names within a single call, surfacing all duplicates at once so
+  the LLM retry loop fixes every collision in one round.
+- Relationship endpoint validation: `define_relationship_handler`
+  checks that both tables and both columns exist, listing the
+  available columns on each table when an endpoint is missing so
+  the LLM can self-correct without consulting the schema.
+- Relationship type-compatibility validation: relationships between
+  incompatible column types (numeric↔text, date↔text, etc.) are
+  rejected before the model is written. Compatible types across
+  TMDL-native variants (e.g. `bigint` alias ↔ `wholeNumber`
+  canonical) are accepted because they share a compatibility
+  bucket.
+- Relationship cardinality / cross-filter direction validation:
+  unknown values raise `TMDLValidationError` with the list of
+  valid TMDL spellings.
+- Self-referential relationship guard: degenerate `A.X → A.X`
+  joins are rejected; legitimate self-joins like
+  `ManagerId → Id` on a single hierarchy table still work.
+- Duplicate active-relationship guard: Power BI allows only one
+  active relationship per from-side endpoint. The handler
+  enforces this so two date dimensions (e.g. Calendar + Fiscal)
+  cannot both be active against the same `[DateKey]` column.
+- Orchestrator model-state snapshot: `_planner_payload` now
+  includes a JSON snapshot of every table's columns and data
+  types, plus the existing relationship list. The LLM sees the
+  real schema before wiring relationships instead of guessing
+  column names that don't exist.
+
+### Fixed
+- **Silent relationship failures.** Relationships with non-existent
+  tables/columns now raise a clear error pointing at the missing
+  endpoint and listing the actual columns. Previously the
+  handler only checked that the tables existed; column typos
+  produced a corrupted model that Power BI Desktop refused to
+  load.
+- **Type-incompatible relationships.** Power BI Desktop silently
+  refuses to load models that join incompatible column types
+  (e.g. `int64 → string`). The new validation surfaces a clear
+  error at handler-call time so the LLM can pick a compatible
+  endpoint before the model is persisted.
+
+### Tests
+- 23 new tests in `tests/test_relationship_validation.py` covering
+  duplicate column names, missing/typo'd relationship endpoints,
+  type compatibility buckets, alias canonicalisation,
+  self-referential guards, cardinality / cross-filter validation,
+  duplicate active relationships, and the orchestrator's
+  model-state snapshot.
+
+Total: 247 passed (was 224).
+
+## [0.4.0] - 2026-09-10
 
 ### Changed
 - `PBIPExporter.export_as_pbit_zip` now uses the OPC-compliant

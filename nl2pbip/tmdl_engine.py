@@ -636,6 +636,27 @@ def load_model(model_path: Path) -> TMDLModel:
 
 
 def _validate_columns(table_name: str, columns: Iterable[Any]) -> None:
+    # Pre-pass: catch duplicate column names within the SAME column
+    # list before any column hits the model. TMDL allows duplicate
+    # column names across tables but never within a single table —
+    # and Power BI Desktop will refuse to load the model if a table
+    # has two columns with the same name. We surface a single
+    # combined error so the LLM sees every duplicate at once rather
+    # than fixing them one at a time across retries.
+    seen: Dict[str, int] = {}
+    duplicates: List[str] = []
+    for column in columns:
+        name = column.get("name") if isinstance(column, dict) else None
+        if name is None:
+            continue
+        seen[name] = seen.get(name, 0) + 1
+    duplicates = [n for n, c in seen.items() if c > 1]
+    if duplicates:
+        raise TMDLValidationError(
+            f"Table '{table_name}' declares duplicate column names: "
+            f"{sorted(duplicates)}. Power BI Desktop requires column names to "
+            f"be unique within a table — rename or merge the duplicates."
+        )
     for column in columns:
         if not isinstance(column, dict) or "name" not in column:
             raise TMDLValidationError(
@@ -666,6 +687,57 @@ def _validate_columns(table_name: str, columns: Iterable[Any]) -> None:
         # the caller used. This is idempotent when canonical == raw.
         column["data_type"] = canonical
         column["dataType"] = canonical
+
+
+# Data-type compatibility buckets for relationship endpoints.
+#
+# Power BI Desktop refuses to load a model whose relationships join
+# incompatible column types. We classify each canonical TMDL type
+# into one of four buckets — numeric, text, date, boolean — and
+# require both endpoints to fall in the same bucket. Aliases map
+# to the same buckets.
+_TYPE_COMPATIBILITY_BUCKETS = {
+    # Numeric family
+    "int64": "numeric",
+    "wholeNumber": "numeric",
+    "decimal": "numeric",
+    "decimalNumber": "numeric",
+    "currency": "numeric",
+    "double": "numeric",
+    "percentage": "numeric",
+    # Text family
+    "string": "text",
+    "text": "text",
+    # Date/time family
+    "dateTime": "date",
+    "dateTime64": "date",
+    "dateTimeLocal": "date",
+    "date": "date",
+    "time": "date",
+    # Boolean family
+    "boolean": "boolean",
+    "trueFalse": "boolean",
+    # Binary — relationships on binary columns are nonsensical in
+    # Power BI; treat as incompatible with anything.
+    "binary": "binary",
+}
+
+
+def _types_are_joinable(from_type: str, to_type: str) -> bool:
+    """Return True when both relationship endpoints share a bucket.
+
+    Used by :func:`define_relationship_handler` to reject relationships
+    that Power BI Desktop would silently refuse to load. The function
+    is intentionally permissive within a bucket (any numeric type can
+    join any other numeric type) but strict across buckets.
+    """
+    from_bucket = _TYPE_COMPATIBILITY_BUCKETS.get(from_type)
+    to_bucket = _TYPE_COMPATIBILITY_BUCKETS.get(to_type)
+    if from_bucket is None or to_bucket is None:
+        # Unknown type on either side — let the writer handle that
+        # error, but don't fail the relationship here.
+        return True
+    return from_bucket == to_bucket
 
 
 def _persist_model(context: Dict[str, Any]) -> Path:
@@ -861,20 +933,117 @@ def define_relationship_handler(
     context: Optional[Dict[str, Any]] = None,
     **_: Any,
 ) -> Dict[str, Any]:
+    """Create or overwrite a semantic relationship between two tables.
+
+    Validates every constraint Power BI Desktop enforces at load time
+    so the LLM retry loop learns the right shape rather than
+    producing a model that fails to open:
+
+    * Both tables exist in the model.
+    * Both columns exist on their respective tables.
+    * The column data types are compatible (numeric↔numeric,
+      text↔text, date↔date, etc.).
+    * The relationship is not self-referential in a way that makes
+      the path undefined (e.g. ``A.X → A.X``).
+    * An active relationship with the same (fromTable, fromColumn)
+      pair doesn't already exist on the model.
+    * Cardinality and cross-filter direction are valid TMDL values.
+
+    On the happy path the relationship is appended to the model and
+    the model file is re-rendered.
+    """
     if not context or MODEL_PATH_KEY not in context:
         raise ValueError(
             "define_relationship handler requires 'model_path' inside context."
         )
     model_path = Path(context[MODEL_PATH_KEY]).expanduser()
     model = load_model(model_path) if model_path.exists() else TMDLModel()
-    if not model.get_table(from_table):
+
+    # Validate that the tables and columns exist. We surface a single
+    # combined error message so the LLM gets a clear picture of
+    # what's missing — listing all four checks at once is friendlier
+    # than failing on the first one and forcing the caller to retry
+    # multiple times.
+    errors: List[str] = []
+    from_table_obj = model.get_table(from_table)
+    to_table_obj = model.get_table(to_table)
+    if from_table_obj is None:
+        errors.append(f"Table '{from_table}' is not defined in the model.")
+    if to_table_obj is None:
+        errors.append(f"Table '{to_table}' is not defined in the model.")
+    if from_table_obj is not None:
+        if from_column not in from_table_obj.columns:
+            errors.append(
+                f"Column '{from_column}' is not defined on table '{from_table}'. "
+                f"Available columns: {sorted(from_table_obj.columns)}."
+            )
+    if to_table_obj is not None:
+        if to_column not in to_table_obj.columns:
+            errors.append(
+                f"Column '{to_column}' is not defined on table '{to_table}'. "
+                f"Available columns: {sorted(to_table_obj.columns)}."
+            )
+    if errors:
+        raise TMDLValidationError("define_relationship: " + " ".join(errors))
+
+    # Type compatibility — Power BI Desktop refuses to load a model
+    # whose relationships join incompatible column types. Surface a
+    # clear message instead of letting the model silently load and
+    # later produce wrong aggregates.
+    from_type = from_table_obj.columns[from_column].data_type
+    to_type = to_table_obj.columns[to_column].data_type
+    if not _types_are_joinable(from_type, to_type):
         raise TMDLValidationError(
-            f"Relationship references unknown table '{from_table}'."
+            f"Relationship '{from_table}'[{from_column}] ({from_type}) → "
+            f"'{to_table}'[{to_column}] ({to_type}) joins incompatible "
+            f"data types. Power BI Desktop requires both endpoints to be "
+            f"numeric, both text, or both date/time. "
+            f"Common aliases: int64↔wholeNumber, decimal↔currency, "
+            f"dateTime↔dateTime64↔dateTimeLocal."
         )
-    if not model.get_table(to_table):
+
+    # Reject self-referential relationships in degenerate form.
+    if from_table == to_table and from_column == to_column:
         raise TMDLValidationError(
-            f"Relationship references unknown table '{to_table}'."
+            f"Relationship from '{from_table}'[{from_column}] to itself is "
+            f"a degenerate self-join — Power BI rejects it. Pick a different "
+            f"column on the same table (e.g. parent_id → id) or a different "
+            f"table."
         )
+
+    # Validate cardinality and cross-filter direction.
+    valid_cardinalities = {"oneToOne", "oneToMany", "manyToOne", "manyToMany"}
+    if cardinality not in valid_cardinalities:
+        raise TMDLValidationError(
+            f"Relationship cardinality {cardinality!r} is not a known TMDL "
+            f"value. Use one of {sorted(valid_cardinalities)}."
+        )
+    valid_cfd = {"single", "both", "none"}
+    if cross_filter_direction not in valid_cfd:
+        raise TMDLValidationError(
+            f"crossFilterDirection {cross_filter_direction!r} is not a known "
+            f"TMDL value. Use one of {sorted(valid_cfd)}."
+        )
+
+    # Detect duplicate active relationships with the same (fromTable,
+    # fromColumn) pair — only ONE active relationship per from-side
+    # endpoint is allowed in Power BI. Inactive duplicates are fine
+    # (Power BI uses them as role-playing dimensions).
+    if active:
+        for existing in model.relationships:
+            if (
+                existing.is_active
+                and existing.from_table == from_table
+                and existing.from_column == from_column
+            ):
+                raise TMDLValidationError(
+                    f"An active relationship from '{from_table}'[{from_column}] "
+                    f"already exists (named '{existing.name}'). Power BI allows "
+                    f"only one active relationship per from-side endpoint. "
+                    f"Either deactivate the existing relationship or set "
+                    f"active=False on the new one."
+                )
+
     rel_name = name or f"{from_table}_{from_column}_{to_table}_{to_column}"
     if any(r.name == rel_name for r in model.relationships):
         return {
