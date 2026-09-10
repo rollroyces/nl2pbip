@@ -25,6 +25,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from nl2pbip.data_types import (
+    ACCEPTED_DATA_TYPES,
+    DEFAULT_FORMAT_STRINGS,
+    DataTypeError,
+    normalize_data_type,
+)
 from nl2pbip.dax_catalog import DAXCatalog
 from nl2pbip.tmdl_linter import TMDLValidationError
 
@@ -34,26 +40,11 @@ MODEL_PATH_KEY = "model_path"
 # Data model
 # ---------------------------------------------------------------------------
 
-VALID_DATA_TYPES = {
-    "string",
-    "int64",
-    "int32",
-    "double",
-    "decimal",
-    "boolean",
-    "dateTime",
-    "date",
-    "time",
-    "binary",
-    "wholeNumber",
-    "decimalNumber",
-    "currency",
-    "percentage",
-    "text",
-    "trueFalse",
-    "dateTime64",
-    "dateTimeLocal",
-}
+# Backwards-compat export: the original constant name is preserved so
+# downstream code that imports ``VALID_DATA_TYPES`` keeps working. The
+# canonical set is now maintained in :mod:`nl2pbip.data_types` along
+# with alias resolution and default format suggestions.
+VALID_DATA_TYPES = ACCEPTED_DATA_TYPES
 
 
 @dataclass
@@ -64,6 +55,34 @@ class TMDLColumn:
     format_string: Optional[str] = None
     description: Optional[str] = None
     annotations: Dict[str, str] = field(default_factory=dict)
+    # Original spelling supplied by the caller, before alias
+    # resolution. Useful for error messages — "you said 'bigint',
+    # we wrote 'int64'". May be ``None`` if the column was loaded
+    # from disk where the canonical form is already canonical.
+    original_data_type: Optional[str] = field(default=None, init=False)
+
+    def __post_init__(self) -> None:
+        # Reject non-strings immediately. Unknown types raise so the
+        # error is surfaced in the LLM retry loop rather than
+        # silently producing a corrupt TMDL file.
+        if not isinstance(self.data_type, str):
+            raise TMDLValidationError(
+                f"Column '{self.name}' data_type must be a string, "
+                f"got {type(self.data_type).__name__}."
+            )
+        # Preserve the original spelling before alias rewriting.
+        self.original_data_type = self.data_type
+        try:
+            self.data_type = normalize_data_type(self.data_type)
+        except DataTypeError as exc:
+            raise TMDLValidationError(
+                f"Column '{self.name}' has unsupported dataType: {exc}"
+            ) from exc
+        # Auto-suggest a format string when the caller didn't supply
+        # one. This makes "Amount: decimal" produce "$#,0.00" without
+        # the LLM needing to remember to spell it out.
+        if self.format_string is None and self.data_type in DEFAULT_FORMAT_STRINGS:
+            self.format_string = DEFAULT_FORMAT_STRINGS[self.data_type]
 
     def to_tmdl(self, indent: int = 2) -> str:
         prefix = " " * indent
@@ -459,7 +478,14 @@ def _parse_columns(block: str) -> Dict[str, TMDLColumn]:
 
 
 def _parse_column(name: str, body: str) -> TMDLColumn:
-    data_type = _extract_scalar(body, "dataType") or "string"
+    raw = _extract_scalar(body, "dataType") or "string"
+    # Always normalise through the same path as the writer so that
+    # parsed columns get auto-suggested format strings and any
+    # legacy variant spellings (``int32``, ``text``, …) get coerced.
+    try:
+        data_type = normalize_data_type(raw, on_unknown="fallback")
+    except DataTypeError:
+        data_type = "string"
     return TMDLColumn(
         name=name,
         data_type=data_type,
@@ -615,12 +641,31 @@ def _validate_columns(table_name: str, columns: Iterable[Any]) -> None:
             raise TMDLValidationError(
                 f"Table '{table_name}' columns must be objects with a 'name' field."
             )
-        data_type = column.get("data_type") or column.get("dataType") or "string"
-        if data_type not in VALID_DATA_TYPES:
+        # Prefer the snake_case spelling the handler / API uses, fall
+        # back to the camelCase TMDL spelling if the LLM produced one.
+        if "data_type" in column:
+            raw = column["data_type"] or "string"
+        elif "dataType" in column:
+            raw = column["dataType"] or "string"
+        else:
+            raw = "string"
+        # ``normalize_data_type`` accepts aliases (e.g. ``bigint``) and
+        # variant spellings (``wholeNumber``) and returns the canonical
+        # TMDL form. ``on_unknown="raise"`` makes unrecognised inputs
+        # surface a clear error message ("you said 'foo', valid types
+        # are …") instead of silently coercing to ``string``.
+        try:
+            canonical = normalize_data_type(raw, on_unknown="raise")
+        except DataTypeError as exc:
             raise TMDLValidationError(
-                f"Column '{column.get('name')}' on table '{table_name}' uses unsupported "
-                f"dataType '{data_type}'. Valid types: {sorted(VALID_DATA_TYPES)}."
-            )
+                f"Column '{column.get('name')}' on table '{table_name}' uses "
+                f"unsupported dataType: {exc}"
+            ) from exc
+        # Always write the canonical form into both spellings so the
+        # writer and the API stay in sync regardless of which spelling
+        # the caller used. This is idempotent when canonical == raw.
+        column["data_type"] = canonical
+        column["dataType"] = canonical
 
 
 def _persist_model(context: Dict[str, Any]) -> Path:
