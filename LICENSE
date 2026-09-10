@@ -33,8 +33,8 @@ Copyright (c) 2026 Royce. All Rights Reserved.
    otherwise, is granted by this document.
 
 5. PRIOR APACHE-2.0 CONTRIBUTIONS
-   Files committed prior to commit [TBD — set when applying this
-   change] that were originally distributed under the Apache License
+   Files committed prior to commit 0af050c23393b3a4605f71ea1c8f49ccdb9cc1fb
+   that were originally distributed under the Apache License
    2.0 retain their original Apache-2.0 grant as a continuing
    authorization. Such files are also made available under this
    Commercial License on a dual basis at the Licensor's sole

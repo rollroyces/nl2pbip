@@ -8,7 +8,12 @@ version = "0.1.0"
 description = "Natural Language to Power BI Project generator"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+# Proprietary commercial license — see LICENSE. Use of this software
+# without a signed Commercial License Agreement with the Licensor
+# (Royce <rollroyces@users.noreply.github.com>) is not authorised.
+# We do not declare license = "..." here because the Software is not
+# released under any OSI-approved license; classifiers below reflect
+# this and use the "Other/Proprietary License" bucket.
 authors = [
   { name = "Royce", email = "rollroyces@users.noreply.github.com" }
 ]
@@ -17,7 +22,7 @@ classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
   "Intended Audience :: Information Technology",
-  "License :: OSI Approved :: Apache Software License",
+  "License :: Other/Proprietary License",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",

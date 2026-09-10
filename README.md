@@ -2,7 +2,7 @@
 
 Natural Language to Power BI Project (.pbip) Engine & Fine-Tuning Suite
 
-![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![License: Apache-2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg) ![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg) ![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)
 
 ## Overview
 
@@ -237,3 +237,19 @@ Populate the matrix-level environment variables (`OPENAI_API_KEY`, `AZURE_OPENAI
 - Browse `tests/` for pytest samples that exercise the exporter, validator, and linter components.
 - Extend `dax_library.json` with your own calculation groups and measurement templates so planners lean on approved logic.
 - Wire `nl2pbip generate` into deployment automation (e.g., GitHub Actions + `pbi-tools push`) to continuously ship fully reproducible Power BI apps from natural-language specs.
+
+## License
+
+`nl2pbip` is **commercial proprietary software**, © 2026 Royce. All rights reserved.
+
+This repository is published for visibility and collaboration under the terms of a **Commercial License Agreement** that you must sign with the Licensor before using the Software. **No open-source license** (MIT, Apache-2.0, GPL, AGPL, BSD, MPL, etc.) is granted by the public repository — viewing the source does not grant you any right to use, copy, modify, or distribute it.
+
+Files committed prior to [`0af050c`](https://github.com/rollroyces/nl2pbip/commit/0af050c23393b3a4605f71ea1c8f49ccdb9cc1fb) retain their original Apache License 2.0 grant as a continuing authorization (see `LICENSE` §5). New contributions from that commit onward are governed by the Commercial License terms in [`LICENSE`](./LICENSE).
+
+To obtain a Commercial License Agreement, contact:
+
+> Royce &lt;rollroyces@users.noreply.github.com&gt;
+
+Your agreement will define scope, duration, fees, support, confidentiality, warranties, and termination.
+
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.
