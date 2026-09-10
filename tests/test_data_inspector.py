@@ -124,6 +124,34 @@ class TestInspectInMemoryRecords:
         col = profile.tables[0].columns[0]
         assert len(col.distinct_examples) == 5
 
+    def test_distinct_examples_ordered_by_frequency(self) -> None:
+        """Examples are the top-N **most frequent** distinct values.
+
+        Sets in Python have arbitrary iteration order, but the LLM
+        uses these examples to reason about the data domain. Picking
+        top-N by frequency (the actual values the LLM will see most
+        often) is more informative than arbitrary distinct samples.
+        """
+        # "EMEA" appears 5 times — must be top-1.
+        # "APAC" appears 3 times — must be top-2.
+        # Others appear once — should be in the bottom of the top-5.
+        rows = (
+            [{"region": "EMEA"} for _ in range(5)]
+            + [{"region": "APAC"} for _ in range(3)]
+            + [{"region": "AMER"}]
+            + [{"region": "LATAM"}]
+            + [{"region": "AFRICA"}]
+        )
+        profile = inspect_data_source(rows)
+        col = profile.tables[0].columns[0]
+        assert col.distinct_count == 5
+        assert col.distinct_examples[0] == "EMEA"
+        assert col.distinct_examples[1] == "APAC"
+        # The 1-occurrence values can be in any order — Counter
+        # returns them in insertion order on ties, so we just
+        # verify the top-2 by frequency.
+        assert set(col.distinct_examples) == {"EMEA", "APAC", "AMER", "LATAM", "AFRICA"}
+
     def test_warns_when_sampled(self) -> None:
         """When the source has more rows than ``max_rows``, the profile flags it."""
         profile = inspect_data_source(
@@ -283,6 +311,40 @@ class TestSuggestRelationships:
                     row_count=len(rows),
                     sampled_at_least=len(rows),
                     columns=cols,
+                )
+            ],
+            warnings=[],
+        )
+
+    def _make_profile_with_examples(
+        self, name: str, distinct_count: int, examples: List[Any]
+    ) -> DataProfile:
+        """Build a profile with explicit distinct_count and examples.
+
+        Used to test the lower-bound disclosure for overlap ratios
+        when ``distinct_count > len(examples)``. Realistic data
+        profiles carry at most 5 examples but may have thousands of
+        distinct values, so this helper lets us exercise the
+        lower-bound code path without manufacturing that many
+        rows.
+        """
+        col = ColumnProfile(
+            name="k",
+            inferred_type="text",
+            non_null_count=distinct_count,
+            distinct_count=distinct_count,
+            null_rate=0.0,
+            distinct_examples=list(examples),
+        )
+        return DataProfile(
+            source_name=name,
+            source_kind="records",
+            tables=[
+                TableProfile(
+                    name=name,
+                    row_count=distinct_count,
+                    sampled_at_least=distinct_count,
+                    columns=[col],
                 )
             ],
             warnings=[],
@@ -452,6 +514,55 @@ class TestSuggestRelationships:
         assert suggest_relationships([small, large], min_overlap_ratio=0.6) == []
         # 0.5 lets it through (>=, not >).
         assert len(suggest_relationships([small, large], min_overlap_ratio=0.5)) == 1
+
+    def test_overlap_ratio_marks_lower_bound(self) -> None:
+        """When distinct_count > len(examples), ratio is a lower bound.
+
+        The inspector caps the distinct_examples list at 5 entries
+        per column. When the actual distinct_count is higher, the
+        overlap ratio computed against the examples is a *lower
+        bound* on the true overlap — the values outside the sample
+        may also match, so the LLM should not over-trust a near-1.0
+        ratio computed from a small sample.
+        """
+        # Sales has 10 distinct values but only the first 5 land in
+        # distinct_examples. Region shares 3 of those 5 with Sales.
+        # True overlap is 3/10 = 0.3; sampled-overlap is 3/5 = 0.6.
+        sales = self._make_profile_with_examples(
+            "Sales", 10, ["v0", "v1", "v2", "v3", "v4"]
+        )
+        region = self._make_profile_with_examples(
+            "Region", 10, ["v2", "v3", "v4", "v5", "v6"]
+        )
+        suggestions = suggest_relationships([sales, region])
+        assert len(suggestions) == 1
+        s = suggestions[0]
+        # Sampled ratio is 0.6 but the field is labelled as a lower
+        # bound so the LLM doesn't over-trust it.
+        assert s["overlap_ratio"] == 0.6
+        assert s["ratio_is_lower_bound"] is True
+        assert s["examples_seen"] == 5
+        assert s["total_small_distinct"] == 10
+        # Rationale text calls out the lower-bound caveat.
+        assert "lower bound" in s["rationale"]
+
+    def test_overlap_ratio_exact_when_examples_match_distinct(self) -> None:
+        """When distinct_count == len(examples), ratio is exact.
+
+        Small columns (≤ 5 distinct values) don't hit the lower-
+        bound caveat because every distinct value appears in the
+        examples list.
+        """
+        a = self._make_profile_with_examples("A", 3, ["x", "y", "z"])
+        b = self._make_profile_with_examples("B", 3, ["x", "y", "z"])
+        suggestions = suggest_relationships([a, b])
+        assert len(suggestions) == 1
+        s = suggestions[0]
+        assert s["ratio_is_lower_bound"] is False
+        assert s["examples_seen"] == 3
+        assert s["total_small_distinct"] == 3
+        # No lower-bound caveat when the sample is exhaustive.
+        assert "lower bound" not in s["rationale"]
 
 
 # ---------------------------------------------------------------------------
