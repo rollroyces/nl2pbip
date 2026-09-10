@@ -7,7 +7,30 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- `nl2pbip.data_inspector` module: profile registered data sources
+- `nl2pbip.schema_advisor` module: AI-driven schema enrichment
+  for the LLM planner payload. Wraps the orchestrator's LLM
+  client and asks it to enrich the deterministic data profile
+  with column-semantics, measure-suggestions, and
+  visual-suggestions. Caches results by profile fingerprint to
+  avoid repeat LLM calls on retries. Tolerant response parsing
+  (code-fenced JSON, leading prose, missing fields are dropped
+  rather than crashing). Graceful fallback: returns `None` on
+  LLM failure or unparseable output, so the deterministic
+  profile keeps working unchanged.
+- `ai_schema_hints` block in the planner payload: emitted when
+  data sources are registered and an LLM client is available.
+  Opt-out via `context["data_inspector_ai_enabled"] = False`
+  for callers under strict data-residency.
+- 16 tests in `tests/test_schema_advisor.py` covering: prompt
+  building, response parsing (including code fences and malformed
+  JSON), invalid-role normalisation, missing-field dropping,
+  cache hits, empty-profile guard, LLM-failure fallback,
+  parse-failure fallback, and orchestrator integration.
+
+### Tests
+Total: 294 passed (was 278).
+
+## [0.6.0] - 2026-09-10
   and emit a JSON-serialisable summary of column types, distinct
   values, numeric/date ranges, and null rates. Loads from CSV /
   JSON / JSONL / Parquet paths, in-memory lists, or callables

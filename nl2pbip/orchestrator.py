@@ -269,9 +269,113 @@ class Orchestrator:
         data_summary = self._summarise_data_sources(context)
         if data_summary is not None:
             payload["data_profile"] = data_summary
+            # When an LLM client is available AND the caller hasn't
+            # opted out, also ask the LLM to enrich the deterministic
+            # profile with column-semantics, measure, and visual
+            # suggestions. The deterministic summary above is
+            # always kept — the AI advisor only ADDS hints, never
+            # replaces the structural facts.
+            ai_summary = self._summarise_ai_schema(context, data_summary)
+            if ai_summary is not None:
+                payload["ai_schema_hints"] = ai_summary
         if self._dax_catalog:
             payload["dax_catalog"] = self._dax_catalog.prompt_payload()
         return payload
+
+    def _summarise_ai_schema(
+        self,
+        context: Dict[str, Any],
+        data_summary: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Run the AI schema advisor over the deterministic profile.
+
+        Returns ``None`` when:
+
+        * ``context["data_inspector_ai_enabled"]`` is explicitly
+          ``False`` (caller opted out).
+        * ``context["data_sources"]`` isn't set (no profile to
+          enrich — handled by the caller, but defensive here).
+        * The LLM call fails or returns unparseable output.
+
+        The advisor's input is the deterministic profile only —
+        not raw row data — so the planner payload stays bounded
+        by the number of *columns*, not the number of *rows*.
+        """
+        if context.get("data_inspector_ai_enabled", True) is False:
+            return None
+        # Local import to keep the cold-start path slim — most
+        # callers don't use data sources and never reach this.
+        from nl2pbip.schema_advisor import SchemaAdvisor
+
+        # Rebuild the typed profiles from the summary so the
+        # advisor can iterate columns without re-inspecting the
+        # raw source. The deterministic profile carries everything
+        # the advisor needs.
+        profiles = self._rehydrate_profiles(data_summary)
+        if not profiles:
+            return None
+        advisor = SchemaAdvisor(self._llm)
+        result = advisor.advise(profiles)
+        if result is None:
+            return None
+        return result.to_json()
+
+    def _rehydrate_profiles(self, data_summary: Dict[str, Any]) -> List[Any]:
+        """Reconstruct :class:`DataProfile` objects from a planner summary.
+
+        The planner payload's ``data_profile`` block is the JSON
+        shape of a :class:`DataProfile` minus the in-memory
+        Python type machinery. Reconstructing here lets the
+        advisor iterate the same structural fields the inspector
+        populated, without re-reading the original data source.
+        """
+        from nl2pbip.data_inspector import (
+            ColumnProfile,
+            DataProfile,
+            TableProfile,
+        )
+
+        profiles: List[DataProfile] = []
+        for source_entry in data_summary.get("tables", []) or []:
+            table_profiles: List[TableProfile] = []
+            for table_data in source_entry.get("tables", []) or []:
+                cols = [
+                    ColumnProfile(
+                        name=col_data.get("name", ""),
+                        inferred_type=col_data.get("inferred_type", "text"),
+                        non_null_count=int(col_data.get("non_null_count", 0)),
+                        distinct_count=int(col_data.get("distinct_count", 0)),
+                        null_rate=float(col_data.get("null_rate", 0.0)),
+                        min=col_data.get("min"),
+                        max=col_data.get("max"),
+                        mean=col_data.get("mean"),
+                        median=col_data.get("median"),
+                        stddev=col_data.get("stddev"),
+                        min_date=col_data.get("min_date"),
+                        max_date=col_data.get("max_date"),
+                        distinct_examples=list(
+                            col_data.get("distinct_examples", []) or []
+                        ),
+                    )
+                    for col_data in table_data.get("columns", []) or []
+                ]
+                table_profiles.append(
+                    TableProfile(
+                        name=table_data.get("name", ""),
+                        row_count=int(table_data.get("row_count", 0)),
+                        sampled_at_least=int(table_data.get("sampled_at_least", 0)),
+                        columns=cols,
+                    )
+                )
+            profiles.append(
+                DataProfile(
+                    source_name=source_entry.get("source_name", ""),
+                    source_kind=source_entry.get("source_kind", "records"),
+                    tables=table_profiles,
+                    warnings=list(source_entry.get("warnings", []) or []),
+                )
+            )
+        return profiles
 
     def _summarise_data_sources(
         self, context: Dict[str, Any]
