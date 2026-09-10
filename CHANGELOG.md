@@ -7,10 +7,35 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- Column-name uniqueness validation: `create_table_handler` now
-  pre-passes the columns list and rejects any duplicate column
-  names within a single call, surfacing all duplicates at once so
-  the LLM retry loop fixes every collision in one round.
+- `nl2pbip.data_inspector` module: profile registered data sources
+  and emit a JSON-serialisable summary of column types, distinct
+  values, numeric/date ranges, and null rates. Loads from CSV /
+  JSON / JSONL / Parquet paths, in-memory lists, or callables
+  returning DataFrame-like objects.
+- `suggest_relationships()` heuristic: ranks candidate
+  foreign-key pairs across profiled tables by distinct-value
+  overlap, with a naming-pattern boost for the common
+  ``X.fk_id`` ↔ ``Y.id`` convention.
+- Orchestrator data-profile context: `_planner_payload` now
+  includes a `data_profile` block (per-table column profiles +
+  ranked relationship suggestions) when the caller registers
+  data sources via `context["data_sources"]`. The LLM sees actual
+  values, distinct counts, and column ranges before designing
+  relationships or visuals — eliminating the most common cause
+  of bad plans: hallucinated column names that don't exist on
+  the table, and visuals built on columns whose values the LLM
+  has never seen.
+- 28 new tests in `tests/test_data_inspector.py` covering record
+  loading (CSV, JSON, JSONL, Parquet, in-memory), per-column
+  type inference and statistics, distinct-example handling,
+  heuristic relationship detection, naming-pattern boost,
+  min-overlap threshold, redact-distinct-values mode, and the
+  orchestrator's planner-payload integration.
+
+### Tests
+Total: 275 passed (was 247).
+
+## [0.5.0] - 2026-09-10
 - Relationship endpoint validation: `define_relationship_handler`
   checks that both tables and both columns exist, listing the
   available columns on each table when an endpoint is missing so
