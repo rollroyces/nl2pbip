@@ -6,6 +6,28 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (docs)
+- README: **5-minute demo** section surfacing `python -m nl2pbip.example_run`
+  as the fastest no-LLM-required path to a working PBIP.
+- README: **Worked example** section showing the prompt → LLM plan → TMDL
+  output trace for the bundled `example_run.py` scenario.
+- README: **What you get** section documenting the output directory
+  structure with file-by-file annotations.
+- README: **Troubleshooting** table covering the 10 most common runtime
+  errors (invalid JSON, unsupported dataType / visualType, missing
+  context, pbi-tools not installed, etc.) with their likely causes
+  and fixes.
+- README: **Limitations** table documenting v1.0.0's honest engineering
+  limits (LLM can still invent bad column names, FK detection is
+  heuristic on top-N examples, no built-in RAG, .pbix requires
+  pbi-tools, custom visuals need manual registration, etc.).
+- README: **Performance & cost** table with rough token budgets per
+  LLM call (~$0.0014 per report at gpt-4o-mini pricing) and observed
+  runtimes (mock LLM ~0.8 s, Ollama ~3-6 s, OpenAI gpt-4o-mini
+  ~2-4 s).
+- README: **Next steps** updated to cross-link the new sections and
+  surface `example_run.py` as the first thing a new reader should try.
+
 Nothing yet — release notes for the next version land here.
 
 ## [1.0.0] - 2026-09-10
