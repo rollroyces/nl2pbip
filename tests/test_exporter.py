@@ -42,6 +42,15 @@ def test_export_with_pbi_tools_no_binary(mock_run, mock_which) -> None:
 
 
 def test_export_as_pbit_zip_packages_directories(tmp_path: Path) -> None:
+    """Smoke test: build a ``.pbit`` from a PBIP folder.
+
+    Asserts the canonical Power BI Desktop OPC structure is produced
+    rather than the legacy ``SemanticModel/`` / ``Report/`` style.
+    The fallback exporter emits the proper manifest parts
+    (``Version``, ``Metadata``, ``Settings``, etc.) plus a
+    ``[Content_Types].xml`` with UTF-8 BOM and ``Report/Layout``
+    forward-slash path — all of which Power BI Desktop requires.
+    """
     pbip_dir = tmp_path / "Proj"
     dataset_dir = pbip_dir / "MyProject.SemanticModel"
     report_dir = pbip_dir / "MyProject.Report"
@@ -59,8 +68,25 @@ def test_export_as_pbit_zip_packages_directories(tmp_path: Path) -> None:
     assert Path(artifact).exists()
     with zipfile.ZipFile(artifact) as archive:
         names = archive.namelist()
-        # Power BI expects the model under SemanticModel/, not Dataset/.
-        assert any(name.startswith("SemanticModel/") for name in names), names
-        assert any(name.startswith("Report/") for name in names), names
-        assert "Metadata.json" in names
-        assert "DataModelSchemaTemplate.json" in names, names
+        # Canonical Power BI Desktop manifest parts.
+        expected_manifest_parts = {
+            "[Content_Types].xml",
+            "Version",
+            "Metadata",
+            "Settings",
+            "SecurityBindings",
+            "DiagramLayout",
+            "DataModelSchema",
+            "DataMashup",
+        }
+        for part in expected_manifest_parts:
+            assert part in names, f"missing manifest part {part!r} in {names}"
+        # The legacy compatibility part should also be present.
+        assert "DataModelSchemaTemplate.json" in names
+        # Report layout lives under Report/Layout with forward slashes.
+        assert "Report/Layout" in names
+        # No backslash paths (a Windows zip artifact).
+        assert not any("\\" in name for name in names), names
+        # The Content_Types file has the mandatory UTF-8 BOM.
+        content_types = archive.read("[Content_Types].xml")
+        assert content_types.startswith(b"\xef\xbb\xbf")
