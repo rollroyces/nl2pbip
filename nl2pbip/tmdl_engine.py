@@ -55,6 +55,20 @@ class TMDLColumn:
     format_string: Optional[str] = None
     description: Optional[str] = None
     annotations: Dict[str, str] = field(default_factory=dict)
+    # ``is_hidden`` corresponds to the ``isHidden`` TMDL marker on a
+    # column. Used by field-parameter tables for the Fields and
+    # Ordinal columns (the user-visible column is the only one that's
+    # actually shown in slicers).
+    is_hidden: bool = False
+    # ``is_name_inferred`` corresponds to the ``isNameInferred`` TMDL
+    # marker. Power BI sets this on field-parameter name columns so the
+    # semantic engine knows the column name is derived from the table
+    # expression rather than a literal source column.
+    is_name_inferred: bool = False
+    # ``sort_by_column`` corresponds to the ``sortByColumn`` TMDL
+    # marker. Used by field-parameter tables so the slicer respects
+    # the ordinal ordering.
+    sort_by_column: Optional[str] = None
     # Original spelling supplied by the caller, before alias
     # resolution. Useful for error messages — "you said 'bigint',
     # we wrote 'int64'". May be ``None`` if the column was loaded
@@ -92,6 +106,13 @@ class TMDLColumn:
             lines.append(f'{prefix}  formatString = "{self.format_string}"')
         if self.source_column:
             lines.append(f'{prefix}  sourceColumn = "{self.source_column}"')
+        if self.sort_by_column:
+            lines.append(f'{prefix}  sortByColumn = "{self.sort_by_column}"')
+        if self.is_name_inferred:
+            # ``isNameInferred`` is a marker keyword (no value).
+            lines.append(f"{prefix}  isNameInferred")
+        if self.is_hidden:
+            lines.append(f"{prefix}  isHidden")
         if self.description:
             lines.append(f'{prefix}  description = "{self._escape(self.description)}"')
         if self.annotations:
@@ -212,6 +233,14 @@ class TMDLTable:
     is_calculation_group: bool = False
     precedence: Optional[int] = None
     calculation_items: List[TMDLCalculationItem] = field(default_factory=list)
+    # Field-parameter-specific fields. When ``is_parameter_table`` is true
+    # the table emits ``isParameterTable`` (no value) under the table
+    # header, in addition to the standard ``column`` blocks for the name,
+    # fields, and ordinal columns. The ``parameter_partition_expression``
+    # field carries the DAX table expression that produces the parameter
+    # rows — typically ``{ ("Display", NAMEOF('Tbl'[Col]), Ord), ... }``.
+    is_parameter_table: bool = False
+    parameter_partition_expression: Optional[str] = None
 
     def add_column(self, column: TMDLColumn) -> None:
         if column.name in self.columns:
@@ -254,9 +283,22 @@ class TMDLTable:
         lines: List[str] = [f'table "{self.name}" {{']
         if self.description:
             lines.append(f'  description = "{_escape(self.description)}"')
+        if self.is_parameter_table:
+            # ``isParameterTable`` is a marker keyword (no value).
+            lines.append("  isParameterTable")
         if self.partitions:
             for partition in self.partitions:
                 lines.append("  partition " + _render_partition(partition))
+        elif self.is_parameter_table and self.parameter_partition_expression:
+            # Synthesise the ``partition Name = calculated expression = ...``
+            # block from the parameter table expression. Power BI Desktop
+            # always emits this partition in field-parameter tables.
+            synth_partition = {
+                "name": self.name,
+                "mode": "calculated",
+                "expression": self.parameter_partition_expression,
+            }
+            lines.append("  partition " + _render_partition(synth_partition))
         if self.columns:
             lines.append("  columns = [")
             lines.append(
@@ -320,8 +362,11 @@ class TMDLTable:
 def _render_partition(partition: Dict[str, Any]) -> str:
     """Render a partition block.
 
-    Supports the common M-partition shape: ``source = {...}``. Returns a
-    single-line block suitable for inline placement.
+    Supports the common M-partition shape (``source = {...}``) and the
+    field-parameter / calculated-table shape (``mode: calculated,
+    expression: '''...'''``). Returns a single-line header for M-partitions
+    or a multi-line block for calculated-table partitions so the
+    triple-quoted expression stays readable.
     """
     name = (
         partition.get("name")
@@ -330,6 +375,17 @@ def _render_partition(partition: Dict[str, Any]) -> str:
     )
     mode = partition.get("mode") or "import"
     source = partition.get("source") or {}
+    expression = partition.get("expression")
+    if mode == "calculated" or expression is not None:
+        expr_text = (expression or "").strip()
+        # Multi-line block keeps the table expression readable in TMDL.
+        if "\n" in expr_text or len(expr_text) > 60:
+            return (
+                f"\"{name}\" = calculated\n  expression = '''\n"
+                f"{expr_text}\n"
+                f"  '''"
+            )
+        return f"\"{name}\" = calculated expression = '''{expr_text}'''"
     if source:
         source_text = _render_source(source)
         return f'"{name}" = mode: {mode}, source: {source_text}'
@@ -774,6 +830,20 @@ def _parse_table(name: str, body: str) -> TMDLTable:
         if precedence is not None:
             table.precedence = precedence
         table.calculation_items = _parse_calculation_items(calc_block)
+    # Detect a field-parameter table (``isParameterTable`` keyword) and
+    # capture the calculated-table partition expression if present.
+    if re.search(r"\bisParameterTable\b", body):
+        table.is_parameter_table = True
+    partitions = _find_partition_blocks(body)
+    if partitions:
+        table.partitions.extend(partitions)
+        # Pull the first calculated-table partition expression onto the
+        # table itself so ``to_tmdl`` can re-emit it without round-trip
+        # loss.
+        for p in partitions:
+            if p.get("mode") == "calculated" and "expression" in p:
+                table.parameter_partition_expression = p["expression"]
+                break
     columns_payload = _find_block(body, "columns")
     if columns_payload:
         table.columns = _parse_columns(columns_payload)
@@ -788,6 +858,71 @@ def _parse_table(name: str, body: str) -> TMDLTable:
     if measures_payload:
         table.measures = _parse_measures(measures_payload)
     return table
+
+
+def _find_partition_blocks(body: str) -> List[Dict[str, Any]]:
+    """Find ``partition 'Name' = ...`` blocks in the table body.
+
+    Power BI emits two flavours of partition declaration: the older
+    M-partition ``"Name" = mode: import, source: { ... }`` form and the
+    field-parameter / calculated-table ``"Name" = calculated
+    expression = '''...''' form. The calculated-table form spans
+    multiple lines because the triple-quoted expression lives on its
+    own lines. Both are flattened into a normalised dict so
+    :func:`TMDLTable.to_tmdl` can re-render them.
+    """
+    results: List[Dict[str, Any]] = []
+    # First pass: calculated-table partitions (multi-line form).
+    for match in re.finditer(
+        r'partition\s+(?:"([^"]+)"|\'([^\']+)\'|([A-Za-z_]\w*))' r"\s*=\s*calculated\b",
+        body,
+    ):
+        name = next((g for g in match.groups() if g), "")
+        rest = body[match.end() :]
+        expr_match = re.search(r"expression\s*=\s*'''(.*?)'''", rest, re.DOTALL)
+        entry: Dict[str, Any] = {
+            "name": name,
+            "mode": "calculated",
+        }
+        if expr_match:
+            entry["expression"] = expr_match.group(1).strip()
+        results.append(entry)
+    # Second pass: M-partition declarations (single line).
+    for match in re.finditer(
+        r'partition\s+(?:"([^"]+)"|\'([^\']+)\'|([A-Za-z_]\w*))'
+        r"\s*=\s*mode:\s*([A-Za-z]+)(?:,\s*source:\s*(\{.*?\}))?",
+        body,
+    ):
+        name = next((g for g in match.groups()[:3] if g), "")
+        mode = match.group(4)
+        source_text = match.group(5)
+        entry = {"name": name, "mode": mode}
+        if source_text:
+            entry["source"] = _parse_source_dict(source_text)
+        results.append(entry)
+    return results
+
+
+def _parse_source_dict(text: str) -> Dict[str, Any]:
+    """Best-effort parse of the inline ``{ key: value, ... }`` source dict.
+
+    The parser only cares about top-level keys and string / bool values
+    — Power BI M-partition source dicts are small and consistent.
+    """
+    result: Dict[str, Any] = {}
+    for pair in re.finditer(r"(\w+)\s*:\s*([^,]+)", text):
+        key = pair.group(1)
+        raw = pair.group(2).strip()
+        if raw.startswith('"') and raw.endswith('"'):
+            result[key] = raw[1:-1]
+        elif raw in ("true", "false"):
+            result[key] = raw == "true"
+        else:
+            try:
+                result[key] = int(raw)
+            except ValueError:
+                result[key] = raw
+    return result
 
 
 def _parse_sibling_columns(body: str) -> Dict[str, "TMDLColumn"]:
@@ -931,7 +1066,11 @@ def _parse_column(name: str, body: str) -> TMDLColumn:
         data_type=data_type,
         format_string=_extract_scalar(body, "formatString"),
         source_column=_extract_scalar(body, "sourceColumn"),
+        sort_by_column=_extract_scalar(body, "sortByColumn"),
         description=_extract_scalar(body, "description"),
+        # Marker keywords (no value): present means ``True``.
+        is_hidden=bool(re.search(r"\bisHidden\b", body)),
+        is_name_inferred=bool(re.search(r"\bisNameInferred\b", body)),
     )
 
 
@@ -1781,6 +1920,164 @@ def add_calculation_group_handler(
     }
 
 
+def _build_field_parameter_expression(
+    table_name: str, members: List[Dict[str, Any]]
+) -> str:
+    """Build the DAX table expression for a field parameter.
+
+    Each member must carry ``display_name`` (the slicer label) and
+    ``table_name`` + ``column_name`` (the referenced field). The
+    optional ``measure_table`` / ``measure_name`` keys select a measure
+    instead of a column. Output is the curly-brace table literal
+    Power BI Desktop emits, with one entry per member and the ordinal
+    starting at zero in iteration order.
+    """
+    rendered: List[str] = ["{"]
+    for ordinal, member in enumerate(members):
+        if not isinstance(member, dict):
+            raise TMDLValidationError(
+                f"Field parameter member #{ordinal} must be an object "
+                "with display_name, table_name, and (column_name | "
+                "measure_name)."
+            )
+        display = member.get("display_name") or member.get("displayName")
+        src_table = member.get("table_name") or member.get("tableName")
+        if not display or not src_table:
+            raise TMDLValidationError(
+                f"Field parameter member #{ordinal} is missing "
+                "display_name or table_name."
+            )
+        if member.get("measure_name") or member.get("measureName"):
+            measure = member.get("measure_name") or member.get("measureName")
+            name_ref = f"'{src_table}'[{measure}]"
+        elif member.get("column_name") or member.get("columnName"):
+            column = member.get("column_name") or member.get("columnName")
+            name_ref = f"'{src_table}'[{column}]"
+        else:
+            raise TMDLValidationError(
+                f"Field parameter member '{display}' is missing "
+                "column_name or measure_name."
+            )
+        rendered.append(f'    ("{display}", NAMEOF({name_ref}), {ordinal}),')
+    rendered.append("}")
+    return "\n".join(rendered)
+
+
+def add_field_parameter_handler(
+    parameter_name: str,
+    members: List[Dict[str, Any]],
+    sort_by_column_name: Optional[str] = None,
+    context: Optional[Dict[str, Any]] = None,
+    **_: Any,
+) -> Dict[str, Any]:
+    """Materialise a Power BI field-parameter table.
+
+    Power BI Desktop emits field parameters as calculated tables with
+    three columns (Name / Fields / Ordinal) and a DAX table expression
+    that uses ``NAMEOF()`` to reference the source field::
+
+        table 'Metric Selection' {
+            isParameterTable
+            partition 'Metric Selection' = calculated
+                expression = '''
+                    {
+                        ("Revenue",  NAMEOF('Sales'[Revenue]),  0),
+                        ("Margin %", NAMEOF('Sales'[Margin %]), 1),
+                        ("Units",    NAMEOF('Sales'[Units]),    2)
+                    }
+                    '''
+            column 'Metric Selection' { dataType = string ... isNameInferred }
+            column 'Metric Selection Fields' { dataType = string ... isHidden }
+            column 'Metric Selection Ordinal' { dataType = int64 ... isHidden }
+        }
+
+    ``members`` is a list of dicts. Each dict carries:
+
+      * ``display_name`` (str, required) — the slicer label.
+      * ``table_name`` (str, required) — the source table.
+      * ``column_name`` (str, one of column/measure required) — the
+        source column to reference.
+      * ``measure_name`` (str, alternative to column_name) — the source
+        measure to reference.
+
+    The handler also adds the conventional Power BI column layout
+    (Name / Fields / Ordinal) with the right marker keywords so the
+    slicer behaves correctly.
+    """
+    if not members:
+        raise TMDLValidationError("add_field_parameter requires at least one member.")
+    if not context or MODEL_PATH_KEY not in context:
+        raise ValueError(
+            "add_field_parameter handler requires 'model_path' inside context."
+        )
+    table_name = parameter_name
+    chosen_name = table_name
+    if not chosen_name:
+        raise ValueError("add_field_parameter handler requires 'parameter_name'.")
+
+    model_path = Path(context[MODEL_PATH_KEY]).expanduser()
+    model = load_model(model_path) if model_path.exists() else TMDLModel()
+    existing = model.get_table(chosen_name)
+    if existing is not None:
+        raise TMDLValidationError(
+            f"Cannot create field parameter '{chosen_name}': a table with "
+            "that name already exists in the model."
+        )
+
+    table = TMDLTable(name=chosen_name)
+    table.is_parameter_table = True
+    table.parameter_partition_expression = _build_field_parameter_expression(
+        chosen_name, members
+    )
+    # Canonical column names per Microsoft spec.
+    fields_col_name = f"{chosen_name} Fields"
+    ordinal_col_name = f"{chosen_name} Ordinal"
+    sort_target = sort_by_column_name or ordinal_col_name
+    table.add_column(
+        TMDLColumn(
+            name=chosen_name,
+            data_type="string",
+            is_name_inferred=True,
+            source_column=f"{chosen_name}.[Value1]",
+            sort_by_column=sort_target,
+        )
+    )
+    table.add_column(
+        TMDLColumn(
+            name=fields_col_name,
+            data_type="string",
+            is_hidden=True,
+            is_name_inferred=True,
+            source_column=f"{chosen_name}.[Value2]",
+        )
+    )
+    table.add_column(
+        TMDLColumn(
+            name=ordinal_col_name,
+            data_type="int64",
+            is_hidden=True,
+            is_name_inferred=True,
+            source_column=f"{chosen_name}.[Value3]",
+        )
+    )
+    model.add_table(table)
+    model_path.write_text(_render_model_body(model), encoding="utf-8")
+    return {
+        "status": "success",
+        "parameter": chosen_name,
+        "members": [
+            {
+                "display_name": member.get("display_name") or member.get("displayName"),
+                "table_name": member.get("table_name") or member.get("tableName"),
+                "column_name": member.get("column_name") or member.get("columnName"),
+                "measure_name": member.get("measure_name") or member.get("measureName"),
+            }
+            for member in members
+        ],
+        "model_path": str(model_path),
+    }
+
+
 def add_rls_role_handler(
     role_name: str,
     table_permissions: List[Dict[str, Any]],
@@ -1967,6 +2264,7 @@ __all__ = [
     "add_pattern_measure_handler",
     "define_relationship_handler",
     "add_calculation_group_handler",
+    "add_field_parameter_handler",
     "add_rls_role_handler",
     "add_ols_role_handler",
     "load_model",

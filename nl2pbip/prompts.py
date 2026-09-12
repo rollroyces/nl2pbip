@@ -59,7 +59,7 @@ from typing import Any, Dict, List, Mapping, Optional
 #: every time :data:`REPORT_GENERATION_SYSTEM_PROMPT` changes. The
 #: orchestrator embeds the version in the planner payload so callers
 #: can pin / inspect the prompt they received.
-REPORT_GENERATION_PROMPT_VERSION: int = 3
+REPORT_GENERATION_PROMPT_VERSION: int = 4
 
 #: Changelog entries are append-only. Each entry has ``version``,
 #: ``date``, and ``changes`` (list of human-readable lines).
@@ -103,6 +103,17 @@ PROMPT_CHANGELOG: List[Dict[str, Any]] = [
             "Rule 27 documents the canonical Power BI nested tablePermission / columnPermission grammar.",
             "Rule 27 forbids combining filterExpression (RLS) with metadataPermission (OLS) in the same tablePermission block.",
             "Rule 27 defaults metadata_permission to 'none' when the prompt mentions PII / confidential data.",
+        ],
+    },
+    {
+        "version": 4,
+        "date": "2026-09-12",
+        "summary": "Field-parameter rules: dynamic measure/column switching via NAMEOF()",
+        "changes": [
+            "Rule 21a added: when the prompt asks for 'let users pick the metric', 'switch between measures', 'dynamic axis', or 'what-if slicer', emit an add_field_parameter tool call.",
+            "Rule 21a documents the NAMEOF('Tbl'[Col]) DAX table expression that field parameters generate.",
+            "Rule 21a requires members to reference EITHER a column OR a measure, not both.",
+            "Rule 21a requires pairing the parameter with a slicer visual bound to <param_name>.",
         ],
     },
 ]
@@ -206,6 +217,17 @@ REPORT_GENERATION_SYSTEM_PROMPT: str = (
     "star schemas, `bothDirections` only for many-to-many).\n"
     "21. Build visuals only after the tables, measures, and "
     "relationships they need exist.\n"
+    '21a. When the prompt asks for "let users pick the metric", '
+    '"switch between measures / columns", "what-if slicer", or '
+    '"dynamic axis", add an `add_field_parameter` tool call. The '
+    "parameter table is a calculated table with `isParameterTable`, "
+    "three columns (Name / Fields / Ordinal), and a DAX table "
+    "expression of the form `{ (\"Display\", NAMEOF('Tbl'[Col]), "
+    "Ordinal), ... }`. Each member must reference EITHER a column "
+    "(`table_name` + `column_name`) OR a measure (`table_name` + "
+    "`measure_name`), not both. Pair the parameter with a slicer "
+    "visual that binds `Category` to `<param_name>` so the user "
+    "can switch on the fly.\n"
     "22. DAX expressions must be syntactically valid. Example: "
     "`SUM(Sales[Amount])`. Use `[Table][Column]` references.\n"
     "23. Reject columns inside a single `create_table` that have "
