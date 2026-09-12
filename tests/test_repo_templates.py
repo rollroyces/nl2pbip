@@ -441,19 +441,17 @@ class TestRepoTemplateIntegration:
     def test_example_run_produces_fabric_metadata(self) -> None:
         import json
         import subprocess
+        import sys
 
-        # Reset artifacts and run example.
+        # Reset artifacts and run example. Use ``sys.executable`` so
+        # the smoke test works under CI (no .venv) and locally.
         artifact_dir = REPO_ROOT / "artifacts"
         if artifact_dir.exists():
             import shutil
 
             shutil.rmtree(artifact_dir)
         result = subprocess.run(
-            [
-                str(REPO_ROOT / ".venv" / "bin" / "python"),
-                "-m",
-                "nl2pbip.example_run",
-            ],
+            [sys.executable, "-m", "nl2pbip.example_run"],
             check=False,
             capture_output=True,
             text=True,

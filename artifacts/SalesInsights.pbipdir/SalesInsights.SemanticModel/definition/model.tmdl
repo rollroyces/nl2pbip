@@ -15,6 +15,15 @@ table "Date" {
 }
 
 table "Sales" {
+  partition "Sales" = mode: import, source: { type: m, expression = "let
+    Source = let
+    Source = Csv.Document(File.Contents(""raw/sales.csv""), [Delimiter="","", Encoding=65001, QuoteStyle=QuoteStyle.Csv])
+in
+    Source
+    #""Sales"" = Table.PromoteHeaders(Source, [PromoteAllScalars=true])
+    #""Changed Type"" = Table.TransformColumnTypes(#""Sales"", {{""SaleId"", text}, {""Region"", text}, {""Amount"", number}, {""Date"", date}})
+in
+    #""Changed Type""" }
   columns = [
     column "SaleId" {
       dataType = string
@@ -68,4 +77,36 @@ table 'CG Time Intelligence' {
     dataType = wholeNumber
     formatString = "#,0"
   }
+}
+
+table "Metric Selection" {
+  isParameterTable
+  partition "Metric Selection" = calculated
+  expression = '''
+{
+    ("Total Revenue", NAMEOF('Sales'[Total Revenue]), 0),
+    ("Region", NAMEOF('Sales'[Region]), 1),
+}
+  '''
+  columns = [
+    column "Metric Selection" {
+      dataType = string
+      sourceColumn = "Metric Selection.[Value1]"
+      sortByColumn = "Metric Selection Ordinal"
+      isNameInferred
+    },
+    column "Metric Selection Fields" {
+      dataType = string
+      sourceColumn = "Metric Selection.[Value2]"
+      isNameInferred
+      isHidden
+    },
+    column "Metric Selection Ordinal" {
+      dataType = int64
+      formatString = "#,0"
+      sourceColumn = "Metric Selection.[Value3]"
+      isNameInferred
+      isHidden
+    }
+  ]
 }
