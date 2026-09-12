@@ -7,6 +7,50 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Fabric Git-integration metadata** (`package_pbip_handler`):
+  writes `itemMetadata.json` + `.platform` per Fabric item so the
+  resulting PBIP project is ready for a Git repo connected to a
+  Fabric workspace. Schema matches Microsoft docs (Sept 2025).
+  - **Per-item files** written (when `write_fabric_metadata=True`,
+    which is the default):
+    * `{Project}.SemanticModel/itemMetadata.json`
+    * `{Project}.SemanticModel/.platform`
+    * `{Project}.Report/itemMetadata.json`
+    * `{Project}.Report/.platform`
+  - **`itemMetadata.json`** payload: `type` (one of the canonical
+    Fabric item types — `SemanticModel`, `Report`, `Lakehouse`,
+    `Warehouse`, `Notebook`, `DataPipeline`, ...), `displayName`,
+    optional `description`, optional `sensitivityLabelId`.
+  - **`.platform`** payload: `metadata.type`, `metadata.displayName`,
+    `config.version` (always `2.0`), `config.logicalId` (uuid4 by
+    default; shared between the semantic model and the report
+    because Fabric treats them as one item-group).
+  - **Project root manifest** (`{Project}.pbip`) gains a top-level
+    `fabricRoot: { type: "PBIPProject", displayName: ... }` block
+    when Fabric metadata is enabled.
+  - **New kwargs on `package_pbip_handler`**:
+    * `write_fabric_metadata: bool = True` — master switch
+    * `fabric_semantic_model_type: str = "SemanticModel"` — the
+      item-type string for the semantic model item
+    * `fabric_report_type: str = "Report"` — the item-type string
+      for the report item
+    * `fabric_logical_id: Optional[str] = None` — override the
+      generated uuid4 logical id
+    * `fabric_sensitivity_label_id: Optional[str] = None` —
+      Microsoft Purview sensitivity label id (omitted if empty)
+  - **Validation** — fabric item types are checked against
+    `FABRIC_ITEM_TYPES` (a frozenset of the 20 canonical Fabric
+    item types) before any file is written; unknown / empty /
+    non-string types raise `ValueError` with the valid list.
+  - **Result dict** now includes `fabric_enabled` (bool),
+    `project_manifest` (path to the .pbip file), and
+    `fabric_files` (paths to all four metadata files plus the
+    `logical_id` string).
+  - 30 new tests in `tests/test_fabric_metadata.py`:
+    _validate_fabric_item_type (5), _make_item_metadata (4),
+    _make_platform (3), FABRIC_ITEM_TYPES (2), package_pbip with
+    Fabric disabled (1), with Fabric enabled (13), round-trip (2).
+    **608 tests total**, all green.
 - **Agentic self-reflection loop** (`Orchestrator.run_with_reflection`):
   post-success critic pass + planner refinement. Five concrete
   capabilities:
