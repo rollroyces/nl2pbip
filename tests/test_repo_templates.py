@@ -342,6 +342,19 @@ class TestCodeQLWorkflow:
                     "category" in with_block
                 ), "codeql-action/analyze requires 'category' input."
 
+    def test_codeql_workflow_has_security_events_write(self) -> None:
+        """GitHub rejects the workflow at parse time (no jobs run)
+        if ``security-events: write`` is missing from the
+        top-level ``permissions`` block. Without this, CodeQL has
+        nowhere to upload its SARIF results."""
+        data = yaml.safe_load((REPO_ROOT / ".github/workflows/codeql.yml").read_text())
+        perms = data.get("permissions", {})
+        assert perms.get("security-events") == "write", (
+            "codeql.yml needs 'security-events: write' in "
+            "top-level permissions. Without it, GitHub rejects "
+            "the workflow before any job runs."
+        )
+
 
 class TestReleaseWorkflow:
     def test_release_has_publish_job(self) -> None:
