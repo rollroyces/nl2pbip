@@ -108,6 +108,20 @@ def build_sample_plan(project_dir: Path) -> List[Dict[str, Any]]:
             },
         },
         {
+            "tool": "add_ols_role",
+            "args": {
+                "role_name": "SalesPublic",
+                "model_permission": "read",
+                "column_permissions": [
+                    {
+                        "table_name": "Sales",
+                        "column_name": "SaleId",
+                        "metadata_permission": "none",
+                    },
+                ],
+            },
+        },
+        {
             "tool": "package_pbip",
             "args": {
                 "output_path": str(project_dir / "SalesInsights.pbipdir"),
