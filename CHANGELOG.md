@@ -6,6 +6,56 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Calculation groups** (`add_calculation_group` tool, new
+  `TMDLCalculationItem` dataclass, calc-group rendering in TMDL):
+  - Canonical Microsoft TMDL grammar for calc-group tables:
+    `calculationGroup` keyword, `precedence: N`, and
+    `calculationItem 'Name' = DAX` declarations. Single-quoted table
+    names (`'Time Intelligence'`) emitted per spec.
+  - **Dynamic format strings** via
+    `format_string_definition = DAX` sibling line. Sample catalog
+    (`dax_library.json`) wires `YoY %` with an `ISNUMERIC` guard so
+    the percent format only kicks in when the underlying measure is
+    numeric.
+  - `add_calculation_group` now accepts inline `items` arrays in
+    addition to `group_key` lookups, with per-item
+    `format_string_definition`. Schema uses `anyOf` so either
+    `group_key` or `items` is required, not both.
+  - `discourageImplicitMeasures` model property is documented as
+    auto-enabled when calc groups are added (Power BI Desktop surfaces
+    a confirmation dialog the first time it sees a calc group).
+- **Parser support** for calc-group TMDL (`parse_tmdl_text`,
+  `_parse_table`, `_parse_calculation_items`, `_parse_sibling_columns`):
+  - Single-quoted section names (`'Time Intelligence'`).
+  - Calc-group keyword (no braces; children read until the next
+    sibling keyword).
+  - `formatStringDefinition` sibling lines wired back to the matching
+    `calculationItem`.
+  - Sibling `column ... { ... }` blocks (the form emitted by the
+    calc-group writer) parsed as columns when no
+    `columns = [...]` aggregator is present.
+- **Orchestrator**
+  (`ToolSpec.validate_payload`): now understands `anyOf` so a tool
+  can declare "either X or Y is required". Improves the LLM's
+  self-correction feedback when neither is provided.
+- **System prompt v2** (`REPORT_GENERATION_PROMPT_VERSION = 2`,
+  rule 19 expanded): documents calc-group syntax, dynamic format
+  strings, `ISNUMERIC(SELECTEDMEASURE())` guards, and the
+  `discourageImplicitMeasures` model property. Forbids per-period
+  measures (YTD/QTD/MTD/PriorYear) when a calc group covers the same
+  pattern.
+- **Bundled `dax_library.json`** updated to include
+  `format_string_definition` on the bundled `YoY %` item so the
+  shipped time-intelligence calc group ships with a dynamic format
+  expression.
+- **Example runner** (`example_run.py`): added a sample plan step that
+  emits the new `add_calculation_group` tool, producing a working
+  `CG_Time_Intelligence.tmdl` table that opens in Power BI Desktop.
+- 27 new unit tests in `tests/test_calculation_groups.py` covering
+  grammar rendering, parser round-trip, handler error paths, and
+  bundled catalog coverage. 425 tests total, all green.
+
 ### Added (docs)
 - README: **5-minute demo** section surfacing `python -m nl2pbip.example_run`
   as the fastest no-LLM-required path to a working PBIP.

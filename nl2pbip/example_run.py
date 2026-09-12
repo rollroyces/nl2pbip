@@ -71,6 +71,30 @@ def build_sample_plan(project_dir: Path) -> List[Dict[str, Any]]:
             },
         },
         {
+            "tool": "add_calculation_group",
+            "args": {
+                "table_name": "CG Time Intelligence",
+                "precedence": 10,
+                "items": [
+                    {"name": "Current", "expression": "SELECTEDMEASURE()"},
+                    {
+                        "name": "YTD",
+                        "expression": "CALCULATE(SELECTEDMEASURE(), DATESYTD('Date'[Date]))",
+                    },
+                    {
+                        "name": "Prior Year",
+                        "expression": "CALCULATE(SELECTEDMEASURE(), DATEADD('Date'[Date], -1, YEAR))",
+                    },
+                    {
+                        "name": "YoY %",
+                        "expression": "DIVIDE(SELECTEDMEASURE() - CALCULATE(SELECTEDMEASURE(), DATEADD('Date'[Date], -1, YEAR)), CALCULATE(SELECTEDMEASURE(), DATEADD('Date'[Date], -1, YEAR)))",
+                        "format_string": "0.00%",
+                        "format_string_definition": 'VAR x = SELECTEDMEASUREFORMATSTRING() RETURN IF(ISNUMERIC(x), "0.00%", x)',
+                    },
+                ],
+            },
+        },
+        {
             "tool": "add_visual",
             "args": {
                 "page": "Main",

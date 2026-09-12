@@ -4,13 +4,17 @@
       "description": "Year-over-year growth percentage for a base measure.",
       "template": "DIVIDE([{{base_measure}}] - CALCULATE([{{base_measure}}], DATEADD('Date'[Date], -1, YEAR)), CALCULATE([{{base_measure}}], DATEADD('Date'[Date], -1, YEAR)))",
       "format_string": "0.00%",
-      "parameters": ["base_measure"]
+      "parameters": [
+        "base_measure"
+      ]
     },
     "rolling_12m": {
       "description": "Rolling 12-month total for a base measure using the Date table.",
       "template": "CALCULATE([{{base_measure}}], DATESINPERIOD('Date'[Date], MAX('Date'[Date]), -12, MONTH))",
       "format_string": "$#,0.00",
-      "parameters": ["base_measure"]
+      "parameters": [
+        "base_measure"
+      ]
     }
   },
   "calculation_groups": {
@@ -38,7 +42,8 @@
         {
           "name": "YoY %",
           "expression": "DIVIDE(SELECTEDMEASURE() - CALCULATE(SELECTEDMEASURE(), DATEADD('Date'[Date], -1, YEAR)), CALCULATE(SELECTEDMEASURE(), DATEADD('Date'[Date], -1, YEAR)))",
-          "format_string": "0.00%"
+          "format_string": "0.00%",
+          "format_string_definition": "VAR x = SELECTEDMEASUREFORMATSTRING() RETURN IF(ISNUMERIC(x), \"0.00%\", x)"
         }
       ]
     }

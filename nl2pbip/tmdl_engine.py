@@ -117,31 +117,83 @@ class TMDLMeasure:
 
     def to_tmdl(self, indent: int = 2) -> str:
         prefix = " " * indent
-        expr_block = self._format_expression(self.expression, indent + 2)
+        expr_block = _format_expression(self.expression, indent + 2)
         lines: List[str] = [f'{prefix}measure "{self.name}" {{']
         lines.append(f"{prefix}  expression = {expr_block}")
         if self.format_string:
-            lines.append(f'{prefix}  formatString = "{self.format_string}"')
+            lines.append(f'{prefix}  formatString = "{_escape(self.format_string)}"')
         if self.description:
-            lines.append(f'{prefix}  description = "{self._escape(self.description)}"')
+            lines.append(f'{prefix}  description = "{_escape(self.description)}"')
         if self.annotations:
             lines.append(f"{prefix}  annotations = {{")
             for k, v in self.annotations.items():
-                lines.append(f'{prefix}    {k} = "{self._escape(v)}"')
+                lines.append(f'{prefix}    {k} = "{_escape(v)}"')
             lines.append(f"{prefix}  }}")
         lines.append(f"{prefix}}}")
         return "\n".join(lines)
 
-    @staticmethod
-    def _format_expression(expression: str, indent: int) -> str:
-        """Render expression as a TMDL triple-quoted block, preserving newlines."""
-        body = expression.strip()
-        prefix = " " * indent
-        return f"'''\n{prefix}{body}\n{prefix}'''"
 
-    @staticmethod
-    def _escape(value: str) -> str:
-        return value.replace("\\", "\\\\").replace('"', '\\"')
+def _format_expression(expression: str, indent: int) -> str:
+    """Render expression as a TMDL triple-quoted block, preserving newlines."""
+    body = expression.strip()
+    prefix = " " * indent
+    return f"'''\n{prefix}{body}\n{prefix}'''"
+
+
+def _escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+@dataclass
+class TMDLCalculationItem:
+    """A single ``calculationItem`` in a TMDL calculation group table.
+
+    Calculation items live inside a ``calculationGroup`` block on the table
+    header (not as measures). They support both a static ``formatString``
+    and a ``formatStringDefinition`` (dynamic format expression) keyed by
+    item name.
+    """
+
+    name: str
+    expression: str
+    format_string: Optional[str] = None
+    format_string_definition: Optional[str] = None
+    description: Optional[str] = None
+
+    def to_tmdl(self, indent: int = 2) -> str:
+        """Render a single calculation item line.
+
+        The grammar is::
+
+            calculationItem 'YTD' =
+                '''
+                TOTALYTD(SELECTEDMEASURE(), 'Date'[Date])
+                '''
+
+        with optional sibling line ``calculationItem 'YTD'
+        formatStringDefinition = ...`` when a dynamic format is provided.
+
+        ``indent`` controls the leading whitespace for the
+        ``calculationItem`` keyword (callers should pass 8 to keep the
+        item under ``calculationGroup``). The expression itself is
+        rendered with two extra spaces of indent inside the triple-
+        quoted block.
+        """
+        prefix = " " * indent
+        expr_prefix = " " * (indent + 2)
+        expr_text = self.expression.strip()
+        expr_block = f"'''\n{expr_prefix}{expr_text}\n{expr_prefix}'''"
+        lines: List[str] = [
+            f"{prefix}calculationItem '{self.name}' = {expr_block}",
+        ]
+        if self.format_string_definition:
+            fs_text = self.format_string_definition.strip()
+            fs_block = f"'''\n{expr_prefix}{fs_text}\n{expr_prefix}'''"
+            lines.append(
+                f"{prefix}calculationItem '{self.name}' "
+                f"formatStringDefinition = {fs_block}"
+            )
+        return "\n".join(lines)
 
 
 @dataclass
@@ -152,6 +204,14 @@ class TMDLTable:
     partitions: List[Dict[str, Any]] = field(default_factory=list)
     description: Optional[str] = None
     annotations: Dict[str, str] = field(default_factory=dict)
+    # Calculation-group-specific fields. When ``is_calculation_group`` is
+    # true the table emits a ``calculationGroup`` block with the items below
+    # instead of the normal column / partition layout. Calculation-group
+    # tables are still allowed to declare their discriminator and ordinal
+    # columns via the regular ``columns`` field.
+    is_calculation_group: bool = False
+    precedence: Optional[int] = None
+    calculation_items: List[TMDLCalculationItem] = field(default_factory=list)
 
     def add_column(self, column: TMDLColumn) -> None:
         if column.name in self.columns:
@@ -167,10 +227,33 @@ class TMDLTable:
             )
         self.measures[measure.name] = measure
 
+    def add_calculation_item(self, item: TMDLCalculationItem) -> None:
+        """Register a calculation item on a calculation-group table."""
+        if not self.is_calculation_group:
+            raise TMDLValidationError(
+                f"Table '{self.name}' is not a calculation group; "
+                "call mark_calculation_group() before adding items."
+            )
+        for existing in self.calculation_items:
+            if existing.name == item.name:
+                raise TMDLValidationError(
+                    f"Calculation group '{self.name}' already has an item "
+                    f"named '{item.name}'."
+                )
+        self.calculation_items.append(item)
+
+    def mark_calculation_group(self, precedence: Optional[int] = None) -> None:
+        """Convert this table into a calculation group."""
+        self.is_calculation_group = True
+        if precedence is not None:
+            self.precedence = precedence
+
     def to_tmdl(self) -> str:
+        if self.is_calculation_group:
+            return self._to_calculation_group_tmdl()
         lines: List[str] = [f'table "{self.name}" {{']
         if self.description:
-            lines.append(f'  description = "{self.description}"')
+            lines.append(f'  description = "{_escape(self.description)}"')
         if self.partitions:
             for partition in self.partitions:
                 lines.append("  partition " + _render_partition(partition))
@@ -189,8 +272,47 @@ class TMDLTable:
         if self.annotations:
             lines.append("  annotations = {")
             for k, v in self.annotations.items():
-                lines.append(f'    {k} = "{v}"')
+                lines.append(f'    {k} = "{_escape(v)}"')
             lines.append("  }")
+        lines.append("}")
+        return "\n".join(lines)
+
+    def _to_calculation_group_tmdl(self) -> str:
+        """Render a calculation-group table in canonical TMDL.
+
+        The grammar (per Microsoft spec, Sept 2025)::
+
+            table 'Time Intelligence'
+                calculationGroup
+                    precedence: 1
+                    calculationItem 'YTD' = SELECTEDMEASURE()
+                    calculationItem 'YTD' formatStringDefinition = ...
+                column 'Time Intelligence'
+                    dataType: string
+                    summarizeBy: none
+                    sourceColumn: Name
+                    sortByColumn: Ordinal
+                column Ordinal
+                    dataType: int64
+                    formatString: 0
+                    summarizeBy: sum
+                    sourceColumn: Ordinal
+
+        Indentation: table header at column 0, ``calculationGroup`` at
+        4 spaces, ``precedence`` and items at 8 spaces.
+        """
+        lines: List[str] = [f"table '{self.name}' {{"]
+        lines.append("    calculationGroup")
+        if self.precedence is not None:
+            lines.append(f"        precedence: {self.precedence}")
+        if self.calculation_items:
+            lines.append("")
+            for item in self.calculation_items:
+                lines.append(item.to_tmdl(indent=8))
+        if self.columns:
+            lines.append("")
+            for col in self.columns.values():
+                lines.append(col.to_tmdl(indent=2))
         lines.append("}")
         return "\n".join(lines)
 
@@ -348,7 +470,11 @@ def roles_workspace_dir(model_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 _SECTION_PATTERN = re.compile(
-    r'(?P<header>table|column|measure|relationship|role)\s+("(?P<qname>[^"]+)"|(?P<name>\S+))\s*\{',
+    r"(?P<header>table|column|measure|relationship|role)\s+("
+    r'"(?P<qname>[^"]+)"|'  # double-quoted: "Sales"
+    r"'(?P<sname>[^']+)'|"  # single-quoted: 'Time Intelligence'
+    r"(?P<name>\S+)"  # bare identifier: Sales
+    r")\s*\{",
     re.IGNORECASE,
 )
 
@@ -369,7 +495,7 @@ def parse_tmdl_text(text: str) -> TMDLModel:
         if not match:
             break
         section_type = match.group("header").lower()
-        name = match.group("qname") or match.group("name") or ""
+        name = match.group("qname") or match.group("sname") or match.group("name") or ""
         body_start = match.end() - 1  # the opening '{' char
         body, body_end = _extract_balanced(text, body_start)
         if body is None:
@@ -450,13 +576,145 @@ def _extract_balanced_with(
 
 def _parse_table(name: str, body: str) -> TMDLTable:
     table = TMDLTable(name=name)
+    # Detect a calculation-group table. The grammar is::
+    #
+    #     table 'Time Intelligence'
+    #         calculationGroup
+    #             precedence: 10
+    #             calculationItem 'YTD' = ...
+    #
+    # ``calculationGroup`` is a keyword marker (no braces); its children
+    # are the ``precedence:`` line and the ``calculationItem 'Name' = …``
+    # declarations. They live at the top of the table body, before any
+    # ``column`` / ``partition`` / ``measures =`` blocks.
+    calc_block = _find_calculation_group_block(body)
+    if calc_block is not None:
+        table.is_calculation_group = True
+        precedence = _match_int(calc_block, "precedence")
+        if precedence is not None:
+            table.precedence = precedence
+        table.calculation_items = _parse_calculation_items(calc_block)
     columns_payload = _find_block(body, "columns")
     if columns_payload:
         table.columns = _parse_columns(columns_payload)
+    else:
+        # Fallback: look for sibling ``column ... { ... }`` blocks.
+        # Used by the calc-group writer which emits columns as siblings
+        # of the calculationGroup keyword (per the Microsoft TMDL spec).
+        sibling_columns = _parse_sibling_columns(body)
+        if sibling_columns:
+            table.columns = sibling_columns
     measures_payload = _find_block(body, "measures")
     if measures_payload:
         table.measures = _parse_measures(measures_payload)
     return table
+
+
+def _parse_sibling_columns(body: str) -> Dict[str, "TMDLColumn"]:
+    """Extract ``column ... { ... }`` blocks appearing as siblings in the body."""
+    columns: Dict[str, "TMDLColumn"] = {}
+    cursor = 0
+    while cursor < len(body):
+        match = _SECTION_PATTERN.search(body, cursor)
+        if not match:
+            break
+        if match.group("header").lower() != "column":
+            cursor = match.end()
+            continue
+        col_name = (
+            match.group("qname") or match.group("sname") or match.group("name") or ""
+        )
+        body_start = match.end() - 1
+        body_inner, body_end = _extract_balanced(body, body_start)
+        if body_inner is None:
+            break
+        col = _parse_column(col_name, body_inner)
+        columns[col.name] = col
+        cursor = body_end + 1
+    return columns
+
+
+_CALC_GROUP_KEYWORD = re.compile(r"\bcalculationGroup\b\s*\n", re.IGNORECASE)
+_CALC_ITEM_LINE = re.compile(
+    r"calculationItem\s+'(?P<name>[^']+)'(?:\s+formatStringDefinition)?\s*=",
+    re.IGNORECASE,
+)
+# Sibling keywords that mark the end of the calculationGroup block.
+_CALC_GROUP_END_KEYWORDS = re.compile(
+    r"\n\s*(?:column\s+|partition\s+|measures\s*=|annotations\s*=|\S+\s*\{)",
+    re.IGNORECASE,
+)
+
+
+def _find_calculation_group_block(body: str) -> Optional[str]:
+    """Locate the children of a ``calculationGroup`` keyword inside a table body."""
+    match = _CALC_GROUP_KEYWORD.search(body)
+    if not match:
+        return None
+    children_start = match.end()
+    end_match = _CALC_GROUP_END_KEYWORDS.search(body, children_start)
+    if end_match:
+        return body[children_start : end_match.start()].rstrip()
+    return body[children_start:].rstrip()
+
+
+def _match_int(text: str, key: str) -> Optional[int]:
+    """Extract an integer from a ``key: N`` or ``key = N`` assignment."""
+    pattern = re.compile(rf"\b{re.escape(key)}\s*[=:]\s*(-?\d+)", re.IGNORECASE)
+    match = pattern.search(text)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:  # pragma: no cover - the regex only captures digits
+        return None
+
+
+def _parse_calculation_items(calc_block: str) -> List["TMDLCalculationItem"]:
+    """Parse ``calculationItem 'X' = ...`` lines out of a calculationGroup block.
+
+    Both the value-form (``calculationItem 'X' = expr``) and the sibling
+    format-string-definition form (``calculationItem 'X'
+    formatStringDefinition = expr``) are recognised. Items that share a
+    name get their ``format_string_definition`` populated from the
+    sibling line when present.
+    """
+    items: Dict[str, "TMDLCalculationItem"] = {}
+    cursor = 0
+    text = calc_block
+    while cursor < len(text):
+        line_match = _CALC_ITEM_LINE.search(text, cursor)
+        if not line_match:
+            break
+        item_name = line_match.group("name")
+        is_format_def = (
+            text[line_match.start() : line_match.end()]
+            .lower()
+            .endswith("formatstringdefinition =")
+        )
+        value_start = line_match.end()
+        next_item = re.search(
+            r"\bcalculationItem\s+'", text[value_start:], re.IGNORECASE
+        )
+        if next_item:
+            value_end = value_start + next_item.start()
+            cursor = value_start + next_item.start()
+        else:
+            value_end = len(text)
+            cursor = len(text)
+        expr_text = text[value_start:value_end].strip().rstrip(",").strip()
+        m_triple = re.match(r"'''(.*?)'''", expr_text, re.DOTALL)
+        if m_triple:
+            expr_text = m_triple.group(1).strip()
+        if is_format_def:
+            if item_name in items:
+                items[item_name].format_string_definition = expr_text
+        else:
+            if item_name not in items:
+                items[item_name] = TMDLCalculationItem(
+                    name=item_name, expression=expr_text
+                )
+    return list(items.values())
 
 
 def _parse_columns(block: str) -> Dict[str, TMDLColumn]:
@@ -466,7 +724,9 @@ def _parse_columns(block: str) -> Dict[str, TMDLColumn]:
         match = _SECTION_PATTERN.search(block, cursor)
         if not match or match.group("header").lower() != "column":
             break
-        col_name = match.group("qname") or match.group("name") or ""
+        col_name = (
+            match.group("qname") or match.group("sname") or match.group("name") or ""
+        )
         body_start = match.end() - 1
         body, body_end = _extract_balanced(block, body_start)
         if body is None:
@@ -502,7 +762,9 @@ def _parse_measures(block: str) -> Dict[str, TMDLMeasure]:
         match = _SECTION_PATTERN.search(block, cursor)
         if not match or match.group("header").lower() != "measure":
             break
-        measure_name = match.group("qname") or match.group("name") or ""
+        measure_name = (
+            match.group("qname") or match.group("sname") or match.group("name") or ""
+        )
         body_start = match.end() - 1
         body, body_end = _extract_balanced(block, body_start)
         if body is None:
@@ -570,7 +832,7 @@ def _iter_named_blocks(text: str) -> Iterable[Tuple[str, str]]:
         match = _SECTION_PATTERN.search(text, cursor)
         if not match:
             break
-        name = match.group("qname") or match.group("name") or ""
+        name = match.group("qname") or match.group("sname") or match.group("name") or ""
         body_start = match.end() - 1
         body, body_end = _extract_balanced(text, body_start)
         if body is None:
@@ -1071,59 +1333,142 @@ def define_relationship_handler(
 
 
 def add_calculation_group_handler(
-    group_key: str,
+    group_key: Optional[str] = None,
     table_name: Optional[str] = None,
     precedence: int = 0,
+    items: Optional[List[Dict[str, Any]]] = None,
+    format_string_definitions: Optional[Dict[str, str]] = None,
     context: Optional[Dict[str, Any]] = None,
     **_: Any,
 ) -> Dict[str, Any]:
-    if not context:
+    """Materialise a calculation group table.
+
+    Source of items, in priority order:
+
+    1. Explicit ``items`` list passed in by the caller / LLM.
+    2. ``DAXCatalog.get_calculation_group(group_key).items`` from the
+       project's ``dax_library.json``.
+
+    Each item dict may carry:
+      - ``name`` (str, required)
+      - ``expression`` (str, DAX; defaults to ``SELECTEDMEASURE()``)
+      - ``format_string`` (str, static; optional)
+      - ``format_string_definition`` (str, DAX; optional)
+      - ``description`` (str, optional)
+
+    The optional ``format_string_definitions`` argument is a name → DAX
+    mapping applied to items that don't carry their own
+    ``format_string_definition``. Used to pass catalog-level dynamic
+    format expressions that the catalog can't represent inline.
+    """
+    if context is None:
         raise ValueError("add_calculation_group handler requires 'context'.")
-    catalog_path = context.get("dax_catalog_path")
-    if not catalog_path:
-        raise ValueError(
-            "add_calculation_group handler requires 'dax_catalog_path' inside context."
-        )
-    catalog = DAXCatalog.from_file(str(catalog_path))
-    group = catalog.get_calculation_group(group_key)
-    chosen_name = table_name or group.table_name
-    if not context or MODEL_PATH_KEY not in context:
+    if MODEL_PATH_KEY not in context:
         raise ValueError(
             "add_calculation_group handler requires 'model_path' inside context."
         )
     model_path = Path(context[MODEL_PATH_KEY]).expanduser()
+    chosen_name: Optional[str] = table_name
+    catalog_items: List[Dict[str, Any]] = []
+    catalog_precedence: Optional[int] = None
+    catalog_path = context.get("dax_catalog_path")
+    if catalog_path:
+        try:
+            catalog = DAXCatalog.from_file(str(catalog_path))
+        except (FileNotFoundError, ValueError):
+            catalog = None
+        if catalog is not None and group_key is not None:
+            try:
+                group = catalog.get_calculation_group(group_key)
+            except (KeyError, ValueError):
+                group = None
+            if group is not None:
+                chosen_name = chosen_name or group.table_name
+                catalog_items = list(group.items or [])
+                catalog_precedence = group.precedence
+
+    if chosen_name is None:
+        raise ValueError(
+            "add_calculation_group handler could not resolve a table name "
+            "from 'table_name' or the DAX catalog group_key "
+            f"'{group_key}'."
+        )
+
+    effective_precedence = precedence if precedence else (catalog_precedence or 0)
+    effective_items = items if items is not None else catalog_items
+    if not effective_items:
+        raise ValueError(
+            "add_calculation_group handler requires at least one item "
+            "(either via 'items' or via the DAX catalog group_key)."
+        )
+
     model = load_model(model_path) if model_path.exists() else TMDLModel()
-    if model.get_table(chosen_name):
+    existing = model.get_table(chosen_name)
+    if existing and existing.is_calculation_group:
         return {
             "status": "noop",
             "table": chosen_name,
             "model_path": str(model_path),
+            "reason": "calculation group already present",
         }
-    table = TMDLTable(name=chosen_name)
-    table.annotations["calculationGroupPrecedence"] = str(
-        group.precedence or precedence
-    )
-    column = TMDLColumn(name="Name", data_type="string")
-    table.add_column(column)
-    column2 = TMDLColumn(name="Ordinal", data_type="wholeNumber")
-    table.add_column(column2)
-    for ordinal, item in enumerate(group.items, start=1):
-        item_name = item.get("name") or f"Item_{ordinal}"
+    if existing and not existing.is_calculation_group:
+        raise TMDLValidationError(
+            f"Cannot turn table '{chosen_name}' into a calculation group: "
+            "it already exists as a regular table. "
+            "Pick a different table_name or remove the existing table first."
+        )
+
+    table = existing or TMDLTable(name=chosen_name)
+    table.mark_calculation_group(precedence=effective_precedence)
+    # Required discriminator + ordinal columns. If the caller already
+    # added them we leave them alone; otherwise we insert them.
+    if "Name" not in table.columns:
+        table.add_column(TMDLColumn(name="Name", data_type="string"))
+    if "Ordinal" not in table.columns:
+        table.add_column(TMDLColumn(name="Ordinal", data_type="wholeNumber"))
+
+    seen_names: set = set()
+    for ordinal, item in enumerate(effective_items, start=1):
+        if not isinstance(item, dict):
+            raise TMDLValidationError(
+                f"Calculation item #{ordinal} for group '{chosen_name}' "
+                "must be a dict with at least a 'name' field."
+            )
+        item_name = item.get("name")
+        if not item_name:
+            raise TMDLValidationError(
+                f"Calculation item #{ordinal} for group '{chosen_name}' "
+                "is missing a 'name' field."
+            )
+        if item_name in seen_names:
+            raise TMDLValidationError(
+                f"Duplicate calculation item name '{item_name}' in "
+                f"group '{chosen_name}'."
+            )
+        seen_names.add(item_name)
         expression = item.get("expression") or "SELECTEDMEASURE()"
-        format_string = item.get("format_string") or item.get("formatString")
-        table.add_measure(
-            TMDLMeasure(
+        fmt_str = item.get("format_string") or item.get("formatString")
+        fmt_def = item.get("format_string_definition")
+        if fmt_def is None and format_string_definitions:
+            fmt_def = format_string_definitions.get(item_name)
+        table.add_calculation_item(
+            TMDLCalculationItem(
                 name=item_name,
                 expression=expression,
-                format_string=format_string,
+                format_string=fmt_str,
+                format_string_definition=fmt_def,
+                description=item.get("description"),
             )
         )
-    model.add_table(table)
+
+    if not existing:
+        model.add_table(table)
     model_path.write_text(_render_model_body(model), encoding="utf-8")
     return {
         "status": "success",
         "table": chosen_name,
-        "items": [item.get("name") for item in group.items if item.get("name")],
+        "precedence": effective_precedence,
+        "items": [item.name for item in table.calculation_items],
         "model_path": str(model_path),
     }
 
