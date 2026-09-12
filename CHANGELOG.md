@@ -7,6 +7,47 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Object-Level Security (OLS)** — full support for the Microsoft
+  Sept 2025 TMDL grammar:
+  - Canonical nested ``tablePermission Tbl { ... metadataPermission }``
+    and ``columnPermission Col { metadataPermission }`` blocks.
+  - New `TMDLTablePermission` and `TMDLColumnPermission` dataclasses
+    (`TMDLRolePermission` kept as backward-compat alias).
+  - `TMDLRole.add_table_permission()` /
+    `TMDLRole.add_column_permission()` API. Validates
+    `metadata_permission ∈ {"none", "read"}` and refuses to combine
+    filterExpression (RLS) + metadataPermission (OLS) in one block;
+    split them across two tablePermission blocks instead.
+  - `add_ols_role_handler` rebuilt with `table_permissions` /
+    `column_permissions` arguments (new) plus `hidden_tables` /
+    `hidden_columns` (legacy, mirror-populated for back-compat).
+  - `_parse_role` understands the nested form:
+    ``_iter_table_permission_blocks`` finds each `tablePermission`
+    header, `_iter_column_permission_blocks` finds nested
+    `columnPermission` headers. Pre-column body is sliced before
+    extraction so a column's `metadataPermission` doesn't leak into
+    the parent tablePermission.
+  - `_iter_legacy_table_permission_entries` parses the older
+    `tablePermissions = [ "Tbl" = filterExpression: '...' ]`
+    aggregator (the format Power BI emits for RLS).
+  - Renderer deduplicates legacy `hidden_tables` /
+    `hidden_columns` entries that are also represented as nested
+    blocks (no duplicate rules in the output).
+- **System prompt v3** (`REPORT_GENERATION_PROMPT_VERSION = 3`,
+  rule 27 expanded): documents the canonical nested OLS grammar;
+  forbids combining filterExpression + metadataPermission in one
+  block; defaults `metadata_permission` to `none` when the prompt
+  mentions PII / confidential data.
+- **Bundled example** (`example_run.py`): emits an `add_ols_role`
+  step that hides the `SaleId` column from the `SalesPublic` role,
+  producing a working `definition/roles/SalesPublic.tmdl` that
+  Power BI Desktop recognises as OLS.
+- 32 new unit tests in `tests/test_object_level_security.py`
+  covering nested TMDL grammar, parser round-trip, RLS/OLS
+  combinations, validation paths, backward compat, and the bundled
+  example. **457 tests total**, all green.
+
+### Added (previously in [Unreleased], now promoted)
 - **Calculation groups** (`add_calculation_group` tool, new
   `TMDLCalculationItem` dataclass, calc-group rendering in TMDL):
   - Canonical Microsoft TMDL grammar for calc-group tables:

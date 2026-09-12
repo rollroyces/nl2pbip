@@ -59,7 +59,7 @@ from typing import Any, Dict, List, Mapping, Optional
 #: every time :data:`REPORT_GENERATION_SYSTEM_PROMPT` changes. The
 #: orchestrator embeds the version in the planner payload so callers
 #: can pin / inspect the prompt they received.
-REPORT_GENERATION_PROMPT_VERSION: int = 1
+REPORT_GENERATION_PROMPT_VERSION: int = 3
 
 #: Changelog entries are append-only. Each entry has ``version``,
 #: ``date``, and ``changes`` (list of human-readable lines).
@@ -80,6 +80,29 @@ PROMPT_CHANGELOG: List[Dict[str, Any]] = [
             "Add RLS / OLS rules.",
             "Add final package rule.",
             "Add explicit 'use context' rule so the LLM uses paths, project names, and DAX catalog from the payload.",
+        ],
+    },
+    {
+        "version": 2,
+        "date": "2026-09-12",
+        "summary": "Calculation-group rules: dynamic format strings, ISNUMERIC guards, discourage-implicit-measures.",
+        "changes": [
+            "Rule 19 expanded: document the new calculationGroup block syntax and calculationItem 'Name' = DAX form.",
+            "Rule 19 now requires format_string_definition for items whose display format must differ from the underlying measure.",
+            "Rule 19 documents the auto-enabled discourageImplicitMeasures model property.",
+            "Rule 19 forbids per-period measures (YTD/QTD/MTD/PriorYear) when a calc group covers the pattern.",
+            "Rule 19 requires ISNUMERIC(SELECTEDMEASURE()) guards in calculation items that apply math to a SELECTEDMEASURE().",
+        ],
+    },
+    {
+        "version": 3,
+        "date": "2026-09-12",
+        "summary": "OLS rule clarification: prefer table_permissions / column_permissions over hidden_*; metadata_permission values.",
+        "changes": [
+            "Rule 27 expanded: document the new table_permissions / column_permissions arguments for add_ols_role.",
+            "Rule 27 documents the canonical Power BI nested tablePermission / columnPermission grammar.",
+            "Rule 27 forbids combining filterExpression (RLS) with metadataPermission (OLS) in the same tablePermission block.",
+            "Rule 27 defaults metadata_permission to 'none' when the prompt mentions PII / confidential data.",
         ],
     },
 ]
@@ -204,7 +227,18 @@ REPORT_GENERATION_SYSTEM_PROMPT: str = (
     "27. When prompts mention sensitive data, PII, 'hide salary "
     "column', or 'restrict access to employee table', add an "
     "`add_ols_role` tool call so `metadataPermission` is set to "
-    "`none` where needed.\n"
+    "`none` where needed. OLS rules use Power BI's nested "
+    "`tablePermission` / `columnPermission` blocks — prefer the "
+    "`table_permissions` and `column_permissions` arguments over "
+    "the legacy `hidden_tables` / `hidden_columns`. "
+    "`metadata_permission` is `none` (hide from role) or `read` "
+    "(allow; Power BI's default is `read` when no rule is listed). "
+    "Combining `filterExpression` (RLS) and `metadataPermission` "
+    "(OLS) in the same tablePermission block is invalid — emit "
+    "them as separate `table_permissions` entries on the same role. "
+    'When the prompt mentions "PII", "salary", "SSN", '
+    '"private", or "confidential", default `metadata_permission` '
+    "to `none` (hide) — never `read`.\n"
     "\n"
     "FINAL STEP\n"
     "28. Always finish with a `package_pbip` tool call. "

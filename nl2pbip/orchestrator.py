@@ -798,19 +798,77 @@ DEFAULT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     },
     {
         "name": "add_ols_role",
-        "description": "Create an object-level security role to hide tables or columns via metadataPermission: none.",
+        "description": (
+            "Create an object-level security (OLS) role to hide tables or "
+            "columns. Power BI Desktop emits nested tablePermission / "
+            "columnPermission blocks per the Sept 2025 TMDL spec. "
+            "metadata_permission is 'none' (hide from role) or 'read' "
+            "(allow; default in Power BI Desktop)."
+        ),
         "schema": {
             "type": "object",
             "required": ["role_name"],
             "properties": {
                 "role_name": {"type": "string"},
-                "model_permission": {"type": "string"},
+                "model_permission": {
+                    "type": "string",
+                    "description": (
+                        "Top-level modelPermission. Power BI defaults "
+                        "to 'read' when omitted."
+                    ),
+                },
+                "table_permissions": {
+                    "type": "array",
+                    "description": (
+                        "OLS rules at table level. Each entry is "
+                        "{table_name, metadata_permission} where "
+                        "metadata_permission is 'none' or 'read'."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "required": ["table_name"],
+                        "properties": {
+                            "table_name": {"type": "string"},
+                            "metadata_permission": {
+                                "type": "string",
+                                "enum": ["none", "read"],
+                            },
+                        },
+                    },
+                },
+                "column_permissions": {
+                    "type": "array",
+                    "description": (
+                        "OLS rules at column level. Each entry is "
+                        "{table_name, column_name, metadata_permission}."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "required": ["table_name", "column_name"],
+                        "properties": {
+                            "table_name": {"type": "string"},
+                            "column_name": {"type": "string"},
+                            "metadata_permission": {
+                                "type": "string",
+                                "enum": ["none", "read"],
+                            },
+                        },
+                    },
+                },
                 "hidden_tables": {
                     "type": "array",
+                    "description": (
+                        "Legacy alias for table_permissions. Each "
+                        "entry is a table name; emitted as metadataPermission = none."
+                    ),
                     "items": {"type": "string"},
                 },
                 "hidden_columns": {
                     "type": "array",
+                    "description": (
+                        "Legacy alias for column_permissions with "
+                        "metadataPermission = none."
+                    ),
                     "items": {
                         "type": "object",
                         "required": ["table_name", "column_name"],

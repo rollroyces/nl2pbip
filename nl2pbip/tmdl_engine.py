@@ -383,37 +383,217 @@ class TMDLRelationship:
 
 
 @dataclass
-class TMDLRolePermission:
+class TMDLColumnPermission:
+    """OLS column-level permission entry.
+
+    ``metadata_permission`` is either ``"none"`` (hide the column from
+    the role) or ``"read"`` (allow read access; the default in Power BI
+    Desktop is to allow read unless explicitly hidden).
+    """
+
     table_name: str
-    filter_expression: str
+    column_name: str
+    metadata_permission: str = "none"
+
+
+@dataclass
+class TMDLTablePermission:
+    """OLS / RLS table-level permission entry.
+
+    Used both for RLS row filters (``filterExpression``) and OLS
+    whole-table hiding (``metadataPermission``). The two are mutually
+    exclusive per Microsoft spec — a single ``tablePermission`` block
+    carries either filterExpression *or* metadataPermission, not both.
+    Nested ``columnPermission`` blocks carry OLS column-level permissions.
+    """
+
+    table_name: str
+    filter_expression: Optional[str] = None
+    metadata_permission: Optional[str] = None
+    columns: List[TMDLColumnPermission] = field(default_factory=list)
+
+
+# Backwards-compat alias. Older call sites (and external callers that
+# imported the dataclass) still get a class with the same shape.
+TMDLRolePermission = TMDLTablePermission
 
 
 @dataclass
 class TMDLRole:
     name: str
     model_permission: Optional[str] = None
-    table_permissions: List[TMDLRolePermission] = field(default_factory=list)
+    table_permissions: List[TMDLTablePermission] = field(default_factory=list)
     hidden_tables: List[str] = field(default_factory=list)
     hidden_columns: List[Tuple[str, str]] = field(default_factory=list)
+    # New OLS-native representation. When populated, ``to_tmdl`` emits
+    # nested ``tablePermission`` / ``columnPermission`` blocks per the
+    # Microsoft TMDL spec instead of the inline ``"Table" = metadataPermission
+    # = none`` syntax. Both representations coexist: the legacy
+    # ``hidden_tables`` / ``hidden_columns`` fields still parse and emit
+    # valid TMDL for backward compatibility, but new code should use the
+    # table-level / column-level permission lists directly.
+    table_permissions_metadata: Dict[str, str] = field(default_factory=dict)
+    column_permissions_metadata: Dict[Tuple[str, str], str] = field(
+        default_factory=dict
+    )
+
+    def add_table_permission(
+        self,
+        table_name: str,
+        metadata_permission: Optional[str] = None,
+        filter_expression: Optional[str] = None,
+    ) -> None:
+        """Register an OLS table-level permission (or RLS row filter).
+
+        Validates that ``metadata_permission`` is one of ``"none"`` or
+        ``"read"``. If both ``metadata_permission`` and
+        ``filter_expression`` are supplied, the handler raises — a single
+        tablePermission block can carry only one of them per Microsoft
+        spec.
+
+        Calling this method twice on the same table with the *same*
+        aspect (e.g. metadata_permission both times) updates the
+        existing entry in place. Calling it twice with *different*
+        aspects (e.g. once with filter_expression, once with
+        metadata_permission) creates two separate tablePermission
+        entries — one per aspect — so the result is two distinct
+        ``tablePermission`` blocks in the rendered TMDL.
+        """
+        if metadata_permission is not None:
+            self._validate_metadata_permission(metadata_permission, table_name)
+        if metadata_permission is not None and filter_expression is not None:
+            raise TMDLValidationError(
+                f"Table '{table_name}' permission block cannot carry both "
+                "metadataPermission and filterExpression."
+            )
+        existing = self._find_table_permission(table_name)
+        if existing is not None:
+            # If the existing entry already covers the same aspect,
+            # update it in place. Otherwise (different aspect, or the
+            # existing entry has no aspect set yet) create a sibling
+            # entry so the two aspects end up as two distinct
+            # tablePermission blocks.
+            existing_filter = existing.filter_expression is not None
+            existing_metadata = existing.metadata_permission is not None
+            new_filter = filter_expression is not None
+            new_metadata = metadata_permission is not None
+            if (new_filter and existing_filter) or (new_metadata and existing_metadata):
+                if metadata_permission is not None:
+                    existing.metadata_permission = metadata_permission
+                if filter_expression is not None:
+                    existing.filter_expression = filter_expression
+                return
+            if not existing_filter and not existing_metadata:
+                # Existing entry has no aspect yet — fill it in.
+                if metadata_permission is not None:
+                    existing.metadata_permission = metadata_permission
+                if filter_expression is not None:
+                    existing.filter_expression = filter_expression
+                return
+            # Existing covers one aspect; new call covers the other.
+            # Create a sibling entry so both render as separate blocks.
+        self.table_permissions.append(
+            TMDLTablePermission(
+                table_name=table_name,
+                filter_expression=filter_expression,
+                metadata_permission=metadata_permission,
+            )
+        )
+
+    def add_column_permission(
+        self, table_name: str, column_name: str, metadata_permission: str = "none"
+    ) -> None:
+        """Register an OLS column-level permission."""
+        self._validate_metadata_permission(metadata_permission, column_name)
+        existing_table = self._find_table_permission(table_name)
+        if existing_table is None:
+            existing_table = TMDLTablePermission(table_name=table_name)
+            self.table_permissions.append(existing_table)
+        for col in existing_table.columns:
+            if col.column_name == column_name:
+                col.metadata_permission = metadata_permission
+                return
+        existing_table.columns.append(
+            TMDLColumnPermission(
+                table_name=table_name,
+                column_name=column_name,
+                metadata_permission=metadata_permission,
+            )
+        )
+
+    def _find_table_permission(
+        self, table_name: str
+    ) -> Optional["TMDLTablePermission"]:
+        for perm in self.table_permissions:
+            if perm.table_name == table_name:
+                return perm
+        return None
+
+    @staticmethod
+    def _validate_metadata_permission(value: str, target: str) -> None:
+        if value not in ("none", "read"):
+            raise TMDLValidationError(
+                f"metadataPermission for '{target}' must be 'none' or 'read'; "
+                f"got {value!r}."
+            )
 
     def to_tmdl(self) -> str:
+        """Render the role block per Microsoft TMDL spec (Sept 2025).
+
+        Grammar (from learn.microsoft.com):
+
+            role CategoriesOLS
+                modelPermission: read
+
+                tablePermission Customers
+                    metadataPermission: none
+
+            role CategoriesOLS
+                modelPermission: read
+
+                tablePermission Customers
+                    columnPermission Address
+                        metadataPermission: none
+        """
         lines: List[str] = [f'role "{self.name}" {{']
         if self.model_permission:
-            lines.append(f'  modelPermission = "{self.model_permission}"')
-        if self.table_permissions:
-            lines.append("  tablePermissions = [")
-            for perm in self.table_permissions:
+            lines.append(f"  modelPermission = {self.model_permission}")
+        # Emit each table permission as a nested block.
+        for perm in self.table_permissions:
+            lines.append(f"  tablePermission {perm.table_name}")
+            if perm.filter_expression is not None:
                 expr = perm.filter_expression.strip()
-                lines.append(
-                    "    "
-                    + f"\"{perm.table_name}\" = filterExpression: ''\n      {expr}\n      ''"
-                )
-            lines.append("  ]")
+                lines.append(f"    filterExpression: ''\n      {expr}\n      ''")
+            if perm.metadata_permission is not None:
+                lines.append(f"    metadataPermission = {perm.metadata_permission}")
+            for col in perm.columns:
+                lines.append(f"    columnPermission {col.column_name}")
+                lines.append(f"      metadataPermission = {col.metadata_permission}")
+        # Legacy / backward-compat rendering: emit the inline form
+        # only for entries that aren't already represented as nested
+        # ``tablePermission`` blocks. Otherwise we'd produce duplicate
+        # rules (one nested, one inline) that Power BI Desktop would
+        # reject on save.
+        nested_table_names = {
+            p.table_name
+            for p in self.table_permissions
+            if p.metadata_permission is not None
+        }
+        nested_column_keys = {
+            (perm.table_name, col.column_name)
+            for perm in self.table_permissions
+            for col in perm.columns
+        }
         for table in self.hidden_tables:
+            if table in nested_table_names:
+                continue
             lines.append(f'  "{table}" = metadataPermission = none')
         for table_name, column_name in self.hidden_columns:
+            if (table_name, column_name) in nested_column_keys:
+                continue
             lines.append(
-                f'  "{table_name}" = column "{column_name}" metadataPermission = none'
+                f'  "{table_name}" = column "{column_name}" '
+                "metadataPermission = none"
             )
         lines.append("}")
         return "\n".join(lines)
@@ -475,7 +655,7 @@ _SECTION_PATTERN = re.compile(
     r"'(?P<sname>[^']+)'|"  # single-quoted: 'Time Intelligence'
     r"(?P<name>\S+)"  # bare identifier: Sales
     r")\s*\{",
-    re.IGNORECASE,
+    re.IGNORECASE | re.DOTALL,
 )
 
 
@@ -803,14 +983,129 @@ def _parse_role(name: str, body: str) -> TMDLRole:
     role = TMDLRole(
         name=name, model_permission=_extract_scalar(body, "modelPermission")
     )
+    # Legacy RLS path: ``tablePermissions = [ "Tbl" = filterExpression: '...' ]``
     block = _find_block(body, "tablePermissions")
     if block:
-        for perm_name, perm_body in _iter_named_blocks(block):
-            expr = _extract_expression(perm_body) or ""
+        # The legacy aggregator format uses an entry of the form
+        # ``"Tbl" = filterExpression: '\n  <expr>\n  '``. Parse these
+        # inline (no braces) since the brace-based ``_iter_named_blocks``
+        # would skip them.
+        for perm_name, expr in _iter_legacy_table_permission_entries(block):
             role.table_permissions.append(
                 TMDLRolePermission(table_name=perm_name, filter_expression=expr)
             )
+    # Microsoft Sept 2025 OLS path: nested ``tablePermission Tbl { ... }``
+    # blocks. Each block may carry ``filterExpression`` (RLS),
+    # ``metadataPermission`` (OLS whole-table), or nested
+    # ``columnPermission`` blocks (OLS column-level).
+    for table_name, perm_body in _iter_table_permission_blocks(body):
+        # Only look for metadataPermission / filterExpression in the
+        # text BEFORE the first columnPermission block — anything
+        # inside a columnPermission block belongs to that column, not
+        # to the parent tablePermission.
+        column_blocks = list(_iter_column_permission_blocks(perm_body))
+        # Reconstruct the "pre-column" body by slicing the perm_body
+        # from its start up to the start of the first columnPermission
+        # match. column_blocks yielded (name, body_after_header) — we
+        # need the offset of the header itself. Scan for the header.
+        pre_body = perm_body
+        if column_blocks:
+            first_col_header = _COLUMN_PERMISSION_HEADER.search(perm_body)
+            if first_col_header is not None:
+                pre_body = perm_body[: first_col_header.start()]
+        metadata_permission = _extract_scalar(pre_body, "metadataPermission")
+        filter_expression = _extract_expression(pre_body)
+        try:
+            role.add_table_permission(
+                table_name=table_name,
+                metadata_permission=metadata_permission,
+                filter_expression=filter_expression,
+            )
+        except TMDLValidationError:
+            # If both metadataPermission and filterExpression are
+            # present, fall back to keeping the RLS filter and the OLS
+            # rule as separate entries — the schema enforces no such
+            # overlap, but real-world PBIP files occasionally mix them.
+            if filter_expression is not None:
+                role.add_table_permission(
+                    table_name=table_name, filter_expression=filter_expression
+                )
+            if metadata_permission is not None:
+                role.add_table_permission(
+                    table_name=table_name,
+                    metadata_permission=metadata_permission,
+                )
+        for column_name, col_body in column_blocks:
+            col_metadata = _extract_scalar(col_body, "metadataPermission")
+            if col_metadata is not None:
+                role.add_column_permission(
+                    table_name=table_name,
+                    column_name=column_name,
+                    metadata_permission=col_metadata,
+                )
     return role
+
+
+_TABLE_PERMISSION_HEADER = re.compile(
+    r"^\s*tablePermission\s+(?P<name>[A-Za-z_][\w]*)\s*$", re.IGNORECASE | re.MULTILINE
+)
+_COLUMN_PERMISSION_HEADER = re.compile(
+    r"^\s*columnPermission\s+(?P<name>[A-Za-z_][\w]*)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_LEGACY_TABLE_PERM_ENTRY = re.compile(
+    r"\"(?P<name>[^\"]+)\"\s*=\s*filterExpression\s*:\s*\'(?P<expr>.*?)\'",
+    re.DOTALL,
+)
+
+
+def _iter_legacy_table_permission_entries(
+    block: str,
+) -> Iterable[Tuple[str, str]]:
+    """Yield ``(table_name, filter_expression)`` for each legacy
+    ``tablePermissions = [ ... ]`` aggregator entry.
+
+    The legacy format embeds the table name as a string literal and the
+    filter as a single-quoted DAX expression. There are no braces, so
+    ``_iter_named_blocks`` can't find them — this regex scans the
+    block instead.
+    """
+    for match in _LEGACY_TABLE_PERM_ENTRY.finditer(block):
+        yield match.group("name"), match.group("expr").strip()
+
+
+def _iter_table_permission_blocks(body: str) -> Iterable[Tuple[str, str]]:
+    """Yield ``(table_name, inner_body)`` for each ``tablePermission Tbl``
+    block in the role body.
+
+    Each ``tablePermission`` declaration is followed by an indented
+    block that may contain ``filterExpression``, ``metadataPermission``,
+    or nested ``columnPermission`` declarations. The returned inner
+    body is the text between the tablePermission header and the next
+    sibling line of equal or lesser indentation.
+    """
+    matches = list(_TABLE_PERMISSION_HEADER.finditer(body))
+    for index, match in enumerate(matches):
+        name = match.group("name")
+        # The inner body starts on the next line and ends at the next
+        # non-indented line or at the start of the next
+        # ``tablePermission`` header, whichever comes first.
+        start = match.end()
+        next_match = matches[index + 1] if index + 1 < len(matches) else None
+        end = next_match.start() if next_match is not None else len(body)
+        yield name, body[start:end].rstrip()
+
+
+def _iter_column_permission_blocks(body: str) -> Iterable[Tuple[str, str]]:
+    """Yield ``(column_name, inner_body)`` for each ``columnPermission Col``
+    block nested inside a tablePermission body."""
+    matches = list(_COLUMN_PERMISSION_HEADER.finditer(body))
+    for index, match in enumerate(matches):
+        name = match.group("name")
+        start = match.end()
+        next_match = matches[index + 1] if index + 1 < len(matches) else None
+        end = next_match.start() if next_match is not None else len(body)
+        yield name, body[start:end].rstrip()
 
 
 def _find_block(text: str, key: str) -> Optional[str]:
@@ -856,18 +1151,31 @@ def _extract_scalar(body: str, key: str) -> Optional[str]:
 
 
 def _extract_expression(body: str) -> Optional[str]:
-    """Extract a triple-quoted expression body, if present."""
+    """Extract a triple-quoted expression body, if present.
+
+    Recognises both ``expression = '''…'''`` (TMDL standard) and
+    ``filterExpression: ''\n…\n''`` (the older Analysis-Services 1400
+    format that Power BI TMDL still emits for RLS row filters).
+    """
     match = re.search(r"expression\s*=\s*'''", body)
-    if not match:
-        single = re.search(r"expression\s*=\s*([^\n]+)", body)
-        if single:
-            return single.group(1).strip()
-        return None
-    start = match.end()
-    end = body.find("'''", start)
-    if end == -1:
-        return body[start:].strip()
-    return body[start:end].strip()
+    if match:
+        start = match.end()
+        end = body.find("'''", start)
+        if end == -1:
+            return body[start:].strip()
+        return body[start:end].strip()
+    # filterExpression: '' ... '' form
+    filter_match = re.search(r"filterExpression\s*:\s*'", body)
+    if filter_match:
+        start = filter_match.end()
+        end = body.find("'", start)
+        if end == -1:
+            return body[start:].strip()
+        return body[start:end].strip()
+    single = re.search(r"expression\s*=\s*([^\n]+)", body)
+    if single:
+        return single.group(1).strip()
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1512,19 +1820,93 @@ def add_ols_role_handler(
     role_name: str,
     hidden_tables: Optional[List[str]] = None,
     hidden_columns: Optional[List[Dict[str, Any]]] = None,
+    table_permissions: Optional[List[Dict[str, Any]]] = None,
+    column_permissions: Optional[List[Dict[str, Any]]] = None,
     model_permission: Optional[str] = None,
     context: Optional[Dict[str, Any]] = None,
     **_: Any,
 ) -> Dict[str, Any]:
+    """Materialise an Object-Level Security (OLS) role.
+
+    Power BI Desktop (Sept 2025) declares OLS rules via nested
+    ``tablePermission`` / ``columnPermission`` blocks::
+
+        role CategoriesOLS
+            modelPermission = read
+            tablePermission Customers
+                metadataPermission = none
+            tablePermission Customers
+                columnPermission Address
+                    metadataPermission = none
+
+    Inputs accepted (in priority order):
+
+    * ``table_permissions`` — list of
+      ``{table_name, metadata_permission}`` dicts for whole-table OLS.
+    * ``column_permissions`` — list of
+      ``{table_name, column_name, metadata_permission}`` dicts for
+      column-level OLS.
+    * ``hidden_tables`` / ``hidden_columns`` (legacy) — same data,
+      rendered in the inline ``"Table" = metadataPermission = none``
+      form for backward compatibility with code written before this PR.
+
+    At least one OLS rule must be supplied, otherwise
+    :class:`TMDLValidationError` is raised.
+
+    ``metadata_permission`` must be ``"none"`` (hide) or ``"read"``
+    (allow). Power BI defaults to ``read`` for objects not explicitly
+    listed, so this handler only emits rules that differ from the
+    default.
+    """
     if not context or MODEL_PATH_KEY not in context:
         raise ValueError("add_ols_role handler requires 'model_path' inside context.")
-    if not hidden_tables and not hidden_columns:
+    if not any([table_permissions, column_permissions, hidden_tables, hidden_columns]):
         raise TMDLValidationError(
-            "add_ols_role requires at least one hidden table or hidden column."
+            "add_ols_role requires at least one table permission, "
+            "column permission, hidden table, or hidden column."
         )
     role = TMDLRole(name=role_name, model_permission=model_permission)
+    if table_permissions:
+        for entry in table_permissions:
+            if not isinstance(entry, dict):
+                raise TMDLValidationError("table_permissions entries must be objects.")
+            table_name = entry.get("table_name") or entry.get("tableName")
+            if not table_name:
+                raise TMDLValidationError(
+                    "table_permissions entries must include 'table_name'."
+                )
+            metadata_permission = entry.get(
+                "metadata_permission", entry.get("metadataPermission", "none")
+            )
+            role.add_table_permission(
+                table_name=table_name, metadata_permission=metadata_permission
+            )
+    if column_permissions:
+        for entry in column_permissions:
+            if not isinstance(entry, dict):
+                raise TMDLValidationError("column_permissions entries must be objects.")
+            table_name = entry.get("table_name") or entry.get("tableName")
+            column_name = entry.get("column_name") or entry.get("columnName")
+            if not table_name or not column_name:
+                raise TMDLValidationError(
+                    "column_permissions entries must include "
+                    "'table_name' and 'column_name'."
+                )
+            metadata_permission = entry.get(
+                "metadata_permission", entry.get("metadataPermission", "none")
+            )
+            role.add_column_permission(
+                table_name=table_name,
+                column_name=column_name,
+                metadata_permission=metadata_permission,
+            )
     if hidden_tables:
-        role.hidden_tables.extend(hidden_tables)
+        for table_name in hidden_tables:
+            role.add_table_permission(table_name=table_name, metadata_permission="none")
+            # Mirror into the legacy ``hidden_tables`` list so the
+            # handler response still includes the original input
+            # representation for callers that read it back.
+            role.hidden_tables.append(table_name)
     if hidden_columns:
         for entry in hidden_columns:
             if not isinstance(entry, dict):
@@ -1535,11 +1917,30 @@ def add_ols_role_handler(
                 raise TMDLValidationError(
                     "hidden_columns entries must include 'table_name' and 'column_name'."
                 )
+            role.add_column_permission(
+                table_name=table_name,
+                column_name=column_name,
+                metadata_permission="none",
+            )
             role.hidden_columns.append((table_name, column_name))
     target = _save_role(context, role)
     return {
         "status": "success",
         "role": role_name,
+        "table_permissions": [
+            {"table_name": p.table_name, "metadata_permission": p.metadata_permission}
+            for p in role.table_permissions
+            if p.metadata_permission is not None
+        ],
+        "column_permissions": [
+            {
+                "table_name": col.table_name,
+                "column_name": col.column_name,
+                "metadata_permission": col.metadata_permission,
+            }
+            for perm in role.table_permissions
+            for col in perm.columns
+        ],
         "hidden_tables": role.hidden_tables,
         "hidden_columns": [
             {"table_name": t, "column_name": c} for t, c in role.hidden_columns
@@ -1554,9 +1955,12 @@ __all__ = [
     "TMDLTable",
     "TMDLColumn",
     "TMDLMeasure",
+    "TMDLCalculationItem",
     "TMDLRelationship",
     "TMDLRole",
     "TMDLRolePermission",
+    "TMDLTablePermission",
+    "TMDLColumnPermission",
     "VALID_DATA_TYPES",
     "create_table_handler",
     "add_measure_handler",
