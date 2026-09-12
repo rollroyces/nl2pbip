@@ -361,6 +361,79 @@ def test_benchmark_orchestrator_end_to_end(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 6b. Reflection loop overhead
+# ---------------------------------------------------------------------------
+
+
+def test_benchmark_orchestrator_with_reflection(tmp_path: Path) -> None:
+    """``run_with_reflection`` adds a critic LLM call after success.
+
+    Measures the additional cost of the post-success critic pass on
+    top of the plain ``run`` path. The critic is a stub LLM that
+    returns a high-score JSON, so no reflection rounds fire.
+    """
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    model_path = artifact_dir / "semantic_workspace" / "model.tmdl"
+    report_path = artifact_dir / "report_workspace.json"
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+
+    from nl2pbip.example_run import build_sample_plan
+    from nl2pbip.orchestrator import Orchestrator, register_builtin_tools
+
+    plan = build_sample_plan(artifact_dir)
+
+    class StaticPlanLLM:
+        def generate(self, messages: List[Dict[str, str]]) -> str:  # type: ignore[override]
+            return json.dumps(plan, indent=2)
+
+    class HighScoreCritic:
+        def generate(self, messages: List[Dict[str, str]]) -> str:  # type: ignore[override]
+            return json.dumps(
+                {
+                    "scores": {
+                        "correctness": 0.9,
+                        "completeness": 0.9,
+                        "alignment_with_prompt": 0.9,
+                    },
+                    "suggestions": [],
+                }
+            )
+
+    orchestrator = Orchestrator(llm_client=StaticPlanLLM())
+    register_builtin_tools(orchestrator)
+
+    ctx = {
+        MODEL_PATH_KEY: str(model_path),
+        REPORT_PATH_KEY: str(report_path),
+    }
+
+    def run() -> int:
+        for path in [model_path, report_path]:
+            if path.exists():
+                path.unlink()
+        roles_dir = model_path.parent / ".roles"
+        if roles_dir.exists():
+            import shutil
+
+            shutil.rmtree(roles_dir)
+        trace = orchestrator.run_with_reflection(
+            "exec",
+            context=ctx,
+            critic=HighScoreCritic(),
+            max_reflection_rounds=0,
+        )
+        return len(trace.final_results) if trace.final_results else 0
+
+    stats = _timeit(run, iterations=5)
+    _print_benchmark("orchestrator_with_reflection", stats)
+    assert stats["median_ms"] < 5000.0, (
+        f"Reflection loop too slow: {stats['median_ms']:.1f}ms "
+        "(expected < 5000ms median)"
+    )
+
+
+# ---------------------------------------------------------------------------
 # 7. Parser-only throughput (TMDL text → TMDLModel)
 # ---------------------------------------------------------------------------
 
