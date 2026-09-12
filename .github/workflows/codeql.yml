@@ -1,4 +1,4 @@
-name: CodeQL
+name: "CodeQL"
 
 on:
   push:
@@ -6,24 +6,46 @@ on:
   pull_request:
     branches: [main, master]
   schedule:
+    # Weekly on Monday so we catch newly-disclosed
+    # vulnerabilities in dependencies even when no PR is open.
     - cron: "17 11 * * 1"
 
 jobs:
   analyze:
+    name: Analyze Python
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # CodeQL needs ``security-events: write`` to upload the
+    # SARIF results to the GitHub Security tab. Without this,
+    # GitHub rejects the workflow at parse time (no jobs run).
     permissions:
-      security-events: write
       contents: read
+      security-events: write
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
+          # Exclude regenerated / virtualenv trees from CodeQL
+          # scanning. ``paths-ignore`` is a checkout option (not
+          # a codeql-action option, which is why it lives here).
+          # NOTE: GitHub Actions rejects the ``- item`` list form
+          # for paths-ignore when items contain glob characters
+          # (``**`` etc). Block scalar (``|``) below is the
+          # format that actually parses.
           paths-ignore: |
             .venv
             .pytest_cache
             .ruff_cache
             artifacts
             **/__pycache__
-      - uses: github/codeql-action/init@v3
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
         with:
           languages: python
-      - uses: github/codeql-action/analyze@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"
