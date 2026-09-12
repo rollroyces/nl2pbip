@@ -570,9 +570,32 @@ Many tests are parametrised, which is why `pytest --collect-only` reports 398 ca
 - Browse `tests/test_data_understanding.py` for a realistic end-to-end scenario with FK orphans and cardinality hints.
 - If you hit a runtime error, see the [Troubleshooting](#troubleshooting) and [Limitations](#limitations) tables above for common causes and workarounds.
 - For token / cost budgeting across report-generation runs, see [Performance & cost](#performance--cost).
+- For raw throughput numbers (200-table round-trip, calc-group / OLS / field-param rendering rates, end-to-end orchestrator latency), see [Performance benchmarks](#performance-benchmarks).
 - Extend `dax_library.json` with your own calculation groups and measure templates so planners lean on approved logic.
 - Register your raw data via `context["data_sources"]` so the LLM gets FK coverage, P50 of numeric columns, and schema.org vocabulary anchors rather than guessing.
 - Pin a specific prompt version via the planner payload's `prompt_meta.version` block for reproducible plan generation.
+
+## Performance benchmarks
+
+Opt-in benchmark suite (`NL2PBIP_RUN_BENCHMARKS=1`):
+
+```bash
+NL2PBIP_RUN_BENCHMARKS=1 pytest tests/test_performance.py -s
+```
+
+| Path | Median | Throughput |
+|---|---:|---:|
+| Writer (200-table model → TMDL text) | 0.9 ms | 1,148 ops/sec |
+| Parser (200-table TMDL → model) | 62 ms | 16 ops/sec |
+| Writer + parser round-trip | 60 ms | 17 ops/sec |
+| Large file write (200 tables, disk I/O) | 63 ms | 16 ops/sec |
+| Calc-group, 10 items | 0.4 ms | 2,596 ops/sec |
+| Calc-group, 100 items | 3.5 ms | 288 ops/sec |
+| Field-param render, 50 members | 0.01 ms | 89,718 ops/sec |
+| OLS role render, 50 tables | 0.03 ms | 30,769 ops/sec |
+| Orchestrator end-to-end (10-step plan) | 6 ms | 170 ops/sec |
+
+**Parser is ~70× slower than the writer** for the 200-table model. The bottleneck is column extraction and the `add_column` validation checks inside `_parse_table`. If you have models bigger than ~200 tables and need faster round-trip, profile with `cProfile` before optimising.
 - Wire `python -m nl2pbip.cli generate` into deployment automation (e.g., GitHub Actions + `pbi-tools push`) to continuously ship fully reproducible Power BI apps from natural-language specs.
 
 ## License
