@@ -67,7 +67,11 @@ jobs:
         run: ruff check .
 
       - name: Run tests
-        run: pytest -v --cov=nl2pbip --cov-report=term-missing --cov-report=xml
+        # Skip test_finetune.py because it requires the heavy
+        # ``finetune`` extra (datasets, transformers, trl) which
+        # isn't installed in CI. Run those tests locally with
+        # ``pip install -e ".[finetune]"``.
+        run: pytest -v --cov=nl2pbip --cov-report=term-missing --cov-report=xml --ignore=tests/test_finetune.py
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12'
