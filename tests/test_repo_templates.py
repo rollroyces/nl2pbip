@@ -298,6 +298,51 @@ class TestCIWorkflow:
 # ---------------------------------------------------------------------------
 
 
+class TestCodeQLWorkflow:
+    """The codeql.yml workflow had a real bug — ``paths-ignore``
+    was attached to ``codeql-action/init`` (which doesn't accept
+    that input) instead of ``actions/checkout``. Every push failed
+    with a malformed-workflow error. These tests lock in the
+    fix so the regression can't sneak back in."""
+
+    def test_paths_ignore_only_on_checkout(self) -> None:
+        """paths-ignore is a checkout option; placing it on any
+        other step is invalid and causes the workflow to fail at
+        parse time on GitHub."""
+        data = yaml.safe_load((REPO_ROOT / ".github/workflows/codeql.yml").read_text())
+        for step in data["jobs"]["analyze"]["steps"]:
+            if "paths-ignore" in step.get("with", {}):
+                # Found a step using paths-ignore. It MUST be the
+                # actions/checkout step.
+                uses = step.get("uses", "")
+                assert uses.startswith("actions/checkout"), (
+                    f"paths-ignore must live on actions/checkout, "
+                    f"not on {uses!r}. The codeql-action does not "
+                    "accept this input and the workflow will fail "
+                    "to parse."
+                )
+
+    def test_codeql_init_has_languages(self) -> None:
+        data = yaml.safe_load((REPO_ROOT / ".github/workflows/codeql.yml").read_text())
+        for step in data["jobs"]["analyze"]["steps"]:
+            uses = step.get("uses", "")
+            if uses.startswith("github/codeql-action/init"):
+                with_block = step.get("with", {})
+                assert (
+                    "languages" in with_block
+                ), "codeql-action/init requires 'languages' input."
+
+    def test_codeql_analyze_has_category(self) -> None:
+        data = yaml.safe_load((REPO_ROOT / ".github/workflows/codeql.yml").read_text())
+        for step in data["jobs"]["analyze"]["steps"]:
+            uses = step.get("uses", "")
+            if uses.startswith("github/codeql-action/analyze"):
+                with_block = step.get("with", {})
+                assert (
+                    "category" in with_block
+                ), "codeql-action/analyze requires 'category' input."
+
+
 class TestReleaseWorkflow:
     def test_release_has_publish_job(self) -> None:
         data = yaml.safe_load((REPO_ROOT / ".github/workflows/release.yml").read_text())
