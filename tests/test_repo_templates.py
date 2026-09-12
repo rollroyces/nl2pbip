@@ -344,7 +344,9 @@ class TestCodeQLWorkflow:
 
     def test_codeql_workflow_has_security_events_write(self) -> None:
         """GitHub rejects the workflow at parse time (no jobs run)
-        if ``security-events: write`` is missing from the workflow."""
+        if ``security-events: write`` is missing from the workflow.
+        The permission can live at the top level OR inside the job;
+        accept either, as long as the analyze job declares it."""
         data = yaml.safe_load((REPO_ROOT / ".github/workflows/codeql.yml").read_text())
         job = data["jobs"]["analyze"]
         perms = data.get("permissions", {})
@@ -358,6 +360,45 @@ class TestCodeQLWorkflow:
             "Without it, GitHub rejects the workflow before any "
             "job runs."
         )
+
+    def test_codeql_paths_ignore_uses_block_scalar(self) -> None:
+        """``paths-ignore`` rejects the ``- item`` list form when
+        any item contains a glob character (``**`` etc). GitHub
+        Actions' workflow parser silently fails the whole
+        workflow at parse time (no jobs run, fallback to
+        path-based default name). Use the block-scalar form
+        (``paths-ignore: |`` with one pattern per line) instead.
+
+        Regression test for the 2026-09-12 incident where PR #23
+        + #27 + #28 fixed the same symptom three times before
+        root-causing it to the YAML shape."""
+        text = (REPO_ROOT / ".github/workflows/codeql.yml").read_text()
+        # Either block scalar OR no paths-ignore at all (also OK).
+        # We forbid: list form with a glob character in any item.
+        import re
+
+        in_paths_ignore = False
+        for raw in text.splitlines():
+            stripped = raw.strip()
+            if stripped.startswith("paths-ignore"):
+                # Capture the form: either ``paths-ignore: |`` or
+                # ``paths-ignore:`` followed by a list.
+                in_paths_ignore = True
+                continue
+            if in_paths_ignore:
+                if not raw.startswith(" ") and raw.strip() != "":
+                    # Left the paths-ignore block.
+                    in_paths_ignore = False
+                    continue
+                # If we see a list item containing ``**``, fail.
+                if stripped.startswith("- ") and "**" in stripped:
+                    pytest.fail(
+                        "paths-ignore uses the - item list form with a "
+                        "glob character ('**'). GitHub Actions rejects "
+                        "this at parse time. Use the block-scalar "
+                        "form (paths-ignore: |) instead.\n"
+                        f"Offending line: {raw!r}"
+                    )
 
 
 class TestReleaseWorkflow:
