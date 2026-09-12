@@ -7,6 +7,18 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Performance benchmark suite** (`tests/test_performance.py`): 12
+  benchmarks covering the TMDL writer / parser round-trip (200
+  tables, 800 measures), calc-group rendering at 10 / 50 / 100 items,
+  field-parameter rendering at 10 / 50 members, OLS role rendering
+  at 10 / 50 tables, large file write to disk, and end-to-end
+  orchestrator latency. Opt-in via `NL2PBIP_RUN_BENCHMARKS=1`
+  environment variable; otherwise the suite is skipped by default so
+  the standard CI run isn't slowed down.
+- **README**: new **Performance benchmarks** section with the
+  throughput table (writer 1,148 ops/sec, parser 16 ops/sec, etc.)
+  and the bottleneck note that the parser is ~70× slower than the
+  writer on the 200-table model.
 - **Field Parameters** (`add_field_parameter` tool): first-class support
   for Power BI's dynamic-measure / dynamic-column / dynamic-table
   switching via a slicer:
