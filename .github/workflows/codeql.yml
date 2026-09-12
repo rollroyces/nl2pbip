@@ -2,51 +2,27 @@ name: "CodeQL"
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
-  schedule:
-    # Run weekly so we catch newly-disclosed vulnerabilities in
-    # dependencies even when no PR is open.
-    - cron: "17 11 * * 1"
-
-permissions:
-  # CodeQL needs ``security-events: write`` to upload the SARIF
-  # results to the GitHub Security tab. Without this, GitHub
-  # rejects the workflow at parse time (no jobs run).
-  contents: read
-  security-events: write
+    branches: [main]
 
 jobs:
   analyze:
-    name: Analyze (${{ matrix.language }})
+    name: Analyze (python)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        language: ["python"]
-
+    permissions:
+      security-events: write
+      contents: read
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          # Exclude regenerated / virtualenv trees from CodeQL
-          # scanning. ``paths-ignore`` is a checkout option (not a
-          # codeql-action option, which is why it lives here).
-          paths-ignore:
-            - ".venv"
-            - ".pytest_cache"
-            - ".ruff_cache"
-            - "artifacts"
-            - "**/__pycache__"
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: ${{ matrix.language }}
+          languages: python
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
-          category: "/language:${{ matrix.language }}"
+          category: "/language:python"
