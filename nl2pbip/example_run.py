@@ -108,6 +108,24 @@ def build_sample_plan(project_dir: Path) -> List[Dict[str, Any]]:
             },
         },
         {
+            "tool": "add_field_parameter",
+            "args": {
+                "parameter_name": "Metric Selection",
+                "members": [
+                    {
+                        "display_name": "Total Revenue",
+                        "table_name": "Sales",
+                        "measure_name": "Total Revenue",
+                    },
+                    {
+                        "display_name": "Region",
+                        "table_name": "Sales",
+                        "column_name": "Region",
+                    },
+                ],
+            },
+        },
+        {
             "tool": "add_ols_role",
             "args": {
                 "role_name": "SalesPublic",

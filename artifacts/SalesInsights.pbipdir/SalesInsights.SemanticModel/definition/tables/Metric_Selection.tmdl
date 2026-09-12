@@ -1,0 +1,31 @@
+table "Metric Selection" {
+  isParameterTable
+  partition "Metric Selection" = calculated
+  expression = '''
+{
+    ("Total Revenue", NAMEOF('Sales'[Total Revenue]), 0),
+    ("Region", NAMEOF('Sales'[Region]), 1),
+}
+  '''
+  columns = [
+    column "Metric Selection" {
+      dataType = string
+      sourceColumn = "Metric Selection.[Value1]"
+      sortByColumn = "Metric Selection Ordinal"
+      isNameInferred
+    },
+    column "Metric Selection Fields" {
+      dataType = string
+      sourceColumn = "Metric Selection.[Value2]"
+      isNameInferred
+      isHidden
+    },
+    column "Metric Selection Ordinal" {
+      dataType = int64
+      formatString = "#,0"
+      sourceColumn = "Metric Selection.[Value3]"
+      isNameInferred
+      isHidden
+    }
+  ]
+}

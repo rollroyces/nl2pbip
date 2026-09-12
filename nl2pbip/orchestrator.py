@@ -23,6 +23,7 @@ from nl2pbip.pbir_validator import PBIRValidationError
 from nl2pbip.tmdl_engine import (
     MODEL_PATH_KEY,
     add_calculation_group_handler,
+    add_field_parameter_handler,
     add_measure_handler,
     add_ols_role_handler,
     add_pattern_measure_handler,
@@ -755,6 +756,67 @@ DEFAULT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
             },
         },
         "handler": add_calculation_group_handler,
+    },
+    {
+        "name": "add_field_parameter",
+        "description": (
+            "Create a Power BI field-parameter table (a disconnected "
+            "calculated table that drives dynamic measure / column / "
+            "table selection via a slicer). Power BI Desktop emits the "
+            "result as a calculated table with `isParameterTable`, three "
+            "columns (Name / Fields / Ordinal), and a DAX table "
+            "expression using NAMEOF(). Members reference either a "
+            "column (`table_name` + `column_name`) or a measure "
+            "(`table_name` + `measure_name`); the two are mutually "
+            "exclusive per member."
+        ),
+        "schema": {
+            "type": "object",
+            "required": ["parameter_name", "members"],
+            "properties": {
+                "parameter_name": {
+                    "type": "string",
+                    "description": (
+                        "Name of the parameter table. Also the name "
+                        "of the user-visible Name column and the "
+                        "prefix of the Fields / Ordinal columns."
+                    ),
+                },
+                "members": {
+                    "type": "array",
+                    "minItems": 1,
+                    "description": (
+                        "Field-parameter members. Each is "
+                        "{display_name, table_name, column_name} for "
+                        "a column reference or "
+                        "{display_name, table_name, measure_name} "
+                        "for a measure reference."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "required": ["display_name", "table_name"],
+                        "anyOf": [
+                            {"required": ["column_name"]},
+                            {"required": ["measure_name"]},
+                        ],
+                        "properties": {
+                            "display_name": {"type": "string"},
+                            "table_name": {"type": "string"},
+                            "column_name": {"type": "string"},
+                            "measure_name": {"type": "string"},
+                        },
+                    },
+                },
+                "sort_by_column_name": {
+                    "type": "string",
+                    "description": (
+                        "Override the default Ordinal-column sort. "
+                        "Defaults to `<parameter_name> Ordinal`."
+                    ),
+                },
+            },
+        },
+        "handler": add_field_parameter_handler,
     },
     {
         "name": "set_page_layout",

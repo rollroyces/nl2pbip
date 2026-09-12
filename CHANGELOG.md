@@ -7,6 +7,42 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Field Parameters** (`add_field_parameter` tool): first-class support
+  for Power BI's dynamic-measure / dynamic-column / dynamic-table
+  switching via a slicer:
+  - Canonical Microsoft TMDL grammar: `isParameterTable` marker,
+    three columns (Name / Fields / Ordinal) with `isNameInferred` /
+    `isHidden` / `sortByColumn` markers, and a `partition Name =
+    calculated expression = '''...'''` block carrying the
+    `NAMEOF('Tbl'[Col])` DAX table expression.
+  - New `TMDLTable.is_parameter_table` /
+    `parameter_partition_expression` fields; `TMDLColumn.is_hidden`
+    / `is_name_inferred` / `sort_by_column` fields.
+  - New `_build_field_parameter_expression()` helper that renders the
+    curly-brace table literal with one entry per member and the
+    ordinal starting at zero.
+  - `_render_partition()` extended to handle the calculated-table form
+    (multi-line triple-quoted expression) in addition to the existing
+    M-partition form.
+  - Parser updates: `_find_partition_blocks()` finds both
+    calculated-table partitions (multi-line) and M-partition
+    declarations (single-line). `_parse_column()` reads `isHidden`,
+    `isNameInferred`, and `sortByColumn`.
+- **System prompt v4** (`REPORT_GENERATION_PROMPT_VERSION = 4`,
+  rule 21a added): instructs the LLM to emit `add_field_parameter`
+  when the user asks for dynamic measure/column switching, and to
+  pair the parameter with a slicer visual.
+- **Bundled example** (`example_run.py`): emits an `add_field_parameter`
+  step that creates a `Metric Selection` parameter with two members
+  (one measure, one column), producing a working
+  `definition/tables/Metric_Selection.tmdl` that Power BI Desktop
+  recognises as a field parameter.
+- 27 new unit tests in `tests/test_field_parameters.py` covering
+  expression builder, table rendering, parser round-trip, handler
+  paths (success + validation), and bundled example. **484 tests
+  total**, all green.
+
+### Added (previously in [Unreleased], now promoted)
 - **Object-Level Security (OLS)** — full support for the Microsoft
   Sept 2025 TMDL grammar:
   - Canonical nested ``tablePermission Tbl { ... metadataPermission }``
