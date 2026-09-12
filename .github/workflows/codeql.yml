@@ -17,12 +17,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          paths-ignore:
-            - ".venv"
-            - ".pytest_cache"
-            - ".ruff_cache"
-            - "artifacts"
-            - "**/__pycache__"
+          paths-ignore: |
+            .venv
+            .pytest_cache
+            .ruff_cache
+            artifacts
+            **/__pycache__
       - uses: github/codeql-action/init@v3
         with:
           languages: python
