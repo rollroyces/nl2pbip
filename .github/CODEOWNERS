@@ -1,0 +1,32 @@
+# CODEOWNERS — automatic review assignment for nl2pbip
+#
+# Each line is a path pattern followed by one or more owners.
+# Patterns are matched from the bottom of the file upward; the
+# last match wins. See
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for the whole repo
+* @rollroyces
+
+# TMDL engine + packager — the heart of the project
+/nl2pbip/tmdl_engine.py @rollroyces
+/nl2pbip/packager.py @rollroyces
+/nl2pbip/pbir_engine.py @rollroyces
+
+# LLM integration layer
+/nl2pbip/orchestrator.py @rollroyces
+/nl2pbip/prompts.py @rollroyces
+
+# Power Query M builder
+/nl2pbip/m_builder.py @rollroyces
+
+# Docs — README + CHANGELOG need eyes on every change
+/README.md @rollroyces
+/CHANGELOG.md @rollroyces
+
+# GitHub workflow + template changes
+/.github/ @rollroyces
+
+# Security-sensitive files require explicit owner approval
+/pyproject.toml @rollroyces
+/LICENSE @rollroyces

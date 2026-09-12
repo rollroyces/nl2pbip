@@ -10,5 +10,9 @@
       "type": "report",
       "path": "SalesInsights.Report"
     }
-  ]
+  ],
+  "fabricRoot": {
+    "type": "PBIPProject",
+    "displayName": "SalesInsights"
+  }
 }

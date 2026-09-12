@@ -1,0 +1,46 @@
+name: "CodeQL"
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Run weekly so we catch newly-disclosed vulnerabilities in
+    # dependencies even when no PR is open.
+    - cron: "17 11 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["python"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Don't scan the .venv / .pytest_cache / artifacts trees;
+          # they're regenerated on every CI run.
+          paths-ignore:
+            - ".venv"
+            - ".pytest_cache"
+            - ".ruff_cache"
+            - "artifacts"
+            - "**/__pycache__"
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

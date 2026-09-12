@@ -7,6 +7,79 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **GitHub template repo files** (`.github/` + `CONTRIBUTING.md`):
+  complete CI/CD + community plumbing so the repo is ready to
+  receive contributions on day one.
+  - **Issue templates** (`.github/ISSUE_TEMPLATE/`):
+    * `bug_report.yml` — version, Python, OS, LLM client,
+      reproduce-steps, expected-vs-actual, traceback, self-check.
+    * `feature_request.yml` — problem / proposal / alternatives /
+      scope + checklist on licensing.
+    * `documentation.yml` — for doc questions and clarification.
+  - **PR template** (`.github/PULL_REQUEST_TEMPLATE.md`) — type
+    of change, what-changed bullets, pytest + lint outputs,
+    checklist (tests pass, changelog updated, no GPL deps).
+  - **CODEOWNERS** (`.github/CODEOWNERS`) — per-path owner
+    assignments for the TMDL engine, packager, orchestrator,
+    M-builder, prompts, README, CHANGELOG, .github, and
+    security-sensitive files (pyproject, LICENSE).
+  - **Dependabot** (`.github/dependabot.yml`) — pip weekly
+    (Monday 09:00 HKT) + GitHub Actions weekly, with patch+minor
+    grouped, heavy ML extras (unsloth, trl, transformers,
+    datasets) ignored.
+  - **CodeQL** (`.github/workflows/codeql.yml`) — Python security
+    scanning on push / PR + weekly cron; ignores .venv,
+    .pytest_cache, artifacts.
+  - **Release workflow** (`.github/workflows/release.yml`) —
+    tag-driven (vX.Y.Z) build (sdist + wheel, twine check) +
+    PyPI publish via trusted publishing (OIDC, no API token) +
+    GitHub release with auto-generated notes. Manual dispatch
+    supports a dry-run mode.
+  - **CI workflow upgrade** (`.github/workflows/ci.yml`) —
+    * Concurrency group (cancel in-progress on rapid pushes).
+    * Permissions hardened (contents: read).
+    * Smoke test step that runs `example_run` and asserts all
+      expected files exist (.pbip, model.tmdl, itemMetadata.json
+      × 2, .platform × 2) — guards against PR #22-style
+      regressions.
+    * Coverage upload to Codecov (Python 3.12 job only, optional).
+    * New opt-in `benchmarks` job triggered via
+      `workflow_dispatch` — runs the perf suite with
+      `NL2PBIP_RUN_BENCHMARKS=1`.
+    * Simplified dependency install — dropped the heavy ML
+      stack from CI (those extras aren't needed for unit tests).
+  - **SECURITY.md** (`.github/SECURITY.md`) — supported-versions
+    table, private disclosure email + 3-day acknowledgement SLA,
+    coordinated-disclosure policy, scope / out-of-scope, hall of
+    fame.
+  - **CONTRIBUTING.md** — licensing terms (proprietary, no GPL /
+    AGPL / SSPL contributions), dev setup, lint / test commands,
+    conventional-commits branch + commit conventions, PR
+    checklist, release process.
+  - **Discussion template** (`.github/DISCUSSION_TEMPLATE/q-a.yml`)
+    — focused technical-question form for the Discussions tab.
+  - **Release notes template** (`.github/RELEASE_TEMPLATE.md`) —
+    skeleton for the GitHub release body used by the release
+    workflow.
+  - 53 new tests in `tests/test_repo_templates.py`:
+    * File presence (12 required + 1 optional)
+    * YAML shape (8 + name / trigger checks for each workflow)
+    * Issue / discussion form templates (4 templates,
+      bug_report-has-required-fields)
+    * CODEOWNERS (default owner, repo-root paths)
+    * Dependabot (version, ecosystems, heavy-ML ignore)
+    * CI workflow (matrix, black/ruff/pytest, concurrency,
+      smoke test for Fabric metadata, benchmarks opt-in)
+    * Release workflow (publish job, trusted publishing via
+      OIDC, wheel + sdist)
+    * SECURITY.md (supported versions, contact, disclosure
+      policy, out-of-scope)
+    * CONTRIBUTING.md (licensing, dev setup, release process)
+    * Cross-template consistency (CODEOWNERS paths exist,
+      workflow references resolve)
+    * Smoke test (example_run produces Fabric metadata — guards
+      against PR #22-style regressions in CI)
+    **661 tests total**, all green.
 - **Fabric Git-integration metadata** (`package_pbip_handler`):
   writes `itemMetadata.json` + `.platform` per Fabric item so the
   resulting PBIP project is ready for a Git repo connected to a
