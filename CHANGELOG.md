@@ -7,6 +7,51 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Power Query M partition generation** (`add_power_query_partition`
+  tool + `nl2pbip.m_builder` module): first-class support for
+  Power Query M sources in TMDL partitions:
+  - Six templates: `csv`, `sql`, `json`, `sharepoint`, `odata`,
+    `web`. Each is a small, deterministic builder that emits the
+    canonical `let ... in Source` form Power BI Desktop generates.
+  - Three transformation builders: `build_promoted_table`
+    (Table.PromoteHeaders + Table.TransformColumnTypes),
+    `build_merge_query` (Table.NestedJoin with kind validation),
+    `build_append_query` (Table.Combine), `build_group_aggregate`
+    (Table.Group with function-name validation).
+  - Two quoting helpers: `quote_string` (wraps in `"..."` with
+    `""` escape) and `m_escape` (escapes existing quotes without
+    adding wrapping). The writer uses `m_escape` so M source code
+    with its own string literals round-trips through TMDL without
+    double-escaping.
+  - `validate_m_expression()` — cheap shape check (non-empty,
+    balanced `let`/`in`, no triple-quote delimiter clash, no NUL,
+    length ceiling) without eval.
+  - New `add_power_query_partition_handler`: accepts either
+    `template` + `params` (structured template mode) or
+    `m_expression` (raw M mode); supports `promote=true`,
+    `column_types=[{name, type}, ...]`, and `replace=true` for
+    partition overwrite. Refuses to add a duplicate partition
+    unless `replace=true`. Validates that the target table
+    already exists. Writes to the TMDL `partition "Name" = mode:
+    import, source: { type: m, expression = "..." }` block.
+  - Parser fix: `_parse_source_dict` is now quote-aware (was
+    comma-split), and `_find_partition_blocks` uses a manual
+    brace counter (was single-line regex with `.*?`) so multi-line
+    M expressions survive the round-trip.
+  - `_render_source` now uses `m_escape` (not `quote_string`) so
+    M source code with embedded `"..."` string literals emits
+    valid TMDL.
+  - System prompt v5 (rules 23a / 23b / 23c added) instructs the
+    LLM when to use template mode vs. raw M, what `promote=true`
+    does, and warns against pre-quoting path / URL params.
+  - Bundled example (`example_run.py`): adds an
+    `add_power_query_partition` step that creates a CSV-sourced
+    partition on the `Sales` table with the standard
+    promote-headers + change-type pattern.
+  - 65 new tests in `tests/test_power_query.py` (quoting, validation,
+    each template, each transformation, handler paths, parser
+    round-trip, on-disk vs parsed equivalence, example-run
+    integration). **549 tests total**, all green.
 - **Performance benchmark suite** (`tests/test_performance.py`): 12
   benchmarks covering the TMDL writer / parser round-trip (200
   tables, 800 measures), calc-group rendering at 10 / 50 / 100 items,
