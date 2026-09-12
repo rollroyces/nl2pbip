@@ -118,6 +118,126 @@ class ToolResult:
     output: Dict[str, Any]
 
 
+@dataclass
+class PlannerClarification(Exception):
+    """Raised when the planner emits a clarification question instead of a plan.
+
+    The LLM-driven planner may decide that the user's prompt is
+    ambiguous (e.g. multiple plausible data sources, conflicting
+    metric definitions). Rather than guessing, it returns a
+    ``{"clarification": "..."}`` payload. The orchestrator surfaces
+    the question via this exception so the caller can present it
+    back to the user, gather an answer, and re-invoke the planner.
+    """
+
+    question: str
+    rationale: Optional[str] = None
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        if self.rationale:
+            return f"{self.question} (rationale: {self.rationale})"
+        return self.question
+
+
+@dataclass
+class AttemptRecord:
+    """One attempt at generating + executing a plan.
+
+    The orchestrator stores every attempt in a :class:`ReflectiveTrace`
+    so callers can inspect what the LLM produced, what tools ran,
+    and what (if anything) failed.
+    """
+
+    attempt: int
+    plan: List[ToolCall]
+    results: List[ToolResult] = field(default_factory=list)
+    error: Optional[str] = None
+    feedback_included: List[str] = field(default_factory=list)
+    reflection: Optional[str] = None
+
+
+@dataclass
+class PlanQualityScore:
+    """Critic-pass scoring of a successful plan.
+
+    Parsed from the LLM critic response. All scores are in [0, 1].
+    ``suggestions`` is a list of improvement ideas the orchestrator
+    can act on (or surface to the user) in a follow-up turn.
+    """
+
+    correctness: float = 0.0
+    completeness: float = 0.0
+    alignment_with_prompt: float = 0.0
+    suggestions: List[str] = field(default_factory=list)
+    raw_response: str = ""
+
+    @property
+    def overall(self) -> float:
+        """Weighted average; correctness counts more than completeness."""
+        return (
+            0.5 * self.correctness
+            + 0.3 * self.completeness
+            + 0.2 * self.alignment_with_prompt
+        )
+
+    def is_acceptable(self, threshold: float = 0.7) -> bool:
+        """Default threshold: overall >= 0.7 + correctness >= 0.6."""
+        return self.overall >= threshold and self.correctness >= 0.6
+
+
+@dataclass
+class ReflectiveTrace:
+    """Full record of a ``run_with_reflection`` invocation."""
+
+    user_prompt: str
+    attempts: List[AttemptRecord] = field(default_factory=list)
+    final_results: Optional[List[ToolResult]] = None
+    final_error: Optional[str] = None
+    critic_score: Optional[PlanQualityScore] = None
+    reflection_rounds: int = 0
+
+    @property
+    def succeeded(self) -> bool:
+        return self.final_error is None and self.final_results is not None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialise for logging / persistence."""
+        return {
+            "user_prompt": self.user_prompt,
+            "succeeded": self.succeeded,
+            "attempts": [
+                {
+                    "attempt": a.attempt,
+                    "plan": [
+                        {"tool": c.tool, "args": c.args, "rationale": c.rationale}
+                        for c in a.plan
+                    ],
+                    "results_count": len(a.results),
+                    "error": a.error,
+                    "feedback_included": a.feedback_included,
+                    "reflection": a.reflection,
+                }
+                for a in self.attempts
+            ],
+            "final_results_count": (
+                len(self.final_results) if self.final_results else 0
+            ),
+            "final_error": self.final_error,
+            "critic_score": (
+                {
+                    "correctness": self.critic_score.correctness,
+                    "completeness": self.critic_score.completeness,
+                    "alignment_with_prompt": (self.critic_score.alignment_with_prompt),
+                    "overall": self.critic_score.overall,
+                    "suggestions": self.critic_score.suggestions,
+                }
+                if self.critic_score
+                else None
+            ),
+            "reflection_rounds": self.reflection_rounds,
+        }
+
+
 class ToolRegistry:
     """Bidirectional lookup for tool specifications."""
 
@@ -190,6 +310,295 @@ class Orchestrator:
             raise last_error
         raise RuntimeError("Planner retries exceeded without validation detail.")
 
+    def run_with_reflection(
+        self,
+        user_prompt: str,
+        context: Optional[Dict[str, Any]] = None,
+        *,
+        max_attempts: int = 3,
+        max_reflection_rounds: int = 1,
+        critic_threshold: float = 0.7,
+        critic: Optional[LLMClient] = None,
+    ) -> ReflectiveTrace:
+        """Agentic loop with persistent trace + post-success critic pass.
+
+        Compared to :meth:`run`, this method:
+
+        1. **Persistent trace.** Every attempt (plan, results, error,
+           feedback) is recorded in a :class:`ReflectiveTrace` that
+           the caller can inspect, persist, or stream to a UI.
+        2. **Cumulative feedback.** When an attempt fails, the next
+           prompt includes ALL prior errors (not just the most
+           recent one), so the LLM can avoid repeating earlier
+           mistakes.
+        3. **Post-success critic.** After a successful run, the
+           orchestrator invokes ``critic`` (or the same LLM if
+           ``critic=None``) with a reflection prompt asking the
+           LLM to score the plan on ``correctness``,
+           ``completeness``, and ``alignment_with_prompt``. The
+           parsed :class:`PlanQualityScore` is attached to the
+           trace. If the score is below ``critic_threshold``, the
+           orchestrator re-invokes the planner with the critic's
+           ``suggestions`` as feedback, up to
+           ``max_reflection_rounds`` times.
+        4. **Clarification handling.** If the planner emits a
+           ``{"clarification": "..."}`` payload, the orchestrator
+           stops and surfaces :class:`PlannerClarification` via the
+           trace's ``final_error`` field (without consuming a retry).
+
+        Parameters
+        ----------
+        user_prompt
+            The natural-language request.
+        context
+            Optional planner context (model path, data sources, etc.).
+        max_attempts
+            Maximum planner attempts before giving up on the initial
+            plan. The critic pass runs after the first success.
+        max_reflection_rounds
+            Maximum follow-up planner invocations triggered by a
+            low-score critic pass. Each round consumes one more
+            attempt (so the total LLM calls is bounded by
+            ``max_attempts + max_reflection_rounds``).
+        critic_threshold
+            Minimum overall score for the critic to accept a plan
+            without another reflection round.
+        critic
+            Optional separate LLM client for the critic pass. If
+            ``None``, the planner's LLM is reused.
+
+        Returns
+        -------
+        ReflectiveTrace
+            The full attempt history, final results (or final error),
+            and critic score.
+        """
+        context = context or {}
+        trace = ReflectiveTrace(user_prompt=user_prompt)
+        feedback: List[str] = []
+        critic_client = critic or self._llm
+        last_error: Optional[Exception] = None
+        successful_results: Optional[List[ToolResult]] = None
+        max_total = max_attempts + max_reflection_rounds
+        for attempt in range(1, max_total + 1):
+            effective_prompt = self._augment_prompt(user_prompt, feedback)
+            plan_response = self._request_plan(effective_prompt, context)
+            record = AttemptRecord(
+                attempt=attempt,
+                plan=[],
+                feedback_included=list(feedback),
+            )
+            try:
+                plan = self._parse_plan(plan_response)
+            except PlannerClarification as exc:
+                # The planner wants more information; surface it
+                # via the trace and stop.
+                record.error = f"clarification: {exc.question}"
+                trace.attempts.append(record)
+                trace.final_error = (
+                    f"Planner requested clarification: {exc.question}"
+                    + (f" (rationale: {exc.rationale})" if exc.rationale else "")
+                )
+                return trace
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                # Plan parsing / JSON-shape errors should consume a
+                # retry the same way execution errors do, so the
+                # LLM can self-correct on the next attempt.
+                last_error = exc
+                feedback_str = self._feedback_for_exception(exc)
+                feedback.append(feedback_str)
+                record.error = feedback_str
+                trace.attempts.append(record)
+                if attempt == max_total:
+                    break
+                continue
+            record.plan = plan
+            try:
+                results = self._execute_plan(plan, context)
+                record.results = results
+                trace.attempts.append(record)
+                successful_results = results
+                break
+            except (
+                TMDLValidationError,
+                PBIRValidationError,
+                ValueError,
+                TypeError,
+            ) as exc:
+                last_error = exc
+                feedback_str = self._feedback_for_exception(exc)
+                feedback.append(feedback_str)
+                record.error = feedback_str
+                trace.attempts.append(record)
+                if attempt == max_attempts:
+                    break
+        if successful_results is None:
+            # All attempts failed.
+            trace.final_error = (
+                str(last_error)
+                if last_error
+                else ("Planner retries exceeded without validation detail.")
+            )
+            return trace
+        trace.final_results = successful_results
+        # Critic pass.
+        score = self._critic_score(
+            user_prompt, successful_results, trace, critic_client
+        )
+        trace.critic_score = score
+        # Reflection loop — keep refining until score is acceptable
+        # or max_reflection_rounds is exhausted.
+        while (
+            score is not None
+            and not score.is_acceptable(critic_threshold)
+            and trace.reflection_rounds < max_reflection_rounds
+        ):
+            trace.reflection_rounds += 1
+            # Build feedback from the critic's suggestions.
+            reflection_feedback = self._build_reflection_feedback(score)
+            feedback.append(reflection_feedback)
+            reflection_prompt = self._augment_prompt(user_prompt, feedback)
+            record = AttemptRecord(
+                attempt=len(trace.attempts) + 1,
+                plan=[],
+                feedback_included=list(feedback),
+                reflection=reflection_feedback,
+            )
+            try:
+                plan_response = self._request_plan(reflection_prompt, context)
+                plan = self._parse_plan(plan_response)
+            except PlannerClarification as exc:
+                record.error = f"clarification: {exc.question}"
+                trace.attempts.append(record)
+                break
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                # Reflection-plan parsing error — break out, keep
+                # the prior successful results.
+                record.error = self._feedback_for_exception(exc)
+                trace.attempts.append(record)
+                break
+            record.plan = plan
+            try:
+                results = self._execute_plan(plan, context)
+                record.results = results
+                trace.attempts.append(record)
+                trace.final_results = results
+                # Re-score.
+                score = self._critic_score(user_prompt, results, trace, critic_client)
+                trace.critic_score = score
+            except (
+                TMDLValidationError,
+                PBIRValidationError,
+                ValueError,
+                TypeError,
+            ) as exc:
+                record.error = self._feedback_for_exception(exc)
+                trace.attempts.append(record)
+                # Reflection that errors breaks the loop — caller
+                # already has the prior successful results.
+                break
+        return trace
+
+    def _critic_score(
+        self,
+        user_prompt: str,
+        results: List[ToolResult],
+        trace: ReflectiveTrace,
+        critic: LLMClient,
+    ) -> Optional[PlanQualityScore]:
+        """Invoke the critic LLM and parse its JSON response.
+
+        Returns ``None`` if the critic output cannot be parsed.
+        """
+        from nl2pbip.prompts import (
+            CRITIC_SYSTEM_PROMPT,
+            build_critic_user_message,
+        )
+
+        critic_messages = [
+            {"role": "system", "content": CRITIC_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": build_critic_user_message(
+                    user_prompt, results, trace.attempts
+                ),
+            },
+        ]
+        try:
+            raw = critic.generate(critic_messages)
+        except Exception:  # pragma: no cover - defensive
+            return None
+        return self._parse_critic_score(raw)
+
+    @staticmethod
+    def _parse_critic_score(raw: str) -> Optional[PlanQualityScore]:
+        """Parse the critic's JSON response into a :class:`PlanQualityScore`.
+
+        Tolerates markdown-fenced JSON (``\\`\\`\\`json ... \\`\\`\\`\\``).
+        Returns ``None`` if no parseable JSON is found.
+        """
+        if not isinstance(raw, str):
+            return None
+        text = raw.strip()
+        # Strip a leading markdown fence if present.
+        if text.startswith("```"):
+            first_newline = text.find("\n")
+            if first_newline != -1:
+                text = text[first_newline + 1 :]
+            if text.endswith("```"):
+                text = text[:-3].strip()
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(data, dict):
+            return None
+        # Tolerate either ``{"scores": {...}, "suggestions": [...]}``
+        # or a flat shape with the keys at the top level.
+        scores = data.get("scores", data)
+        if not isinstance(scores, dict):
+            return None
+        try:
+            correctness = float(scores.get("correctness", 0.0))
+            completeness = float(scores.get("completeness", 0.0))
+            alignment = float(
+                scores.get("alignment_with_prompt", scores.get("alignment", 0.0))
+            )
+        except (TypeError, ValueError):
+            return None
+        suggestions = data.get("suggestions", [])
+        if isinstance(suggestions, str):
+            suggestions = [suggestions]
+        if not isinstance(suggestions, list):
+            suggestions = []
+        return PlanQualityScore(
+            correctness=max(0.0, min(1.0, correctness)),
+            completeness=max(0.0, min(1.0, completeness)),
+            alignment_with_prompt=max(0.0, min(1.0, alignment)),
+            suggestions=[str(s) for s in suggestions if isinstance(s, str)],
+            raw_response=raw,
+        )
+
+    @staticmethod
+    def _build_reflection_feedback(score: PlanQualityScore) -> str:
+        """Build a feedback string the planner can act on next round."""
+        lines = [
+            "The previous plan was reviewed by a critic and scored:",
+            f"  - correctness: {score.correctness:.2f}",
+            f"  - completeness: {score.completeness:.2f}",
+            f"  - alignment_with_prompt: {score.alignment_with_prompt:.2f}",
+            f"  - overall: {score.overall:.2f}",
+        ]
+        if score.suggestions:
+            lines.append("")
+            lines.append("Critic suggestions (apply on the next attempt):")
+            for idx, suggestion in enumerate(score.suggestions, 1):
+                lines.append(f"  {idx}. {suggestion}")
+        else:
+            lines.append("")
+            lines.append("Improve the plan along the lowest-scoring axis.")
+        return "\n".join(lines)
+
     # ------------------------------------------------------------------
     # Planning helpers
     # ------------------------------------------------------------------
@@ -214,6 +623,15 @@ class Orchestrator:
 
         if isinstance(raw_plan, dict) and "plan" in raw_plan:
             raw_plan = raw_plan["plan"]
+
+        # Clarification mode: the planner emits a top-level
+        # ``{"clarification": "...", "rationale": "..."}`` object
+        # instead of a plan list when it needs more information.
+        if isinstance(raw_plan, dict) and "clarification" in raw_plan:
+            raise PlannerClarification(
+                question=raw_plan["clarification"],
+                rationale=raw_plan.get("rationale"),
+            )
 
         if not isinstance(raw_plan, list):
             raise ValueError(

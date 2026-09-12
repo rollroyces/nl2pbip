@@ -7,6 +7,59 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Agentic self-reflection loop** (`Orchestrator.run_with_reflection`):
+  post-success critic pass + planner refinement. Five concrete
+  capabilities:
+  - **`ReflectiveTrace`** dataclass — records every attempt
+    (plan, results, error, feedback, reflection) so callers can
+    inspect, persist, or stream to a UI.
+  - **`PlanQualityScore`** dataclass — parsed from the critic
+    response, with `correctness` / `completeness` /
+    `alignment_with_prompt` scores in [0, 1], a `suggestions`
+    list, an `overall` weighted-average property (correctness
+    weighted 0.5, completeness 0.3, alignment 0.2), and an
+    `is_acceptable(threshold=0.7)` predicate that also enforces
+    `correctness >= 0.6`.
+  - **`PlannerClarification`** exception — raised when the LLM
+    emits a `{"clarification": "...", "rationale": "..."}`
+    payload instead of a plan. The orchestrator surfaces it via
+    the trace's `final_error` field (without consuming a retry),
+    so the caller can present it back to the user, gather an
+    answer, and re-invoke the planner.
+  - **`run_with_reflection()`** method — extends `run()` with:
+    * persistent trace across all attempts
+    * cumulative feedback (each retry sees ALL prior errors,
+      not just the most recent)
+    * post-success critic pass via the planner LLM (or a
+      separate `critic` LLM client)
+    * reflection loop — if the critic score is below the
+      threshold, the orchestrator re-invokes the planner with
+      the critic's suggestions as feedback, up to
+      `max_reflection_rounds` times
+    * plan parsing errors now consume a retry (previously they
+      raised before the try/except).
+  - **`CRITIC_SYSTEM_PROMPT`** + **`build_critic_user_message`**
+    in `prompts.py` — separate from the planner prompt so the
+    critic can be a different model or fine-tuned variant.
+  - **`Orchestrator._parse_critic_score()`** static helper —
+    tolerant JSON parser that handles markdown-fenced JSON
+    (`\`\`\`json ... \`\`\``), clamps scores to [0, 1], and
+    tolerates either `{"scores": {...}, "suggestions": [...]}`
+    or a flat top-level shape.
+  - **`Orchestrator._build_reflection_feedback()`** static
+    helper — formats the critic's scores + suggestions as
+    actionable feedback for the planner's next attempt.
+  - **`ReflectiveTrace.to_dict()`** — JSON-serialisable view of
+    the full attempt history (plan + results + errors + critic
+    score).
+  - 29 new tests in `tests/test_agentic_reflection.py` covering
+    PlanQualityScore, _parse_critic_score, _build_reflection_feedback,
+    build_critic_user_message, CRITIC_SYSTEM_PROMPT, clarification
+    handling (parse + run_with_reflection), happy-path with mock
+    critic, `max_reflection_rounds=0` short-circuit, cumulative
+    feedback on failure-then-success, trace serialisation, and
+    backward compatibility of the legacy `run()` entry point.
+    **578 tests total**, all green.
 - **Power Query M partition generation** (`add_power_query_partition`
   tool + `nl2pbip.m_builder` module): first-class support for
   Power Query M sources in TMDL partitions:
