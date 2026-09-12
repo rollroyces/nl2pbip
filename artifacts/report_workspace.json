@@ -2,6 +2,7 @@
   "pbir": {
     "pages": [
       {
+        "$schema": "http://powerbi.com/product/schema#page",
         "name": "Main",
         "displayName": "Executive Overview",
         "pageSize": {
@@ -12,7 +13,8 @@
         "themeTokens": {},
         "visualContainers": [
           {
-            "name": "visual_2154fc94",
+            "$schema": "http://powerbi.com/product/schema#visualContainer",
+            "name": "visual_c0574d65",
             "visualType": "columnChart",
             "title": "Revenue by Region",
             "layout": {
@@ -34,7 +36,7 @@
                   ],
                   "Values": [
                     {
-                      "queryRef": "Sales[Total Revenue]"
+                      "measureRef": "Total Revenue"
                     }
                   ]
                 }
@@ -61,20 +63,28 @@
         "background": null,
         "visuals": [
           {
-            "visual_id": "visual_2154fc94",
+            "visual_id": "visual_c0574d65",
             "visual_type": "columnChart",
             "title": "Revenue by Region",
             "bindings": [
               {
                 "role": "Category",
-                "expressions": [
-                  "Sales[Region]"
+                "entries": [
+                  {
+                    "value": "Sales[Region]",
+                    "kind": "column",
+                    "raw": "Sales[Region]"
+                  }
                 ]
               },
               {
                 "role": "Values",
-                "expressions": [
-                  "Sales[Total Revenue]"
+                "entries": [
+                  {
+                    "value": "Total Revenue",
+                    "kind": "measure",
+                    "raw": "Sales[Total Revenue]"
+                  }
                 ]
               }
             ],

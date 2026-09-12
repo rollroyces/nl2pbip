@@ -2,12 +2,14 @@ table "Date" {
   columns = [
     column "Date" {
       dataType = date
-    }
+      formatString = "yyyy-MM-dd"
+    },
     column "Month" {
       dataType = string
-    }
+    },
     column "Year" {
       dataType = wholeNumber
+      formatString = "#,0"
     }
   ]
 }

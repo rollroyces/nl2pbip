@@ -1,6 +1,7 @@
 {
   "pages": [
     {
+      "$schema": "http://powerbi.com/product/schema#page",
       "name": "Main",
       "displayName": "Executive Overview",
       "pageSize": {
@@ -11,7 +12,8 @@
       "themeTokens": {},
       "visualContainers": [
         {
-          "name": "visual_2154fc94",
+          "$schema": "http://powerbi.com/product/schema#visualContainer",
+          "name": "visual_c0574d65",
           "visualType": "columnChart",
           "title": "Revenue by Region",
           "layout": {
@@ -33,7 +35,7 @@
                 ],
                 "Values": [
                   {
-                    "queryRef": "Sales[Total Revenue]"
+                    "measureRef": "Total Revenue"
                   }
                 ]
               }

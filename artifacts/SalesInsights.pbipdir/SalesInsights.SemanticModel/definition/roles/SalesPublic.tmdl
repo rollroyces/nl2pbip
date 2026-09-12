@@ -1,0 +1,6 @@
+role "SalesPublic" {
+  modelPermission = read
+  tablePermission Sales
+    columnPermission SaleId
+      metadataPermission = none
+}

@@ -2,22 +2,24 @@ table "Sales" {
   columns = [
     column "SaleId" {
       dataType = string
-    }
+    },
     column "Region" {
       dataType = string
-    }
+    },
     column "Amount" {
       dataType = decimal
-    }
+      formatString = "#,0.00"
+    },
     column "Date" {
       dataType = date
+      formatString = "yyyy-MM-dd"
     }
   ]
   measures = [
     measure "Total Revenue" {
       expression = '''
-SUM(Sales[Amount])
-'''
+      SUM(Sales[Amount])
+      '''
       formatString = "$#,0.00"
     }
   ]

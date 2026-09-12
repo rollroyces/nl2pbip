@@ -1,42 +1,3 @@
-table "Date" {
-  columns = [
-    column "Date" {
-      dataType = date
-    }
-    column "Month" {
-      dataType = string
-    }
-    column "Year" {
-      dataType = wholeNumber
-    }
-  ]
-}
-
-table "Sales" {
-  columns = [
-    column "SaleId" {
-      dataType = string
-    }
-    column "Region" {
-      dataType = string
-    }
-    column "Amount" {
-      dataType = decimal
-    }
-    column "Date" {
-      dataType = date
-    }
-  ]
-  measures = [
-    measure "Total Revenue" {
-      expression = '''
-SUM(Sales[Amount])
-'''
-      formatString = "$#,0.00"
-    }
-  ]
-}
-
 relationship "Sales_Date_Date_Date" {
   fromTable = "Sales"
   fromColumn = "Date"
@@ -45,4 +6,76 @@ relationship "Sales_Date_Date_Date" {
   cardinality = manyToOne
   crossFilterDirection = single
   isActive = true
+}
+
+table "Date" {
+  columns = [
+    column "Date" {
+      dataType = date
+      formatString = "yyyy-MM-dd"
+    },
+    column "Month" {
+      dataType = string
+    },
+    column "Year" {
+      dataType = wholeNumber
+      formatString = "#,0"
+    }
+  ]
+}
+
+table "Sales" {
+  columns = [
+    column "SaleId" {
+      dataType = string
+    },
+    column "Region" {
+      dataType = string
+    },
+    column "Amount" {
+      dataType = decimal
+      formatString = "#,0.00"
+    },
+    column "Date" {
+      dataType = date
+      formatString = "yyyy-MM-dd"
+    }
+  ]
+  measures = [
+    measure "Total Revenue" {
+      expression = '''
+      SUM(Sales[Amount])
+      '''
+      formatString = "$#,0.00"
+    }
+  ]
+}
+
+table 'CG Time Intelligence' {
+    calculationGroup
+        precedence: 10
+
+        calculationItem 'Current' = '''
+          SELECTEDMEASURE()
+          '''
+        calculationItem 'YTD' = '''
+          CALCULATE(SELECTEDMEASURE(), DATESYTD('Date'[Date]))
+          '''
+        calculationItem 'Prior Year' = '''
+          CALCULATE(SELECTEDMEASURE(), DATEADD('Date'[Date], -1, YEAR))
+          '''
+        calculationItem 'YoY %' = '''
+          DIVIDE(SELECTEDMEASURE() - CALCULATE(SELECTEDMEASURE(), DATEADD('Date'[Date], -1, YEAR)), CALCULATE(SELECTEDMEASURE(), DATEADD('Date'[Date], -1, YEAR)))
+          '''
+        calculationItem 'YoY %' formatStringDefinition = '''
+          VAR x = SELECTEDMEASUREFORMATSTRING() RETURN IF(ISNUMERIC(x), "0.00%", x)
+          '''
+
+  column "Name" {
+    dataType = string
+  }
+  column "Ordinal" {
+    dataType = wholeNumber
+    formatString = "#,0"
+  }
 }
