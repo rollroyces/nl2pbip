@@ -51,6 +51,21 @@ def build_sample_plan(project_dir: Path) -> List[Dict[str, Any]]:
             },
         },
         {
+            "tool": "add_power_query_partition",
+            "args": {
+                "table_name": "Sales",
+                "template": "csv",
+                "params": {"path": "raw/sales.csv"},
+                "promote": True,
+                "column_types": [
+                    {"name": "SaleId", "type": "text"},
+                    {"name": "Region", "type": "text"},
+                    {"name": "Amount", "type": "number"},
+                    {"name": "Date", "type": "date"},
+                ],
+            },
+        },
+        {
             "tool": "add_measure",
             "args": {
                 "table_name": "Sales",

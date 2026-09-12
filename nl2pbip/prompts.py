@@ -59,7 +59,7 @@ from typing import Any, Dict, List, Mapping, Optional
 #: every time :data:`REPORT_GENERATION_SYSTEM_PROMPT` changes. The
 #: orchestrator embeds the version in the planner payload so callers
 #: can pin / inspect the prompt they received.
-REPORT_GENERATION_PROMPT_VERSION: int = 4
+REPORT_GENERATION_PROMPT_VERSION: int = 5
 
 #: Changelog entries are append-only. Each entry has ``version``,
 #: ``date``, and ``changes`` (list of human-readable lines).
@@ -114,6 +114,17 @@ PROMPT_CHANGELOG: List[Dict[str, Any]] = [
             "Rule 21a documents the NAMEOF('Tbl'[Col]) DAX table expression that field parameters generate.",
             "Rule 21a requires members to reference EITHER a column OR a measure, not both.",
             "Rule 21a requires pairing the parameter with a slicer visual bound to <param_name>.",
+        ],
+    },
+    {
+        "version": 5,
+        "date": "2026-09-12",
+        "summary": "Power Query M rules: structured template mode + raw M fallback",
+        "changes": [
+            "Rule 23a added: 'Power Query M partitions belong on add_power_query_partition' — template mode (csv / sql / json / sharepoint / odata / web) for structured sources, raw m_expression for hand-crafted queries.",
+            "Rule 23a documents the 'promote' flag (Table.PromoteHeaders + Table.TransformColumnTypes).",
+            "Rule 23b added: SQL sources accept a SELECT statement (or stored-procedure wrapped in Value.NativeQuery) verbatim; never embed credentials in the query.",
+            "Rule 23c added: path / URL parameters are M-quoted automatically; do NOT pre-quote them in the params object.",
         ],
     },
 ]
@@ -232,6 +243,21 @@ REPORT_GENERATION_SYSTEM_PROMPT: str = (
     "`SUM(Sales[Amount])`. Use `[Table][Column]` references.\n"
     "23. Reject columns inside a single `create_table` that have "
     "the same name — the handler will reject duplicates.\n"
+    "23a. Power Query M partitions belong on `add_power_query_partition`. "
+    "Use template mode (template='csv'|'sql'|'json'|'sharepoint'|'odata'|'web' "
+    "with template-specific params) when the LLM has structured source "
+    "metadata; fall back to raw `m_expression` only for hand-crafted "
+    "queries. The 'promote' flag wraps the staging query in "
+    "Table.PromoteHeaders + Table.TransformColumnTypes — emit "
+    "promote=true whenever the source has a header row.\n"
+    "23b. For SQL sources, the `query` param must be a SELECT statement "
+    "(or stored-procedure call wrapped in `Value.NativeQuery`); the "
+    "handler writes it verbatim into the Sql.Database call. Never "
+    "embed credentials inside `query` — the handler does not validate "
+    "SQL beyond syntax-shape checks at M-level.\n"
+    "23c. Path / URL parameters are M-quoted automatically. Do NOT "
+    "pre-quote them in the params object — pass the raw value. The "
+    'builder applies M\'s "" escape rule.\n'
     "\n"
     "FILTERS\n"
     "24. Page-level filters belong on `add_report_page` or "

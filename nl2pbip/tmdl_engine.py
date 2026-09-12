@@ -393,14 +393,32 @@ def _render_partition(partition: Dict[str, Any]) -> str:
 
 
 def _render_source(source: Dict[str, Any]) -> str:
-    """Render a TMDL source expression block (compact)."""
+    """Render a TMDL source expression block (compact).
+
+    Power BI source dicts may include a multi-line M ``expression``
+    string. We use a single-line ``expression = "..."`` form for
+    short M queries and a multi-line ``expression = '...'`` form
+    when the body contains newlines, so that the resulting TMDL
+    stays readable.
+    """
     parts: List[str] = []
     src_type = source.get("type") or source.get("expressionSource") or "m"
     parts.append(f"type: {src_type}")
     for key, value in source.items():
         if key in ("type", "expressionSource"):
             continue
-        if isinstance(value, str):
+        if key == "expression" and isinstance(value, str):
+            # The M expression is stored unquoted in the source dict;
+            # emit it inside an M-style double-quoted string literal
+            # (embedded `"` are doubled). This is the format Power BI
+            # Desktop writes when you open the .pbip in the IDE.
+            # Note: we use ``m_escape`` (not ``quote_string``) because
+            # the M expression text already contains its own string
+            # literals — wrapping it again would double-escape.
+            from nl2pbip.m_builder import m_escape as _m_escape
+
+            parts.append(f'expression = "{_m_escape(value)}"')
+        elif isinstance(value, str):
             parts.append(f'{key} = "{value}"')
         elif isinstance(value, bool):
             parts.append(f"{key} = {str(value).lower()}")
@@ -887,16 +905,42 @@ def _find_partition_blocks(body: str) -> List[Dict[str, Any]]:
         if expr_match:
             entry["expression"] = expr_match.group(1).strip()
         results.append(entry)
-    # Second pass: M-partition declarations (single line).
+    # Second pass: M-partition declarations. These can be either
+    # single-line or multi-line (when the M expression spans
+    # multiple lines). We use re.DOTALL so ``.`` matches newlines,
+    # and a manual brace counter to find the matching ``}`` for the
+    # source dict.
     for match in re.finditer(
         r'partition\s+(?:"([^"]+)"|\'([^\']+)\'|([A-Za-z_]\w*))'
-        r"\s*=\s*mode:\s*([A-Za-z]+)(?:,\s*source:\s*(\{.*?\}))?",
+        r"\s*=\s*mode:\s*([A-Za-z]+)",
         body,
     ):
         name = next((g for g in match.groups()[:3] if g), "")
         mode = match.group(4)
-        source_text = match.group(5)
-        entry = {"name": name, "mode": mode}
+        rest = body[match.end() :]
+        # Skip past any whitespace and ``,`` separator.
+        rest = rest.lstrip()
+        if rest.startswith(","):
+            rest = rest[1:].lstrip()
+        source_text: Optional[str] = None
+        if rest.startswith("source:"):
+            source_start = rest.find("{")
+            if source_start != -1:
+                # Find the matching closing brace.
+                depth = 0
+                end_idx = -1
+                for idx in range(source_start, len(rest)):
+                    ch = rest[idx]
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            end_idx = idx
+                            break
+                if end_idx != -1:
+                    source_text = rest[source_start : end_idx + 1]
+        entry: Dict[str, Any] = {"name": name, "mode": mode}
         if source_text:
             entry["source"] = _parse_source_dict(source_text)
         results.append(entry)
@@ -906,22 +950,87 @@ def _find_partition_blocks(body: str) -> List[Dict[str, Any]]:
 def _parse_source_dict(text: str) -> Dict[str, Any]:
     """Best-effort parse of the inline ``{ key: value, ... }`` source dict.
 
-    The parser only cares about top-level keys and string / bool values
-    — Power BI M-partition source dicts are small and consistent.
+    The parser only cares about top-level keys and string / bool
+    values. String values are M-style double-quoted with ``""`` as
+    the escape sequence, so we split on commas outside of quoted
+    regions (regex with re.DOTALL) and unescape embedded ``""``
+    back to ``"``.
     """
+    # Strip the enclosing braces if present.
+    inner = text.strip()
+    if inner.startswith("{") and inner.endswith("}"):
+        inner = inner[1:-1].strip()
+    if not inner:
+        return {}
     result: Dict[str, Any] = {}
-    for pair in re.finditer(r"(\w+)\s*:\s*([^,]+)", text):
-        key = pair.group(1)
-        raw = pair.group(2).strip()
-        if raw.startswith('"') and raw.endswith('"'):
-            result[key] = raw[1:-1]
-        elif raw in ("true", "false"):
-            result[key] = raw == "true"
+    # Walk char-by-char to honour quoted strings.
+    cursor = 0
+    while cursor < len(inner):
+        # Skip whitespace.
+        while cursor < len(inner) and inner[cursor] in " \t\r\n":
+            cursor += 1
+        if cursor >= len(inner):
+            break
+        # Read key — until the first ``:`` or ``=`` at top level.
+        key_end = cursor
+        while key_end < len(inner) and inner[key_end] not in ":=":
+            key_end += 1
+        if key_end >= len(inner) or inner[key_end] not in ":=":
+            break
+        key = inner[cursor:key_end].strip()
+        cursor = key_end + 1
+        # Skip whitespace before value.
+        while cursor < len(inner) and inner[cursor] in " \t\r\n":
+            cursor += 1
+        if cursor >= len(inner):
+            break
+        # Read value: quoted string OR bare token until comma.
+        value: Any
+        if inner[cursor] == '"':
+            # Quoted string — handle "" as escape for ".
+            cursor += 1
+            start = cursor
+            chars: List[str] = []
+            while cursor < len(inner):
+                if inner[cursor] == '"':
+                    # Look ahead: is this an escaped quote?
+                    if cursor + 1 < len(inner) and inner[cursor + 1] == '"':
+                        chars.append('"')
+                        cursor += 2
+                        continue
+                    # End of string.
+                    break
+                chars.append(inner[cursor])
+                cursor += 1
+            value = "".join(chars)
+            cursor += 1  # skip closing "
         else:
-            try:
-                result[key] = int(raw)
-            except ValueError:
-                result[key] = raw
+            # Bare token up to the next top-level comma.
+            start = cursor
+            depth = 0
+            while cursor < len(inner):
+                ch = inner[cursor]
+                if ch == "{" or ch == "[":
+                    depth += 1
+                elif ch == "}" or ch == "]":
+                    depth -= 1
+                elif ch == "," and depth == 0:
+                    break
+                cursor += 1
+            raw = inner[start:cursor].strip()
+            if raw == "true":
+                value = True
+            elif raw == "false":
+                value = False
+            else:
+                try:
+                    value = int(raw)
+                except ValueError:
+                    value = raw
+        # Skip past the ``,`` separator (if any).
+        if cursor < len(inner) and inner[cursor] == ",":
+            cursor += 1
+        result[key] = value
     return result
 
 
@@ -2078,6 +2187,161 @@ def add_field_parameter_handler(
     }
 
 
+def add_power_query_partition_handler(
+    table_name: str,
+    *,
+    template: Optional[str] = None,
+    m_expression: Optional[str] = None,
+    params: Optional[Dict[str, Any]] = None,
+    partition_name: Optional[str] = None,
+    mode: str = "import",
+    replace: bool = False,
+    promote: bool = False,
+    column_types: Optional[List[Dict[str, str]]] = None,
+    context: Optional[Dict[str, Any]] = None,
+    **_: Any,
+) -> Dict[str, Any]:
+    """Add (or replace) a partition on ``table_name`` whose source is a
+    Power Query M expression.
+
+    Two paths:
+
+    * **Template mode** — pass ``template`` (one of ``csv``, ``sql``,
+      ``json``, ``sharepoint``, ``odata``, ``web``) and ``params``
+      (the keyword arguments the template expects). The handler
+      dispatches to the matching builder in
+      :mod:`nl2pbip.m_builder`.
+    * **Raw M mode** — pass ``m_expression`` (a verbatim M query
+      string). The handler validates shape only — no eval.
+
+    The ``promote`` flag wraps the staging query in a Table.PromoteHeaders
+    step (the standard Power BI Desktop "Use First Row as Headers"
+    pattern). ``column_types`` is an optional list of
+    ``{"name": "Id", "type": "Int64.Type"}`` dicts that the promote
+    step will apply via Table.TransformColumnTypes.
+
+    Set ``replace=True`` to overwrite an existing partition of the
+    same name on this table. Without ``replace``, an attempt to add a
+    duplicate partition raises ``TMDLValidationError``.
+    """
+    from nl2pbip.m_builder import (
+        TEMPLATE_BUILDERS,
+        build_from_template,
+        build_promoted_table,
+        validate_m_expression,
+    )
+
+    if not context or MODEL_PATH_KEY not in context:
+        raise ValueError(
+            "add_power_query_partition handler requires 'model_path' " "inside context."
+        )
+    if not table_name:
+        raise ValueError("add_power_query_partition requires a non-empty 'table_name'.")
+    if template is None and m_expression is None:
+        raise TMDLValidationError(
+            "add_power_query_partition requires either 'template' "
+            "(with 'params') or 'm_expression'."
+        )
+    if template is not None and m_expression is not None:
+        raise TMDLValidationError(
+            "add_power_query_partition accepts 'template' OR "
+            "'m_expression', not both."
+        )
+    if mode not in {"import", "directQuery", "dual", "push"}:
+        raise TMDLValidationError(
+            f"add_power_query_partition: invalid mode '{mode}'. "
+            "Valid: import, directQuery, dual, push."
+        )
+
+    # --- Build the M expression --------------------------------------
+    if template is not None:
+        if template not in TEMPLATE_BUILDERS:
+            raise TMDLValidationError(
+                f"add_power_query_partition: unknown template "
+                f"'{template}'. Valid: {sorted(TEMPLATE_BUILDERS)}."
+            )
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            raise TMDLValidationError(
+                "add_power_query_partition: 'params' must be an object "
+                f"(got {type(params).__name__})."
+            )
+        staging = build_from_template(template, params)
+    else:
+        # m_expression mode — validate shape only.
+        assert m_expression is not None  # checked above
+        validate_m_expression(m_expression)
+        staging = m_expression
+
+    # --- Optionally promote headers / apply column types -------------
+    if promote:
+        if not column_types:
+            column_types = []
+        m_text = build_promoted_table(
+            staging, table_name=table_name, column_types=column_types
+        )
+    else:
+        m_text = staging
+
+    # --- Persist ------------------------------------------------------
+    model_path = Path(context[MODEL_PATH_KEY]).expanduser()
+    if model_path.exists():
+        model = load_model(model_path)
+    else:
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        model = TMDLModel()
+
+    table = model.get_table(table_name)
+    if table is None:
+        raise TMDLValidationError(
+            f"Table '{table_name}' does not exist. Use create_table "
+            "before adding a Power Query partition to it."
+        )
+
+    effective_partition_name = partition_name or table_name
+    # If a partition of this name already exists, only overwrite if
+    # replace=True. Otherwise surface the conflict.
+    existing_idx = None
+    for idx, part in enumerate(table.partitions):
+        if part.get("name") == effective_partition_name:
+            existing_idx = idx
+            break
+    if existing_idx is not None and not replace:
+        raise TMDLValidationError(
+            f"Table '{table_name}' already has a partition named "
+            f"'{effective_partition_name}'. Pass 'replace=true' to "
+            "overwrite it."
+        )
+
+    new_partition = {
+        "name": effective_partition_name,
+        "mode": mode,
+        "source": {
+            "type": "m",
+            "expressionSource": "m",
+            "expression": m_text,
+        },
+    }
+    if existing_idx is not None:
+        table.partitions[existing_idx] = new_partition
+    else:
+        table.partitions.append(new_partition)
+
+    model_path.write_text(_render_model_body(model), encoding="utf-8")
+    return {
+        "status": "success",
+        "table": table_name,
+        "partition_name": effective_partition_name,
+        "mode": mode,
+        "template": template,
+        "promote": promote,
+        "column_types": len(column_types) if column_types else 0,
+        "m_expression_bytes": len(m_text.encode("utf-8")),
+        "model_path": str(model_path),
+    }
+
+
 def add_rls_role_handler(
     role_name: str,
     table_permissions: List[Dict[str, Any]],
@@ -2265,6 +2529,7 @@ __all__ = [
     "define_relationship_handler",
     "add_calculation_group_handler",
     "add_field_parameter_handler",
+    "add_power_query_partition_handler",
     "add_rls_role_handler",
     "add_ols_role_handler",
     "load_model",

@@ -27,6 +27,7 @@ from nl2pbip.tmdl_engine import (
     add_measure_handler,
     add_ols_role_handler,
     add_pattern_measure_handler,
+    add_power_query_partition_handler,
     add_rls_role_handler,
     create_table_handler,
     define_relationship_handler,
@@ -817,6 +818,107 @@ DEFAULT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
             },
         },
         "handler": add_field_parameter_handler,
+    },
+    {
+        "name": "add_power_query_partition",
+        "description": (
+            "Add (or replace) a partition whose source is a Power Query "
+            "M expression. Two modes: 'template' (csv / sql / json / "
+            "sharepoint / odata / web) with 'params' (template-specific "
+            "arguments), or 'm_expression' (verbatim M query string). "
+            "The 'promote' flag wraps the staging query in the standard "
+            "Table.PromoteHeaders + Table.TransformColumnTypes pattern. "
+            "Use 'replace=true' to overwrite an existing partition of "
+            "the same name."
+        ),
+        "schema": {
+            "type": "object",
+            "required": ["table_name"],
+            "properties": {
+                "table_name": {
+                    "type": "string",
+                    "description": (
+                        "Target TMDL table. Must already exist (use "
+                        "create_table first)."
+                    ),
+                },
+                "partition_name": {
+                    "type": "string",
+                    "description": ("Partition display name. Defaults to table_name."),
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["import", "directQuery", "dual", "push"],
+                    "description": "Storage mode (default: import).",
+                },
+                "template": {
+                    "type": "string",
+                    "enum": [
+                        "csv",
+                        "sql",
+                        "json",
+                        "sharepoint",
+                        "odata",
+                        "web",
+                    ],
+                    "description": (
+                        "Template name. Mutually exclusive with " "'m_expression'."
+                    ),
+                },
+                "params": {
+                    "type": "object",
+                    "description": (
+                        "Template-specific parameters. csv: {path, "
+                        "delimiter, encoding, has_headers}. sql: "
+                        "{server, database, query, privacy}. json: "
+                        "{path}. sharepoint: {site_url, file_path}. "
+                        "odata: {url}. web: {url}."
+                    ),
+                },
+                "m_expression": {
+                    "type": "string",
+                    "description": (
+                        "Raw M query string. Mutually exclusive with "
+                        "'template'. The handler validates shape only; "
+                        "no eval."
+                    ),
+                },
+                "promote": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, wrap the staging query in "
+                        "Table.PromoteHeaders + Table.TransformColumnTypes."
+                    ),
+                },
+                "column_types": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["name", "type"],
+                        "properties": {
+                            "name": {"type": "string"},
+                            "type": {"type": "string"},
+                        },
+                    },
+                    "description": (
+                        "Optional column type overrides, applied after "
+                        "PromoteHeaders."
+                    ),
+                },
+                "replace": {
+                    "type": "boolean",
+                    "description": (
+                        "Overwrite an existing partition of the same "
+                        "name on this table."
+                    ),
+                },
+            },
+            "anyOf": [
+                {"required": ["template", "params"]},
+                {"required": ["m_expression"]},
+            ],
+        },
+        "handler": add_power_query_partition_handler,
     },
     {
         "name": "set_page_layout",
