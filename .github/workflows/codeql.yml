@@ -2,9 +2,11 @@ name: CodeQL
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
-    branches: [main]
+    branches: [main, master]
+  schedule:
+    - cron: "17 11 * * 1"
 
 jobs:
   analyze:
@@ -14,6 +16,13 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          paths-ignore:
+            - ".venv"
+            - ".pytest_cache"
+            - ".ruff_cache"
+            - "artifacts"
+            - "**/__pycache__"
       - uses: github/codeql-action/init@v3
         with:
           languages: python
