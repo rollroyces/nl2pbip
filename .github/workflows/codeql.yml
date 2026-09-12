@@ -26,19 +26,21 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
         with:
-          languages: ${{ matrix.language }}
-          # Don't scan the .venv / .pytest_cache / artifacts trees;
-          # they're regenerated on every CI run.
+          # Exclude regenerated / virtualenv trees from CodeQL
+          # scanning. ``paths-ignore`` is a checkout option (not a
+          # codeql-action option, which is why it lives here).
           paths-ignore:
             - ".venv"
             - ".pytest_cache"
             - ".ruff_cache"
             - "artifacts"
             - "**/__pycache__"
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
