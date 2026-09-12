@@ -403,6 +403,80 @@ def build_feedback_message(error: BaseException) -> str:
     return base_msg
 
 
+# Critic prompt — invoked after a successful plan execution to
+# score the plan and surface improvement suggestions. Kept separate
+# from the main planner prompt so the critic can be a different
+# model (or a fine-tuned variant) without touching the planner
+# template.
+CRITIC_SYSTEM_PROMPT: str = """You are an evaluator scoring an LLM-generated Power BI authoring plan against the user's request. Read the plan and the user prompt, then respond with ONLY a JSON object in the following shape:
+
+{
+  "scores": {
+    "correctness": <float in [0, 1]>,
+    "completeness": <float in [0, 1]>,
+    "alignment_with_prompt": <float in [0, 1]>
+  },
+  "suggestions": [<string>, ...]
+}
+
+Definitions:
+
+* ``correctness`` — does each tool call use valid arguments, sensible table / column names, and would it actually run without raising a TMDL / PBIR validation error?
+* ``completeness`` — does the plan cover all of the user's stated requirements (every table, measure, visual, filter, calculation group they asked for)?
+* ``alignment_with_prompt`` — is the plan faithful to the user's intent (no off-topic extras, no missed domain entities, no inappropriate assumptions)?
+
+The ``suggestions`` array lists concrete improvements (≤ 5 strings). Be terse and actionable; the planner will use them to refine the plan on the next round. Do NOT include any prose outside the JSON object.
+"""
+
+
+def build_critic_user_message(
+    user_prompt: str,
+    results: List[Any],
+    attempts: List[Any],
+) -> str:
+    """Build the user-message side of the critic prompt.
+
+    Serialises the user's request, the final plan's tool calls (one
+    per line), and a one-line summary of each attempt so the critic
+    can see how many tries it took. ``results`` is a list of
+    :class:`ToolResult` objects; ``attempts`` is a list of
+    :class:`AttemptRecord` objects.
+    """
+    lines: List[str] = []
+    lines.append("## User prompt")
+    lines.append(user_prompt)
+    lines.append("")
+    lines.append("## Plan that was executed")
+    if results:
+        for idx, result in enumerate(results, 1):
+            tool = getattr(result, "tool", "?")
+            args = getattr(result, "args", {})
+            lines.append(f"{idx}. {tool} args={args!r}")
+    else:
+        lines.append("(empty result list — the plan produced no tool calls)")
+    lines.append("")
+    lines.append("## Attempt summary")
+    if attempts:
+        lines.append(f"Total attempts: {len(attempts)}")
+        for attempt in attempts:
+            status = "ok" if getattr(attempt, "results", None) else ("error")
+            err = getattr(attempt, "error", None)
+            err_str = f" — {err}" if err else ""
+            lines.append(
+                f"  - attempt {attempt.attempt}: {len(attempt.plan)} steps, "
+                f"{status}{err_str}"
+            )
+    else:
+        lines.append("(no attempts recorded)")
+    lines.append("")
+    lines.append(
+        "Score the plan against the three dimensions above. Be "
+        "honest: a plan that runs but misses half the requirements "
+        "should score low on completeness even if correctness is high."
+    )
+    return "\n".join(lines)
+
+
 # ----------------------------------------------------------------------
 # Prompt selection
 # ----------------------------------------------------------------------
