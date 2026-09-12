@@ -1,0 +1,28 @@
+table 'CG Time Intelligence' {
+    calculationGroup
+        precedence: 10
+
+        calculationItem 'Current' = '''
+          SELECTEDMEASURE()
+          '''
+        calculationItem 'YTD' = '''
+          CALCULATE(SELECTEDMEASURE(), DATESYTD('Date'[Date]))
+          '''
+        calculationItem 'Prior Year' = '''
+          CALCULATE(SELECTEDMEASURE(), DATEADD('Date'[Date], -1, YEAR))
+          '''
+        calculationItem 'YoY %' = '''
+          DIVIDE(SELECTEDMEASURE() - CALCULATE(SELECTEDMEASURE(), DATEADD('Date'[Date], -1, YEAR)), CALCULATE(SELECTEDMEASURE(), DATEADD('Date'[Date], -1, YEAR)))
+          '''
+        calculationItem 'YoY %' formatStringDefinition = '''
+          VAR x = SELECTEDMEASUREFORMATSTRING() RETURN IF(ISNUMERIC(x), "0.00%", x)
+          '''
+
+  column "Name" {
+    dataType = string
+  }
+  column "Ordinal" {
+    dataType = wholeNumber
+    formatString = "#,0"
+  }
+}
