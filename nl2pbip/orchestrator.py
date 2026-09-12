@@ -53,7 +53,12 @@ class ToolSpec:
     handler: ToolHandler
 
     def validate_payload(self, payload: Dict[str, Any]) -> None:
-        """Shallow JSON Schema-ish validation to guard obvious mistakes."""
+        """Shallow JSON Schema-ish validation to guard obvious mistakes.
+
+        Supports the top-level ``required`` list, ``anyOf`` (at least one
+        of the listed ``required`` branches must satisfy its own
+        ``required`` list), and per-property ``type`` checks.
+        """
 
         required = self.schema.get("required", [])
         properties = self.schema.get("properties", {})
@@ -63,6 +68,23 @@ class ToolSpec:
             raise ValueError(
                 f"Tool '{self.name}' missing required fields: {', '.join(missing)}"
             )
+
+        # anyOf support: each branch is a sub-schema; the payload must
+        # satisfy at least one branch's ``required`` list.
+        any_of = self.schema.get("anyOf", [])
+        if any_of:
+            satisfied = False
+            for branch in any_of:
+                branch_required = branch.get("required", [])
+                if all(key in payload for key in branch_required):
+                    satisfied = True
+                    break
+            if not satisfied:
+                # Build a helpful error that lists the alternatives.
+                alts = [", ".join(branch.get("required", [])) for branch in any_of]
+                raise ValueError(
+                    f"Tool '{self.name}' requires one of: " + " | ".join(alts)
+                )
 
         for key, value in payload.items():
             if key not in properties:
@@ -661,14 +683,75 @@ DEFAULT_TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     },
     {
         "name": "add_calculation_group",
-        "description": "Add a predefined calculation group table from the DAX catalog.",
+        "description": (
+            "Add a calculation-group table to the semantic model. "
+            "Calculation groups collapse redundant time-intelligence measures "
+            "into a single slicer. Either pass `group_key` to materialise a "
+            "predefined catalog group, or pass an explicit `items` list to "
+            "define the group inline. Dynamic format strings may be provided "
+            "via `format_string_definitions` (name → DAX expression)."
+        ),
         "schema": {
             "type": "object",
-            "required": ["group_key"],
+            "required": [],
+            "anyOf": [
+                {"required": ["group_key"]},
+                {"required": ["items"]},
+            ],
             "properties": {
-                "group_key": {"type": "string"},
-                "table_name": {"type": "string"},
-                "precedence": {"type": "integer"},
+                "group_key": {
+                    "type": "string",
+                    "description": (
+                        "Key of a calculation group registered in "
+                        "`dax_library.json`. Used unless `items` is "
+                        "provided."
+                    ),
+                },
+                "table_name": {
+                    "type": "string",
+                    "description": (
+                        "Override the catalog's default table name. "
+                        "If neither `table_name` nor the catalog entry "
+                        "supplies one, the handler fails with a clear "
+                        "error."
+                    ),
+                },
+                "precedence": {
+                    "type": "integer",
+                    "description": (
+                        "Calculation group precedence (lower numbers "
+                        "evaluate first). Defaults to the catalog value."
+                    ),
+                },
+                "items": {
+                    "type": "array",
+                    "description": (
+                        "Inline list of calculation items, used instead of "
+                        "the catalog. Each item is {name, expression, "
+                        "format_string?, format_string_definition?, "
+                        "description?}."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "required": ["name", "expression"],
+                        "properties": {
+                            "name": {"type": "string"},
+                            "expression": {"type": "string"},
+                            "format_string": {"type": "string"},
+                            "format_string_definition": {"type": "string"},
+                            "description": {"type": "string"},
+                        },
+                    },
+                },
+                "format_string_definitions": {
+                    "type": "object",
+                    "description": (
+                        "Optional name → DAX expression map applied to "
+                        "items that don't carry their own "
+                        "format_string_definition."
+                    ),
+                    "additionalProperties": {"type": "string"},
+                },
             },
         },
         "handler": add_calculation_group_handler,
