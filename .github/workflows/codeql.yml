@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Exclude regenerated / virtualenv trees from CodeQL
           # scanning. ``paths-ignore`` is a checkout option (not
