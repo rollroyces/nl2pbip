@@ -1,0 +1,47 @@
+name: Documentation / question
+description: Ask a usage question, propose a doc change, or request clarification on a feature.
+title: "[docs] "
+labels: ["documentation", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for documentation gaps, unclear
+        README sections, or usage questions that don't fit
+        the bug / feature-request templates. For general
+        how-to questions, please use GitHub Discussions
+        instead — you'll get a faster answer there.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: What were you trying to do?
+      description: Briefly describe the workflow or doc section you were working through.
+      placeholder: |
+        I was following the README's "5-minute demo" section and
+        got stuck on step 4 — the `python -m nl2pbip.example_run`
+        command outputs a traceback.
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question or proposal
+      description: |
+        Phrase it as a question, or describe the doc change you
+        want to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: doc_link
+    attributes:
+      label: Affected doc / file
+      description: |
+        Link or path to the doc section, e.g. README.md "What You
+        Get" or `docs/architecture.md`.
+    validations:
+      required: false

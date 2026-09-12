@@ -1,0 +1,53 @@
+# Dependabot configuration for nl2pbip
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+
+updates:
+  # pip dependencies — pyproject.toml is the canonical source.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Hong_Kong"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "automated"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    # Group patch + minor updates to reduce PR noise. Major-version
+    # bumps stay as separate PRs so we can review breaking changes
+    # in isolation.
+    groups:
+      patch-and-minor:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+    # Ignore the heavy ML extras — finetune stack is installed
+    # manually; dependabot PRs shouldn't churn it.
+    ignore:
+      - dependency-name: "unsloth"
+      - dependency-name: "trl"
+      - dependency-name: "transformers"
+      - dependency-name: "datasets"
+
+  # GitHub Actions — keep the workflow templates current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Hong_Kong"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "ci"
+      include: "scope"

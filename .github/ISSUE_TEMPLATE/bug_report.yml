@@ -1,0 +1,123 @@
+name: Bug report
+description: Report something broken — wrong TMDL output, test failure, performance regression, incorrect doc.
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please fill in the
+        template below — the more context you can give, the faster
+        we can fix it.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: |
+        A clear, one-paragraph description of the bug. Include the
+        tool call, the input, the expected output, and the actual
+        output.
+      placeholder: |
+        Running `python -m nl2pbip.example_run` fails on Python 3.10
+        with:
+
+        ```
+        AttributeError: 'NoneType' object has no attribute 'group'
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal code snippet or command sequence that triggers the bug.
+      placeholder: |
+        ```python
+        from nl2pbip.orchestrator import Orchestrator
+        orch = Orchestrator(llm_client=my_llm)
+        orch.run("build a sales dashboard")
+        ```
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What did you expect to happen instead?
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: nl2pbip version
+      description: Output of `python -c "import nl2pbip; print(nl2pbip.__version__)"`
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: python
+    attributes:
+      label: Python version
+      options:
+        - "3.10"
+        - "3.11"
+        - "3.12"
+        - "3.13"
+        - "3.14"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS 14.5 / Ubuntu 22.04 / Windows 11"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: llm
+    attributes:
+      label: LLM client (if relevant)
+      description: |
+        Which LLM provider / model produced the bad plan? Helps us
+        reproduce the failure mode.
+      options:
+        - "Not applicable (no LLM)"
+        - "OpenAI gpt-4o"
+        - "OpenAI gpt-4o-mini"
+        - "Anthropic claude-3-5-sonnet"
+        - "Anthropic claude-3-haiku"
+        - "Local / vLLM"
+        - "Other"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / traceback
+      description: Paste the full traceback or `pytest -v` output.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Self-check
+      options:
+        - label: I ran `pytest tests/` locally and can reproduce the failure.
+          required: false
+        - label: I searched existing issues and didn't find a duplicate.
+          required: false
+        - label: This is a real bug, not a question about usage (use Discussions for that).
+          required: false

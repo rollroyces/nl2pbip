@@ -1,0 +1,57 @@
+name: Q&A
+description: Ask a specific technical question with a single best answer.
+title: "[Q] "
+labels: ["question"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for specific technical questions. For
+        open-ended how-to / discussion, use the General category
+        instead.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: One focused question.
+      placeholder: |
+        How do I get the LLM to emit a field-parameter switch instead
+        of a fixed measure when the user says "let me pick the metric"?
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What did you try?
+      description: Show your code, the plan output, and what you expected.
+      placeholder: |
+        I added a rule to my custom prompt mentioning field
+        parameters but the planner still emits add_visual with
+        a fixed measure. Sample plan below.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: nl2pbip version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: python
+    attributes:
+      label: Python version
+      options:
+        - "3.10"
+        - "3.11"
+        - "3.12"
+        - "3.13"
+        - "3.14"
+    validations:
+      required: true

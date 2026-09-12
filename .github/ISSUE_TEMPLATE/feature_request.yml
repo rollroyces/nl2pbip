@@ -1,0 +1,93 @@
+name: Feature request
+description: Propose a new capability for nl2pbip — a new TMDL feature, LLM context block, integration, or tool.
+title: "[feature] "
+labels: ["enhancement", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for proposing a feature! Before opening an
+        issue, please check the README and the existing issue
+        tracker to avoid duplicates.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: |
+        What user pain point does this address? Be concrete: who
+        has this problem, and what is the cost of not solving it?
+      placeholder: |
+        When the user prompt mentions "let users switch metrics",
+        the planner emits an `add_visual` with a fixed measure,
+        not a field-parameter switch. This forces the user to
+        manually wire NAMEOF() calls in Power BI Desktop after
+        the planner finishes.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: |
+        Sketch the API surface, file layout, or sample output.
+        Pseudo-code is fine.
+      placeholder: |
+        Add `add_field_parameter` tool. Schema:
+
+        ```json
+        {
+          "tool": "add_field_parameter",
+          "args": {
+            "parameter_name": "Metric Selection",
+            "members": [
+              {"display_name": "Revenue", "table_name": "Sales", "measure_name": "Revenue"},
+              {"display_name": "Region", "table_name": "Sales", "column_name": "Region"}
+            ]
+          }
+        }
+        ```
+
+        Output:
+
+        ```tmdl
+        table "Metric Selection" { isParameterTable ... }
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: |
+        What other approaches did you consider, and why is your
+        proposed solution better?
+    validations:
+      required: false
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Scope / impact
+      description: |
+        Which modules does this touch? Roughly how many lines of
+        code? Does it need new external dependencies? Will any
+        existing tests break?
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Self-check
+      options:
+        - label: I checked the README and existing issues and didn't find this.
+          required: false
+        - label: I am willing to open a PR (check if not — happy to discuss first).
+          required: false
+        - label: The proposal fits the project's commercial license model (no GPL / AGPL dependencies).
+          required: false
