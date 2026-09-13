@@ -4,383 +4,78 @@ All notable changes to `nl2pbip` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.1.0] - 2026-09-12
 
 ### Added
-- **GitHub template repo files** (`.github/` + `CONTRIBUTING.md`):
-  complete CI/CD + community plumbing so the repo is ready to
-  receive contributions on day one.
-  - **Issue templates** (`.github/ISSUE_TEMPLATE/`):
-    * `bug_report.yml` — version, Python, OS, LLM client,
-      reproduce-steps, expected-vs-actual, traceback, self-check.
-    * `feature_request.yml` — problem / proposal / alternatives /
-      scope + checklist on licensing.
-    * `documentation.yml` — for doc questions and clarification.
-  - **PR template** (`.github/PULL_REQUEST_TEMPLATE.md`) — type
-    of change, what-changed bullets, pytest + lint outputs,
-    checklist (tests pass, changelog updated, no GPL deps).
-  - **CODEOWNERS** (`.github/CODEOWNERS`) — per-path owner
-    assignments for the TMDL engine, packager, orchestrator,
-    M-builder, prompts, README, CHANGELOG, .github, and
-    security-sensitive files (pyproject, LICENSE).
-  - **Dependabot** (`.github/dependabot.yml`) — pip weekly
-    (Monday 09:00 HKT) + GitHub Actions weekly, with patch+minor
-    grouped, heavy ML extras (unsloth, trl, transformers,
-    datasets) ignored.
-  - **CodeQL** (`.github/workflows/codeql.yml`) — Python security
-    scanning on push / PR + weekly cron; ignores .venv,
-    .pytest_cache, artifacts.
-  - **Release workflow** (`.github/workflows/release.yml`) —
-    tag-driven (vX.Y.Z) build (sdist + wheel, twine check) +
-    PyPI publish via trusted publishing (OIDC, no API token) +
-    GitHub release with auto-generated notes. Manual dispatch
-    supports a dry-run mode.
-  - **CI workflow upgrade** (`.github/workflows/ci.yml`) —
-    * Concurrency group (cancel in-progress on rapid pushes).
-    * Permissions hardened (contents: read).
-    * Smoke test step that runs `example_run` and asserts all
-      expected files exist (.pbip, model.tmdl, itemMetadata.json
-      × 2, .platform × 2) — guards against PR #22-style
-      regressions.
-    * Coverage upload to Codecov (Python 3.12 job only, optional).
-    * New opt-in `benchmarks` job triggered via
-      `workflow_dispatch` — runs the perf suite with
-      `NL2PBIP_RUN_BENCHMARKS=1`.
-    * Simplified dependency install — dropped the heavy ML
-      stack from CI (those extras aren't needed for unit tests).
-  - **SECURITY.md** (`.github/SECURITY.md`) — supported-versions
-    table, private disclosure email + 3-day acknowledgement SLA,
-    coordinated-disclosure policy, scope / out-of-scope, hall of
-    fame.
-  - **CONTRIBUTING.md** — licensing terms (proprietary, no GPL /
-    AGPL / SSPL contributions), dev setup, lint / test commands,
-    conventional-commits branch + commit conventions, PR
-    checklist, release process.
-  - **Discussion template** (`.github/DISCUSSION_TEMPLATE/q-a.yml`)
-    — focused technical-question form for the Discussions tab.
-  - **Release notes template** (`.github/RELEASE_TEMPLATE.md`) —
-    skeleton for the GitHub release body used by the release
-    workflow.
-  - 53 new tests in `tests/test_repo_templates.py`:
-    * File presence (12 required + 1 optional)
-    * YAML shape (8 + name / trigger checks for each workflow)
-    * Issue / discussion form templates (4 templates,
-      bug_report-has-required-fields)
-    * CODEOWNERS (default owner, repo-root paths)
-    * Dependabot (version, ecosystems, heavy-ML ignore)
-    * CI workflow (matrix, black/ruff/pytest, concurrency,
-      smoke test for Fabric metadata, benchmarks opt-in)
-    * Release workflow (publish job, trusted publishing via
-      OIDC, wheel + sdist)
-    * SECURITY.md (supported versions, contact, disclosure
-      policy, out-of-scope)
-    * CONTRIBUTING.md (licensing, dev setup, release process)
-    * Cross-template consistency (CODEOWNERS paths exist,
-      workflow references resolve)
-    * Smoke test (example_run produces Fabric metadata — guards
-      against PR #22-style regressions in CI)
-    **661 tests total**, all green.
-- **Fabric Git-integration metadata** (`package_pbip_handler`):
-  writes `itemMetadata.json` + `.platform` per Fabric item so the
-  resulting PBIP project is ready for a Git repo connected to a
-  Fabric workspace. Schema matches Microsoft docs (Sept 2025).
-  - **Per-item files** written (when `write_fabric_metadata=True`,
-    which is the default):
-    * `{Project}.SemanticModel/itemMetadata.json`
-    * `{Project}.SemanticModel/.platform`
-    * `{Project}.Report/itemMetadata.json`
-    * `{Project}.Report/.platform`
-  - **`itemMetadata.json`** payload: `type` (one of the canonical
-    Fabric item types — `SemanticModel`, `Report`, `Lakehouse`,
-    `Warehouse`, `Notebook`, `DataPipeline`, ...), `displayName`,
-    optional `description`, optional `sensitivityLabelId`.
-  - **`.platform`** payload: `metadata.type`, `metadata.displayName`,
-    `config.version` (always `2.0`), `config.logicalId` (uuid4 by
-    default; shared between the semantic model and the report
-    because Fabric treats them as one item-group).
-  - **Project root manifest** (`{Project}.pbip`) gains a top-level
-    `fabricRoot: { type: "PBIPProject", displayName: ... }` block
-    when Fabric metadata is enabled.
-  - **New kwargs on `package_pbip_handler`**:
-    * `write_fabric_metadata: bool = True` — master switch
-    * `fabric_semantic_model_type: str = "SemanticModel"` — the
-      item-type string for the semantic model item
-    * `fabric_report_type: str = "Report"` — the item-type string
-      for the report item
-    * `fabric_logical_id: Optional[str] = None` — override the
-      generated uuid4 logical id
-    * `fabric_sensitivity_label_id: Optional[str] = None` —
-      Microsoft Purview sensitivity label id (omitted if empty)
-  - **Validation** — fabric item types are checked against
-    `FABRIC_ITEM_TYPES` (a frozenset of the 20 canonical Fabric
-    item types) before any file is written; unknown / empty /
-    non-string types raise `ValueError` with the valid list.
-  - **Result dict** now includes `fabric_enabled` (bool),
-    `project_manifest` (path to the .pbip file), and
-    `fabric_files` (paths to all four metadata files plus the
-    `logical_id` string).
-  - 30 new tests in `tests/test_fabric_metadata.py`:
-    _validate_fabric_item_type (5), _make_item_metadata (4),
-    _make_platform (3), FABRIC_ITEM_TYPES (2), package_pbip with
-    Fabric disabled (1), with Fabric enabled (13), round-trip (2).
-    **608 tests total**, all green.
-- **Agentic self-reflection loop** (`Orchestrator.run_with_reflection`):
-  post-success critic pass + planner refinement. Five concrete
-  capabilities:
-  - **`ReflectiveTrace`** dataclass — records every attempt
-    (plan, results, error, feedback, reflection) so callers can
-    inspect, persist, or stream to a UI.
-  - **`PlanQualityScore`** dataclass — parsed from the critic
-    response, with `correctness` / `completeness` /
-    `alignment_with_prompt` scores in [0, 1], a `suggestions`
-    list, an `overall` weighted-average property (correctness
-    weighted 0.5, completeness 0.3, alignment 0.2), and an
-    `is_acceptable(threshold=0.7)` predicate that also enforces
-    `correctness >= 0.6`.
-  - **`PlannerClarification`** exception — raised when the LLM
-    emits a `{"clarification": "...", "rationale": "..."}`
-    payload instead of a plan. The orchestrator surfaces it via
-    the trace's `final_error` field (without consuming a retry),
-    so the caller can present it back to the user, gather an
-    answer, and re-invoke the planner.
-  - **`run_with_reflection()`** method — extends `run()` with:
-    * persistent trace across all attempts
-    * cumulative feedback (each retry sees ALL prior errors,
-      not just the most recent)
-    * post-success critic pass via the planner LLM (or a
-      separate `critic` LLM client)
-    * reflection loop — if the critic score is below the
-      threshold, the orchestrator re-invokes the planner with
-      the critic's suggestions as feedback, up to
-      `max_reflection_rounds` times
-    * plan parsing errors now consume a retry (previously they
-      raised before the try/except).
-  - **`CRITIC_SYSTEM_PROMPT`** + **`build_critic_user_message`**
-    in `prompts.py` — separate from the planner prompt so the
-    critic can be a different model or fine-tuned variant.
-  - **`Orchestrator._parse_critic_score()`** static helper —
-    tolerant JSON parser that handles markdown-fenced JSON
-    (`\`\`\`json ... \`\`\``), clamps scores to [0, 1], and
-    tolerates either `{"scores": {...}, "suggestions": [...]}`
-    or a flat top-level shape.
-  - **`Orchestrator._build_reflection_feedback()`** static
-    helper — formats the critic's scores + suggestions as
-    actionable feedback for the planner's next attempt.
-  - **`ReflectiveTrace.to_dict()`** — JSON-serialisable view of
-    the full attempt history (plan + results + errors + critic
-    score).
-  - 29 new tests in `tests/test_agentic_reflection.py` covering
-    PlanQualityScore, _parse_critic_score, _build_reflection_feedback,
-    build_critic_user_message, CRITIC_SYSTEM_PROMPT, clarification
-    handling (parse + run_with_reflection), happy-path with mock
-    critic, `max_reflection_rounds=0` short-circuit, cumulative
-    feedback on failure-then-success, trace serialisation, and
-    backward compatibility of the legacy `run()` entry point.
-    **578 tests total**, all green.
-- **Power Query M partition generation** (`add_power_query_partition`
-  tool + `nl2pbip.m_builder` module): first-class support for
-  Power Query M sources in TMDL partitions:
-  - Six templates: `csv`, `sql`, `json`, `sharepoint`, `odata`,
-    `web`. Each is a small, deterministic builder that emits the
-    canonical `let ... in Source` form Power BI Desktop generates.
-  - Three transformation builders: `build_promoted_table`
-    (Table.PromoteHeaders + Table.TransformColumnTypes),
-    `build_merge_query` (Table.NestedJoin with kind validation),
-    `build_append_query` (Table.Combine), `build_group_aggregate`
-    (Table.Group with function-name validation).
-  - Two quoting helpers: `quote_string` (wraps in `"..."` with
-    `""` escape) and `m_escape` (escapes existing quotes without
-    adding wrapping). The writer uses `m_escape` so M source code
-    with its own string literals round-trips through TMDL without
-    double-escaping.
-  - `validate_m_expression()` — cheap shape check (non-empty,
-    balanced `let`/`in`, no triple-quote delimiter clash, no NUL,
-    length ceiling) without eval.
-  - New `add_power_query_partition_handler`: accepts either
-    `template` + `params` (structured template mode) or
-    `m_expression` (raw M mode); supports `promote=true`,
-    `column_types=[{name, type}, ...]`, and `replace=true` for
-    partition overwrite. Refuses to add a duplicate partition
-    unless `replace=true`. Validates that the target table
-    already exists. Writes to the TMDL `partition "Name" = mode:
-    import, source: { type: m, expression = "..." }` block.
-  - Parser fix: `_parse_source_dict` is now quote-aware (was
-    comma-split), and `_find_partition_blocks` uses a manual
-    brace counter (was single-line regex with `.*?`) so multi-line
-    M expressions survive the round-trip.
-  - `_render_source` now uses `m_escape` (not `quote_string`) so
-    M source code with embedded `"..."` string literals emits
-    valid TMDL.
-  - System prompt v5 (rules 23a / 23b / 23c added) instructs the
-    LLM when to use template mode vs. raw M, what `promote=true`
-    does, and warns against pre-quoting path / URL params.
-  - Bundled example (`example_run.py`): adds an
-    `add_power_query_partition` step that creates a CSV-sourced
-    partition on the `Sales` table with the standard
-    promote-headers + change-type pattern.
-  - 65 new tests in `tests/test_power_query.py` (quoting, validation,
-    each template, each transformation, handler paths, parser
-    round-trip, on-disk vs parsed equivalence, example-run
-    integration). **549 tests total**, all green.
-- **Performance benchmark suite** (`tests/test_performance.py`): 12
-  benchmarks covering the TMDL writer / parser round-trip (200
-  tables, 800 measures), calc-group rendering at 10 / 50 / 100 items,
-  field-parameter rendering at 10 / 50 members, OLS role rendering
-  at 10 / 50 tables, large file write to disk, and end-to-end
-  orchestrator latency. Opt-in via `NL2PBIP_RUN_BENCHMARKS=1`
-  environment variable; otherwise the suite is skipped by default so
-  the standard CI run isn't slowed down.
-- **README**: new **Performance benchmarks** section with the
-  throughput table (writer 1,148 ops/sec, parser 16 ops/sec, etc.)
-  and the bottleneck note that the parser is ~70× slower than the
-  writer on the 200-table model.
-- **Field Parameters** (`add_field_parameter` tool): first-class support
-  for Power BI's dynamic-measure / dynamic-column / dynamic-table
-  switching via a slicer:
-  - Canonical Microsoft TMDL grammar: `isParameterTable` marker,
-    three columns (Name / Fields / Ordinal) with `isNameInferred` /
-    `isHidden` / `sortByColumn` markers, and a `partition Name =
-    calculated expression = '''...'''` block carrying the
-    `NAMEOF('Tbl'[Col])` DAX table expression.
-  - New `TMDLTable.is_parameter_table` /
-    `parameter_partition_expression` fields; `TMDLColumn.is_hidden`
-    / `is_name_inferred` / `sort_by_column` fields.
-  - New `_build_field_parameter_expression()` helper that renders the
-    curly-brace table literal with one entry per member and the
-    ordinal starting at zero.
-  - `_render_partition()` extended to handle the calculated-table form
-    (multi-line triple-quoted expression) in addition to the existing
-    M-partition form.
-  - Parser updates: `_find_partition_blocks()` finds both
-    calculated-table partitions (multi-line) and M-partition
-    declarations (single-line). `_parse_column()` reads `isHidden`,
-    `isNameInferred`, and `sortByColumn`.
-- **System prompt v4** (`REPORT_GENERATION_PROMPT_VERSION = 4`,
-  rule 21a added): instructs the LLM to emit `add_field_parameter`
-  when the user asks for dynamic measure/column switching, and to
-  pair the parameter with a slicer visual.
-- **Bundled example** (`example_run.py`): emits an `add_field_parameter`
-  step that creates a `Metric Selection` parameter with two members
-  (one measure, one column), producing a working
-  `definition/tables/Metric_Selection.tmdl` that Power BI Desktop
-  recognises as a field parameter.
-- 27 new unit tests in `tests/test_field_parameters.py` covering
-  expression builder, table rendering, parser round-trip, handler
-  paths (success + validation), and bundled example. **484 tests
-  total**, all green.
+- **TMDL feature expansion** — five new capabilities covering
+  the Power BI desktop authoring surface:
+  - **Calculation Groups** + dynamic format strings
+    (`add_calculation_group` tool + `TMDLCalculationItem` /
+    `isCalculationGroup` / `formatStringDefinition` TMDL grammar).
+  - **Object-Level Security (OLS)** with the Microsoft
+    Sept 2025 TMDL grammar (nested
+    `tablePermission Tbl { columnPermission Col { ... } }`
+    blocks; legacy RLS aggregator still parsed for back-compat).
+  - **Field Parameters** for dynamic measure / column / table
+    switching via slicer (`add_field_parameter` tool, canonical
+    `isParameterTable` + `partition = calculated expression` TMDL).
+  - **Power Query (M) partition generation**
+    (`add_power_query_partition` tool + `nl2pbip.m_builder` module
+    with six source templates and four transformation builders).
+  - **Fabric Git Integration metadata** — `itemMetadata.json` +
+    `.platform` per Fabric item so PBIP folders are ready for a
+    Git repo connected to a Fabric workspace. Validated against
+    `FABRIC_ITEM_TYPES` (20 canonical Fabric types).
+  - 247 new tests across the five feature files.
 
-### Added (previously in [Unreleased], now promoted)
-- **Object-Level Security (OLS)** — full support for the Microsoft
-  Sept 2025 TMDL grammar:
-  - Canonical nested ``tablePermission Tbl { ... metadataPermission }``
-    and ``columnPermission Col { metadataPermission }`` blocks.
-  - New `TMDLTablePermission` and `TMDLColumnPermission` dataclasses
-    (`TMDLRolePermission` kept as backward-compat alias).
-  - `TMDLRole.add_table_permission()` /
-    `TMDLRole.add_column_permission()` API. Validates
-    `metadata_permission ∈ {"none", "read"}` and refuses to combine
-    filterExpression (RLS) + metadataPermission (OLS) in one block;
-    split them across two tablePermission blocks instead.
-  - `add_ols_role_handler` rebuilt with `table_permissions` /
-    `column_permissions` arguments (new) plus `hidden_tables` /
-    `hidden_columns` (legacy, mirror-populated for back-compat).
-  - `_parse_role` understands the nested form:
-    ``_iter_table_permission_blocks`` finds each `tablePermission`
-    header, `_iter_column_permission_blocks` finds nested
-    `columnPermission` headers. Pre-column body is sliced before
-    extraction so a column's `metadataPermission` doesn't leak into
-    the parent tablePermission.
-  - `_iter_legacy_table_permission_entries` parses the older
-    `tablePermissions = [ "Tbl" = filterExpression: '...' ]`
-    aggregator (the format Power BI emits for RLS).
-  - Renderer deduplicates legacy `hidden_tables` /
-    `hidden_columns` entries that are also represented as nested
-    blocks (no duplicate rules in the output).
-- **System prompt v3** (`REPORT_GENERATION_PROMPT_VERSION = 3`,
-  rule 27 expanded): documents the canonical nested OLS grammar;
-  forbids combining filterExpression + metadataPermission in one
-  block; defaults `metadata_permission` to `none` when the prompt
-  mentions PII / confidential data.
-- **Bundled example** (`example_run.py`): emits an `add_ols_role`
-  step that hides the `SaleId` column from the `SalesPublic` role,
-  producing a working `definition/roles/SalesPublic.tmdl` that
-  Power BI Desktop recognises as OLS.
-- 32 new unit tests in `tests/test_object_level_security.py`
-  covering nested TMDL grammar, parser round-trip, RLS/OLS
-  combinations, validation paths, backward compat, and the bundled
-  example. **457 tests total**, all green.
+- **Agentic self-reflection loop**
+  (`Orchestrator.run_with_reflection`): persistent
+  `ReflectiveTrace` + cumulative feedback across retries +
+  post-success critic pass via the planner LLM (or a separate
+  `critic` client) + reflection loop that re-invokes the planner
+  with the critic's suggestions when the score is below threshold.
+  New `PlannerClarification` exception for LLM-asked questions.
+  `PlanQualityScore` dataclass with `correctness` / `completeness`
+  / `alignment_with_prompt` + `is_acceptable()` predicate.
+  System prompt v5 (rules 23a / 23b / 23c). 29 new tests.
 
-### Added (previously in [Unreleased], now promoted)
-- **Calculation groups** (`add_calculation_group` tool, new
-  `TMDLCalculationItem` dataclass, calc-group rendering in TMDL):
-  - Canonical Microsoft TMDL grammar for calc-group tables:
-    `calculationGroup` keyword, `precedence: N`, and
-    `calculationItem 'Name' = DAX` declarations. Single-quoted table
-    names (`'Time Intelligence'`) emitted per spec.
-  - **Dynamic format strings** via
-    `format_string_definition = DAX` sibling line. Sample catalog
-    (`dax_library.json`) wires `YoY %` with an `ISNUMERIC` guard so
-    the percent format only kicks in when the underlying measure is
-    numeric.
-  - `add_calculation_group` now accepts inline `items` arrays in
-    addition to `group_key` lookups, with per-item
-    `format_string_definition`. Schema uses `anyOf` so either
-    `group_key` or `items` is required, not both.
-  - `discourageImplicitMeasures` model property is documented as
-    auto-enabled when calc groups are added (Power BI Desktop surfaces
-    a confirmation dialog the first time it sees a calc group).
-- **Parser support** for calc-group TMDL (`parse_tmdl_text`,
-  `_parse_table`, `_parse_calculation_items`, `_parse_sibling_columns`):
-  - Single-quoted section names (`'Time Intelligence'`).
-  - Calc-group keyword (no braces; children read until the next
-    sibling keyword).
-  - `formatStringDefinition` sibling lines wired back to the matching
-    `calculationItem`.
-  - Sibling `column ... { ... }` blocks (the form emitted by the
-    calc-group writer) parsed as columns when no
-    `columns = [...]` aggregator is present.
-- **Orchestrator**
-  (`ToolSpec.validate_payload`): now understands `anyOf` so a tool
-  can declare "either X or Y is required". Improves the LLM's
-  self-correction feedback when neither is provided.
-- **System prompt v2** (`REPORT_GENERATION_PROMPT_VERSION = 2`,
-  rule 19 expanded): documents calc-group syntax, dynamic format
-  strings, `ISNUMERIC(SELECTEDMEASURE())` guards, and the
-  `discourageImplicitMeasures` model property. Forbids per-period
-  measures (YTD/QTD/MTD/PriorYear) when a calc group covers the same
-  pattern.
-- **Bundled `dax_library.json`** updated to include
-  `format_string_definition` on the bundled `YoY %` item so the
-  shipped time-intelligence calc group ships with a dynamic format
-  expression.
-- **Example runner** (`example_run.py`): added a sample plan step that
-  emits the new `add_calculation_group` tool, producing a working
-  `CG_Time_Intelligence.tmdl` table that opens in Power BI Desktop.
-- 27 new unit tests in `tests/test_calculation_groups.py` covering
-  grammar rendering, parser round-trip, handler error paths, and
-  bundled catalog coverage. 425 tests total, all green.
+- **Performance benchmark suite**
+  (`tests/test_performance.py`): 13 opt-in benchmarks covering
+  TMDL writer / parser round-trip, calc-group / field-param / OLS
+  rendering at multiple sizes, large file write, end-to-end
+  orchestrator latency, and the reflection-loop overhead.
 
-### Added (docs)
-- README: **5-minute demo** section surfacing `python -m nl2pbip.example_run`
-  as the fastest no-LLM-required path to a working PBIP.
-- README: **Worked example** section showing the prompt → LLM plan → TMDL
-  output trace for the bundled `example_run.py` scenario.
-- README: **What you get** section documenting the output directory
-  structure with file-by-file annotations.
-- README: **Troubleshooting** table covering the 10 most common runtime
-  errors (invalid JSON, unsupported dataType / visualType, missing
-  context, pbi-tools not installed, etc.) with their likely causes
-  and fixes.
-- README: **Limitations** table documenting v1.0.0's honest engineering
-  limits (LLM can still invent bad column names, FK detection is
-  heuristic on top-N examples, no built-in RAG, .pbix requires
-  pbi-tools, custom visuals need manual registration, etc.).
-- README: **Performance & cost** table with rough token budgets per
-  LLM call (~$0.0014 per report at gpt-4o-mini pricing) and observed
-  runtimes (mock LLM ~0.8 s, Ollama ~3-6 s, OpenAI gpt-4o-mini
-  ~2-4 s).
-- README: **Next steps** updated to cross-link the new sections and
-  surface `example_run.py` as the first thing a new reader should try.
+- **GitHub repo template files** (`.github/` + `CONTRIBUTING.md`):
+  issue templates (`bug_report` / `feature_request` /
+  `documentation`), PR template, CODEOWNERS, Dependabot,
+  `SECURITY.md`, `CONTRIBUTING.md`, Discussion template, release
+  notes template, CodeQL workflow, release workflow (PyPI
+  trusted publishing + GitHub release). CI workflow upgraded
+  with concurrency group, permissions hardening, an example
+  smoke test, opt-in benchmarks job, and `--ignore` for the
+  finetune test suite. 53 new tests in
+  `tests/test_repo_templates.py`.
+
+### Changed
+- CI workflow simplified — dropped the heavy ML stack from the
+  default CI install (only required for `test_finetune.py`,
+  which is now `--ignore`d). `pyyaml>=6.0` and `twine>=5.0`
+  added to `[dev]` extras.
+- CodeQL workflow hardened — `paths-ignore` correctly lives
+  on `actions/checkout` (not `codeql-action/init`), `security-events:
+  write` declared, and `paths-ignore` uses the block-scalar form
+  to work around the parser rejecting glob characters in the
+  list form.
+- README rewritten with a 5-minute demo, worked example,
+  troubleshooting, limitations, performance & cost sections;
+  performance benchmarks section documents throughput at the
+  current version.
+
+### Tests
+- **666 tests pass** across 16 test files (was 484 at v1.0.0;
+  +182 across this release).
+- 13 benchmarks opt-in via `NL2PBIP_RUN_BENCHMARKS=1`.
+- `black` + `ruff` clean.
 
 Nothing yet — release notes for the next version land here.
 
