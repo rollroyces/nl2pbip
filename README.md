@@ -608,7 +608,7 @@ Files committed prior to [`0af050c`](https://github.com/rollroyces/nl2pbip/commi
 
 To obtain a Commercial License Agreement, contact:
 
-> Royce &lt;rollroyces@users.noreply.github.com&gt;
+> Royce &lt;roycelam@umich.edu&gt;
 
 Your agreement will define scope, duration, fees, support, confidentiality, warranties, and termination.
 

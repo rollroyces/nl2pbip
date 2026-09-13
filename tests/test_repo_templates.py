@@ -449,6 +449,84 @@ class TestSecurityPolicy:
         assert "Out of scope" in text or "out of scope" in text
 
 
+class TestContactInfo:
+    """Regression test for the 2026-09-13 rebrand.
+
+    The author email must be consistent across pyproject.toml,
+    LICENSE, README, and SECURITY.md. The historical email
+    ``rollroyces@users.noreply.github.com`` should not appear in
+    any user-facing file."""
+
+    AUTHOR_EMAIL = "roycelam@umich.edu"
+    HISTORICAL_EMAIL = "rollroyces@users.noreply.github.com"
+
+    def _user_facing_files(self):
+        """Return paths that ship to end users (excludes CHANGELOG
+        history links, .venv, __pycache__)."""
+        candidates = [
+            REPO_ROOT / "pyproject.toml",
+            REPO_ROOT / "LICENSE",
+            REPO_ROOT / "README.md",
+            REPO_ROOT / ".github" / "SECURITY.md",
+        ]
+        return [p for p in candidates if p.exists()]
+
+    def test_author_email_consistent_across_files(self):
+        for path in self._user_facing_files():
+            text = path.read_text()
+            assert self.AUTHOR_EMAIL in text, (
+                f"{path.relative_to(REPO_ROOT)}: missing author email "
+                f"{self.AUTHOR_EMAIL!r}"
+            )
+
+    def test_historical_email_not_in_user_facing_files(self):
+        """The historical email must not appear in user-facing files.
+
+        CHANGELOG.md is allowed to keep the historical email because
+        it documents the v1.1.0 -> v1.1.1 rebrand."""
+        for path in self._user_facing_files():
+            text = path.read_text()
+            assert self.HISTORICAL_EMAIL not in text, (
+                f"{path.relative_to(REPO_ROOT)}: still contains the "
+                f"historical email {self.HISTORICAL_EMAIL!r}"
+            )
+
+    def test_pyproject_authors_field(self):
+        """``pyproject.toml [project] authors`` must list the new
+        email exactly once (not zero, not twice, no orphans)."""
+        text = (REPO_ROOT / "pyproject.toml").read_text()
+        # Look for ``email = "..."`` inside the authors block.
+        import re
+
+        matches = re.findall(
+            r'authors\s*=\s*\[[^\]]*email\s*=\s*"([^"]+)"',
+            text,
+            re.DOTALL,
+        )
+        assert matches == [self.AUTHOR_EMAIL], (
+            f"pyproject.toml [project] authors should list "
+            f"{self.AUTHOR_EMAIL!r} exactly once; got {matches}"
+        )
+
+    def test_license_email(self):
+        """LICENSE must reference the author email in the
+        ``Contact:`` line."""
+        text = (REPO_ROOT / "LICENSE").read_text()
+        # Find the line after "Contact:".
+        for line in text.splitlines():
+            if "Contact:" in line:
+                # Next non-empty line should have the email.
+                idx = text.splitlines().index(line)
+                for following in text.splitlines()[idx + 1 : idx + 5]:
+                    if following.strip():
+                        assert self.AUTHOR_EMAIL in following, (
+                            f"LICENSE Contact line points at "
+                            f"{following!r}, not {self.AUTHOR_EMAIL!r}"
+                        )
+                        return
+        pytest.fail("LICENSE has no Contact: line")
+
+
 # ---------------------------------------------------------------------------
 # CONTRIBUTING.md
 # ---------------------------------------------------------------------------

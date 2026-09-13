@@ -4,6 +4,27 @@ All notable changes to `nl2pbip` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-09-13
+
+### Changed
+- **Author / contact email swapped.** All references to
+  `rollroyces@users.noreply.github.com` replaced with
+  `roycelam@umich.edu` across `pyproject.toml`, `LICENSE`, `README.md`,
+  and `.github/SECURITY.md`. GitHub username (`rollroyces`) and
+  commit-hash references in README/CHANGELOG are unchanged —
+  those point at historical artefacts that exist under the
+  `rollroyces` GitHub namespace.
+- Per-repo git identity updated to `Royce <roycelam@umich.edu>`
+  so future commits carry the right author email.
+
+### Notes
+- v1.1.0 was already published to PyPI under the previous
+  email. PyPI's filename-collision protection prevents
+  re-uploading the same version, so v1.1.0's package metadata
+  retains the old email as a historical record. Anyone who
+  needs the corrected metadata should `pip install
+  --upgrade nl2pbip` to pull v1.1.1+.
+
 ## [1.1.0] - 2026-09-12
 
 ### Added
