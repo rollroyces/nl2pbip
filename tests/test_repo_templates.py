@@ -575,19 +575,31 @@ class TestReadmeConsistency:
         )
 
     def test_readme_test_count_matches_pytest_collection(self) -> None:
-        """README test-counts claim must match what pytest actually
-        collects. Drift here is a smell — usually a release was cut
-        without refreshing the docs."""
+        """README test-counts headline must match what pytest
+        actually collects on a slim CI install. Drift here is a
+        smell — usually a release was cut without refreshing the
+        docs.
+
+        The README headline is the CI count (684 — excluding
+        `test_finetune.py` via `--ignore`). When running this test
+        locally with the heavy `finetune` extras installed,
+        ``--collect-only`` may report 687 (extra 3 finetune tests).
+        To handle both, the test runs ``--collect-only`` with the
+        same ``--ignore=tests/test_finetune.py`` flag the CI uses
+        and compares against that count.
+        """
+        import re
         import subprocess
         import sys
 
-        # Use the project venv to collect.
+        # Match CI: exclude test_finetune.py.
         result = subprocess.run(
             [
                 sys.executable,
                 "-m",
                 "pytest",
                 "tests/",
+                "--ignore=tests/test_finetune.py",
                 "--collect-only",
                 "-q",
             ],
@@ -595,18 +607,13 @@ class TestReadmeConsistency:
             text=True,
             cwd=str(REPO_ROOT),
         )
-        # The last line of --collect-only output is ``N tests collected``.
         last_line = result.stdout.strip().splitlines()[-1]
         actual_count = int(last_line.split()[0])
-        # README claim lives in the test-counts section. We compare
-        # against the headline ``Pytest collects N test cases ...``
-        # line (the "everything that ships" count, not the CI count).
         text = (REPO_ROOT / "README.md").read_text()
-        # Find the headline number.
-        import re
-
+        # Find the headline "Pytest collects N test cases across M
+        # test files" — that's the headline number.
         m = re.search(
-            r"Pytest collects \*\*(\d+) test cases across \d+ test files",
+            r"Pytest collects \*\*(\d+) test cases across \d+ test files\*\*",
             text,
         )
         assert m, (
@@ -615,9 +622,10 @@ class TestReadmeConsistency:
         )
         claim = int(m.group(1))
         assert claim == actual_count, (
-            f"README test count claims {claim} but pytest collects "
+            f"README headline claims {claim} but `pytest tests/ "
+            f"--ignore=tests/test_finetune.py --collect-only` reports "
             f"{actual_count} tests. Refresh the README's test-counts "
-            "table (and the headline)."
+            "headline to match."
         )
 
     def test_readme_lists_m_builder_module(self) -> None:

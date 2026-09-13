@@ -631,7 +631,7 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **687 test cases across 21 test files** in total (including 3 cases in `test_finetune.py` that need the heavy `finetune` extra). CI runs **684** — `test_finetune.py` is excluded via `--ignore` because it requires `datasets` / `transformers` / `trl` (not installed in CI). Of those 684, **671** pass on every supported Python version (3.10 / 3.11 / 3.12) in CI; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. Install locally with `pip install ".[finetune]"` to run the 3 finetune tests; set `NL2PBIP_RUN_BENCHMARKS=1` to run the 13 benchmarks. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **684 test cases across 21 test files** (Python 3.10 / 3.11 / 3.12). Of those, **671 pass** on every supported Python version in CI; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra (`datasets` / `transformers` / `trl`) — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Collected tests |
 |---|---:|
