@@ -4,6 +4,62 @@ All notable changes to `nl2pbip` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.1.2] - 2026-09-13
+
+### Changed
+- **README refreshed for the v1.1.1 release.** Test-counts table
+  rewritten with the actual per-file parametrised case counts
+  (21 files / 680 cases collected; `test_finetune.py` excluded
+  from CI). Performance benchmarks table expanded to all 13
+  benches including the reflection-loop overhead (previously
+  only 9 entries). Project layout tree updated with
+  `nl2pbip/m_builder.py` (Power Query M builder, missing
+  since PR #19) and accurate test-file count.
+- CI/CD section rewritten to describe the full workflow set
+  (`ci.yml` + `codeql.yml` + `release.yml` + Dependabot) with
+  the actual YAML from the v1.1.x rewrite (concurrency group,
+  permissions hardening, example-run smoke test, opt-in
+  benchmarks job). Removed the stale "install transformers
+  + trl" note from the previous CI workflow.
+- Planner prompts section now mentions `CRITIC_SYSTEM_PROMPT`
+  + `build_critic_user_message` (added in PR #20) and notes
+  the current prompt version is v5.
+- Overview / capability matrix updated to add a row for
+  PyPI-published releases (with link to the project page)
+  and to link the Performance benchmarks row to its section.
+
+### Added
+- Installation section now includes a "Verify your install"
+  snippet (`python -c "import nl2pbip; print(...)"` +
+  `python -m nl2pbip.example_run` + `ls artifacts/...`).
+- CI/CD section now documents the PyPI trusted-publishing
+  setup flow + how to cut a release locally without OIDC.
+- Next steps list mentions `pip install nl2pbip` from PyPI
+  (with the project URL) and recommends
+  `Orchestrator.run_with_reflection(...)` over plain `run(...)`
+  for production use.
+
+## [1.1.1] - 2026-09-13
+
+### Changed
+- **Author / contact email swapped.** All references to
+  `rollroyces@users.noreply.github.com` replaced with
+  `roycelam@umich.edu` across `pyproject.toml`, `LICENSE`, `README.md`,
+  and `.github/SECURITY.md`. GitHub username (`rollroyces`) and
+  commit-hash references in README/CHANGELOG are unchanged —
+  those point at historical artefacts that exist under the
+  `rollroyces` GitHub namespace.
+- Per-repo git identity updated to `Royce <roycelam@umich.edu>`
+  so future commits carry the right author email.
+
+### Notes
+- v1.1.0 was already published to PyPI under the previous
+  email. PyPI's filename-collision protection prevents
+  re-uploading the same version, so v1.1.0's package metadata
+  retains the old email as a historical record. Anyone who
+  needs the corrected metadata should `pip install
+  --upgrade nl2pbip` to pull v1.1.1+.
+
 ## [1.1.0] - 2026-09-12
 
 ### Added

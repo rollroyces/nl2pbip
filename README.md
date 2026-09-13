@@ -2,7 +2,13 @@
 
 Natural Language to Power BI Project (.pbip) Engine
 
-![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg) ![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)
+[![PyPI](https://img.shields.io/pypi/v/nl2pbip.svg)](https://pypi.org/project/nl2pbip/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#installation)
+[![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
+[![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml)
+[![Tests](https://img.shields.io/badge/tests-687%20collected%2C%20674%20passing-brightgreen.svg)](#test-counts)
+[![Benchmarks](https://img.shields.io/badge/benchmarks-13-blue.svg)](#performance-benchmarks)
 
 ## Overview
 
@@ -10,7 +16,18 @@ Natural Language to Power BI Project (.pbip) Engine
 
 - A **semantic model** expressed in Tabular Model Definition Language (TMDL)
 - A **report surface** captured as PBIR JSON (pages, visuals, bindings)
-- A **packaged `.pbip` workspace** that can be exported to `.pbix` or `.pbit`
+- A **packaged `.pbip` workspace** that can be exported to `.pbix` or `.pbit` and committed to a Git repo connected to a Microsoft Fabric workspace
+
+### What ships in v1.1.1
+
+| Capability | What it gives you |
+|---|---|
+| **TMDL feature expansion** | Calculation groups + dynamic format strings (Microsoft's `formatStringDefinition`), Object-Level Security (Sept 2025 grammar — nested `tablePermission` / `columnPermission`), field parameters for dynamic measure / column / table switching via slicer, and Power Query (M) partition generation with six source templates (`csv` / `sql` / `json` / `sharepoint` / `odata` / `web`) plus `promotedTable` / `merge` / `append` / `group` transformations. |
+| **Fabric Git integration** | `package_pbip` writes `itemMetadata.json` + `.platform` per Fabric item so the PBIP folder is ready for a Git repo connected to a Fabric workspace. Validated against the 20 canonical Fabric item types. |
+| **Agentic self-reflection loop** | `Orchestrator.run_with_reflection` records every attempt in a `ReflectiveTrace`, then runs a post-success critic pass (`correctness` / `completeness` / `alignment_with_prompt` scores) and re-invokes the planner with the critic's suggestions when the score is below threshold. New `PlannerClarification` exception lets the LLM ask the user clarifying questions instead of guessing. |
+| **Performance benchmarks** | 13 opt-in benchmarks covering TMDL writer / parser round-trip on a 200-table model, calc-group / field-param / OLS rendering at multiple sizes, end-to-end orchestrator latency, and the reflection-loop overhead. See [Performance benchmarks](#performance-benchmarks). |
+| **GitHub repo templates** | Issue templates, PR template, CODEOWNERS, Dependabot (pip + GitHub Actions, weekly), CodeQL workflow, release workflow (PyPI trusted publishing via OIDC + GitHub release), `SECURITY.md`, `CONTRIBUTING.md`. CI workflow hardened with concurrency groups, permissions hardening, and a smoke test that catches `package_pbip` regressions. |
+| **PyPI published releases** | Tag-push driven release workflow. `v1.1.0` and `v1.1.1` are live at https://pypi.org/project/nl2pbip/. Trusted publishing via OIDC — no API token stored in the repo. |
 
 Beyond model generation, `nl2pbip` ships an **LLM context layer** that profiles your data, validates your relationships against Power BI Desktop's actual constraints, anchors column names to a curated `schema.org`/`PROV-O` subset, and asks the LLM for column roles / measures / visuals with concrete numbers rather than guesses. The system prompt that guides the LLM is **tuned for report generation** — 30 rules covering narrative flow, visual selection by data shape, layout, and measure–visual pairing — so plans produce layouts a senior Power BI designer would approve of rather than a pile of charts.
 
@@ -21,12 +38,15 @@ Beyond model generation, `nl2pbip` ships an **LLM context layer** that profiles 
 | Planner | `StructuredLLMClient` | Normalizes responses from OpenAI, Azure OpenAI, Anthropic, DeepSeek, Qwen, Zhipu, Moonshot, or any OpenAI-compatible endpoint |
 | **Prompts** | `prompts` | Versioned system + user messages tuned for report generation. 30 numbered rules covering narrative flow, visual selection by data shape, layout, measure–visual pairing, filters, and TMDL/relationship/RLS/OLS plumbing. Legacy prompt preserved for opt-out. |
 | Agent runtime | `Orchestrator` | Validates the plan, dispatches domain tools, retries after lint feedback. Six orthogonal context blocks feed the LLM (see [LLM context layer](#llm-context-layer)). The planner payload exposes a `prompt_meta` block (`version`, `name`, `focused_on_report_generation`) so callers can audit which prompt produced a given plan. |
-| TMDL engine | `tmdl_engine` | Parser, writer, 7 handlers (create_table, add_measure, define_relationship, …). Data-type and visual-type aliases normalised. Relationships validated for endpoint existence, type compatibility, self-refs, and duplicate-active guards. |
+| TMDL engine | `tmdl_engine` | Parser, writer, 11 handlers — `create_table`, `add_measure`, `define_relationship`, `add_calculation_group` (with `formatStringDefinition`), `add_ols_role` (Microsoft Sept 2025 grammar), `add_field_parameter`, `add_power_query_partition`, `add_visual`, `add_report_page`, `package_pbip`. Data-type and visual-type aliases normalised. Relationships validated for endpoint existence, type compatibility, self-refs, and duplicate-active guards. |
 | Visual engine | `pbir_engine` | PBIR layout, OPC-compliant `.pbit` archive builder with `[Content_Types].xml` + manifest parts |
+| Power Query M | `m_builder` | Safe M-string quoting (`""` escape), six source templates (`csv` / `sql` / `json` / `sharepoint` / `odata` / `web`), and four transformation builders (`promotedTable` / `merge` / `append` / `group`) |
+| Packager | `packager` | Writes the PBIP folder, Fabric `itemMetadata.json` + `.platform` per item, validated against 20 canonical Fabric item types |
 | Data context | `data_inspector` | Deterministic per-column profile: type inference, distinct counts (top-N by frequency), numeric stats, date ranges, sample-bounded. |
 | Cross-table analysis | `data_understanding` | PK detection, FK coverage with orphan counts, cardinality hints, numeric quantiles, time ranges |
 | Ontology grounding | `ontology` | Curated ~39 schema.org Types + ~72 Properties + ~71 alias entries + 9 PROV-O terms (~50 KB, no external deps) |
 | AI schema advisor | `schema_advisor` | LLM-driven column-role / measure / visual suggestions with result caching and tolerant JSON parsing |
+| Agent runtime | `Orchestrator` | Validates the plan, dispatches domain tools, retries after lint feedback. `run()` does validation-aware self-correction; `run_with_reflection()` adds a persistent trace + post-success critic pass + reflection loop. New `PlannerClarification` exception lets the LLM ask clarifying questions instead of guessing. Six orthogonal context blocks feed the LLM (see [LLM context layer](#llm-context-layer)). The planner payload exposes a `prompt_meta` block (`version`, `name`, `focused_on_report_generation`) so callers can audit which prompt produced a given plan. |
 | Exporter | `PBIPExporter` | Calls `pbi-tools compile` for `.pbix`; falls back to in-process ZIP for `.pbit` |
 | Fine-tune suite | `nl2pbip.finetune` | Synthetic dataset generation, QLoRA training with Unsloth, GGUF export for Ollama / vLLM |
 
@@ -73,15 +93,16 @@ Every block is **optional** (set the corresponding context flag to `False` to op
 
 ## Planner prompts
 
-Every string the orchestrator sends to the LLM lives in `nl2pbip.prompts`:
+Every string the orchestrator sends to the LLM lives in `nl2pbip.prompts`. Current version is **v5** (incremented in v1.1.0 with the power-query, OLS, field-param, fabric, and agentic-reflection rules):
 
 | Symbol | Purpose |
 |---|---|
-| `REPORT_GENERATION_SYSTEM_PROMPT` | The 30-rule system prompt tuned for report generation. Output contract, narrative composition (overview → breakdown → detail), visual selection (data shape → visual type), layout (no overlap, slicer strip), measure–visual pairing, filters, and TMDL/security rules. |
+| `REPORT_GENERATION_SYSTEM_PROMPT` | The 30-rule system prompt tuned for report generation. Output contract, narrative composition (overview → breakdown → detail), visual selection (data shape → visual type), layout (no overlap, slicer strip), measure–visual pairing, filters, and TMDL/security rules. v5 adds rules 21a (field parameter switching), 23a/23b/23c (Power Query M partition authoring), and metadata about OLS + Fabric item types. |
 | `LEGACY_GENERIC_SYSTEM_PROMPT` | The original 9-rule generic prompt, preserved verbatim for callers that opt out. |
 | `select_system_prompt(context)` | Returns the focused prompt by default, or the legacy prompt if `context["report_focus_enabled"] = False`. The returned string is prefixed with `[nl2pbip prompt vN (name)]` so callers can log / pin the version they received. |
 | `build_user_message(user_prompt, payload)` | Assembles the user-side message: `user_prompt + indented JSON payload`. |
 | `build_feedback_message(error)` | Retry-feedback message with type-specific guidance for `TMDLValidationError` and `PBIRValidationError`. |
+| `CRITIC_SYSTEM_PROMPT` + `build_critic_user_message(...)` | The reflection-loop critic prompt + payload builder. `run_with_reflection` invokes the critic after a successful run and scores the plan on `correctness` / `completeness` / `alignment_with_prompt`. |
 | `prompt_metadata(context)` | Returns `{version, name, focused_on_report_generation}` for the planner payload's `prompt_meta` block. |
 | `PROMPT_VERSION` / `PROMPT_CHANGELOG` | Numeric version and append-only changelog. Tests assert the current version has an entry so silent drift is caught. |
 
@@ -104,6 +125,14 @@ Visual-selection rules (a sample of what's in the prompt):
 
 ```bash
 pip install nl2pbip
+```
+
+Verify the install and see the bundled example PBIP folder:
+
+```bash
+python -c "import nl2pbip; print('nl2pbip', nl2pbip.__version__)"
+python -m nl2pbip.example_run
+ls artifacts/SalesInsights.pbipdir/SalesInsights.pbip
 ```
 
 Optional extras provide heavyweight dependencies only when you need them:
@@ -451,15 +480,32 @@ This dual-path approach lets CI or air-gapped build agents still emit templates 
 
 ## CI/CD Integration
 
-A ready-to-use workflow lives in `.github/workflows/ci.yml` and executes formatting, linting, and tests against Python 3.10–3.12. Minimal template:
+The repo ships a complete GitHub Actions setup under `.github/workflows/`:
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `ci.yml` | push / PR / `workflow_dispatch` | Pytest on Python 3.10 / 3.11 / 3.12, `black --check .`, `ruff check .`, example-run smoke test, Codecov upload, opt-in `benchmarks` job |
+| `codeql.yml` | push / PR / weekly cron | Python security scanning (CodeQL); uploads findings to the Security tab |
+| `release.yml` | tag push (`vX.Y.Z`) | Build sdist + wheel, `twine check`, publish to PyPI via trusted publishing (OIDC — no API token), create GitHub release |
+| Dependabot | weekly | Pip + GitHub Actions dependency updates (patch + minor grouped; heavy ML extras ignored) |
+
+Minimal `ci.yml` reference (see `.github/workflows/ci.yml` for the full version):
 
 ```yaml
 name: CI
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
+  workflow_dispatch:  # manual trigger for the benchmarks job
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   tests:
@@ -476,27 +522,60 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          elif [ -f pyproject.toml ]; then
-            pip install .
-          fi
-          # Test-only extras: pytest, lint, formatter. The finetune + anthropic
-          # extras require heavy ML libs and are not needed for unit tests.
-          pip install ".[dev]" ".[anthropic]"
-          # finetune.train does top-level imports of transformers/trl/datasets,
-          # so we need them installed for the test_orchestrator/test_finetune
-          # test discovery even though no GPU-backed training is exercised.
-          pip install datasets pydantic "transformers>=4.40" trl
-      - name: Lint
+          pip install -e ".[dev]"
+      - name: Verify the example runner produces a valid PBIP
+        # Smoke test for the top-level entry point — runs the
+        # bundled example and confirms the output directory
+        # exists with the expected files.
         run: |
-          black --check .
-          ruff check .
-      - name: Test
-        run: pytest -v --cov=. --cov-report=term-missing
+          python -m nl2pbip.example_run
+          test -f artifacts/SalesInsights.pbipdir/SalesInsights.pbip
+          test -f artifacts/SalesInsights.pbipdir/SalesInsights.SemanticModel/definition/model.tmdl
+          test -f artifacts/SalesInsights.pbipdir/SalesInsights.SemanticModel/itemMetadata.json
+          test -f artifacts/SalesInsights.pbipdir/SalesInsights.SemanticModel/.platform
+          test -f artifacts/SalesInsights.pbipdir/SalesInsights.Report/itemMetadata.json
+          test -f artifacts/SalesInsights.pbipdir/SalesInsights.Report/.platform
+      - name: Check formatting with Black
+        run: black --check .
+      - name: Lint with Ruff
+        run: ruff check .
+      - name: Run tests
+        # Skip test_finetune.py because it requires the heavy
+        # finetune extra (datasets, transformers, trl) which
+        # isn't installed in CI. Run those tests locally with
+        # pip install -e ".[finetune]".
+        run: pytest -v --cov=nl2pbip --cov-report=term-missing --cov-report=xml --ignore=tests/test_finetune.py
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v4
+        with:
+          file: coverage.xml
+          fail_ci_if_error: false
+
+  benchmarks:
+    name: Performance benchmarks
+    # manual trigger only — benchmarks are opt-in to keep the
+    # default CI run fast.
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run benchmarks
+        env:
+          NL2PBIP_RUN_BENCHMARKS: "1"
+        run: pytest tests/test_performance.py -v -s
 ```
 
-> **Note:** The workflow installs `transformers>=4.40` + `trl` so `test_finetune` can import `TrainingArguments` and `SFTTrainer` at module-load time. The full test set runs without those weights — only the import matters.
+For PyPI publishing via OIDC trusted publishing, configure the project at https://pypi.org/manage/account/publishing/ pointing at the `rollroyces/nl2pbip` repo, the `release.yml` workflow, and the `pypi` environment — no API token is stored in the repo.
+
+> **Tip:** To cut a release locally without OIDC: tag a version (`git tag -a v1.1.1 -m "..." && git push --follow-tags`), or run `python -m build && twine upload dist/*` from a clone that has your PyPI token configured.
 
 ## Project layout
 
@@ -504,12 +583,18 @@ jobs:
 nl2pbip/
 ├── nl2pbip/
 │   ├── orchestrator.py          # planner payload assembly + retry loop
+│   │                           # + run_with_reflection (post-success critic pass)
 │   ├── llm_client.py            # OpenAI-compatible client + structured output
-│   ├── tmdl_engine.py           # parser, writer, 7 handlers (validate + persist)
+│   ├── tmdl_engine.py           # parser, writer, 10 handlers (calc-group, OLS,
+│   │                           # field-param, power-query, …)
 │   ├── tmdl_linter.py           # TMDLValidationError
 │   ├── pbir_engine.py           # PBIR layout, OPC-compliant .pbit archive
 │   ├── pbir_validator.py        # PBIR schema + semantic checks
-│   ├── packager.py              # package_pbip_handler
+│   ├── packager.py              # package_pbip_handler + Fabric metadata
+│   │                           # (itemMetadata.json + .platform per item)
+│   ├── m_builder.py             # Power Query M expression builders
+│   │                           # (csv / sql / json / sharepoint / odata / web
+│   │                           # + promoted / merge / append / group)
 │   ├── dax_catalog.py           # organisation-specific DAX patterns
 │   ├── dax_library.json         # default DAX pattern library
 │   ├── data_inspector.py        # per-column profiling + heuristic FK
@@ -528,13 +613,16 @@ nl2pbip/
 │   │   ├── dataset_generator.py # instructor + OpenAI synthetic data
 │   │   └── train.py             # Unsloth + trl SFT + GGUF export
 │   ├── example_run.py           # python -m nl2pbip.example_run (idempotent demo)
-│   ├── prompts.py               # versioned LLM planner prompts (system + user + feedback)
+│   ├── prompts.py               # versioned LLM planner prompts (system + user +
+│   │                           # feedback + critic) — v5 with field-param,
+│   │                           # power-query, OLS, fabric rules
 │   ├── cli.py                   # argparse CLI (generate / export subcommands)
 │   ├── py.typed                 # PEP 561 marker
 │   └── __init__.py
-├── tests/                       # 398 pytest cases across 13 test files
+├── tests/                       # 684 pytest cases across 21 test files
 ├── artifacts/                   # example Run output (SalesInsights.pbipdir)
-├── .github/workflows/ci.yml
+├── .github/                     # workflows, issue templates, CODEOWNERS,
+│                                # dependabot.yml, SECURITY.md, etc.
 ├── pyproject.toml
 ├── LICENSE                      # Commercial + Apache carve-out for pre-0af050c commits
 ├── CHANGELOG.md
@@ -543,37 +631,54 @@ nl2pbip/
 
 ## Test counts
 
-Pytest's collection reports 398 test cases across Python 3.10 / 3.11 / 3.12. The breakdown by file:
+Pytest collects **687 test cases across 21 test files** in total (including 3 cases in `test_finetune.py` that need the heavy `finetune` extra). CI runs **684** — `test_finetune.py` is excluded via `--ignore` because it requires `datasets` / `transformers` / `trl` (not installed in CI). Of those 684, **671** pass on every supported Python version (3.10 / 3.11 / 3.12) in CI; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. Install locally with `pip install ".[finetune]"` to run the 3 finetune tests; set `NL2PBIP_RUN_BENCHMARKS=1` to run the 13 benchmarks. Run `pytest tests/ --no-header -q` to confirm locally.
 
-| Module | Test functions |
-|---|---|
-| `tests/test_opc_export.py` | 41 |
-| `tests/test_data_types.py` | 36 |
+| Module | Collected tests |
+|---|---:|
+| `tests/test_repo_templates.py` | 62 |
+| `tests/test_power_query.py` | 65 |
+| `tests/test_opc_export.py` | 49 |
+| `tests/test_ontology.py` | 42 |
+| `tests/test_prompts.py` | 38 |
+| `tests/test_object_level_security.py` | 32 |
 | `tests/test_data_inspector.py` | 31 |
-| `tests/test_ontology.py` | 30 |
-| `tests/test_visual_types.py` | 25 |
+| `tests/test_fabric_metadata.py` | 30 |
+| `tests/test_agentic_reflection.py` | 29 |
+| `tests/test_calculation_groups.py` | 27 |
+| `tests/test_field_parameter.py` | 27 |
+| `tests/test_data_types.py` | 90 |
 | `tests/test_data_understanding.py` | 24 |
 | `tests/test_relationship_validation.py` | 23 |
-| `tests/test_prompts.py` | 38 |
 | `tests/test_schema_advisor.py` | 16 |
+| `tests/test_performance.py` | 13 (opt-in via `NL2PBIP_RUN_BENCHMARKS=1`) |
+| `tests/test_visual_types.py` | 73 |
 | `tests/test_orchestrator.py` | 4 |
 | `tests/test_exporter.py` | 3 |
-| `tests/test_finetune.py` | 3 |
 | `tests/test_llm_client.py` | 2 |
+| `tests/test_finetune.py` | 3 (excluded from CI; needs `[finetune]` extra) |
 
-Many tests are parametrised, which is why `pytest --collect-only` reports 398 cases from 276 functions. Run `pytest tests/ --no-header -q` to confirm locally — all 398 cases pass.
+Many tests are parametrised, which is why the function count is much lower than the case count. Run `pytest tests/ --collect-only -q` to see the breakdown locally.
+
+The benchmark suite is opt-in to keep the default CI run fast:
+
+```bash
+NL2PBIP_RUN_BENCHMARKS=1 pytest tests/test_performance.py -s
+```
 
 ## Next steps
 
-- Run `python -m nl2pbip.example_run` to see the orchestrator produce a working PBIP from a mock LLM in ~1 second.
-- Browse `tests/test_prompts.py` for the report-generation system prompt's content rules — every section keyword has a test that catches silent drift.
-- Browse `tests/test_data_understanding.py` for a realistic end-to-end scenario with FK orphans and cardinality hints.
+- **Install from PyPI:** `pip install nl2pbip` (or `pip install --upgrade nl2pbip` to get the latest). Live releases at https://pypi.org/project/nl2pbip/.
+- **Verify your install:** `python -m nl2pbip.example_run` produces a working PBIP from the bundled mock LLM in ~1 second. Outputs to `artifacts/SalesInsights.pbipdir/` with the full set of TMDL tables, PBIR pages, and Fabric `itemMetadata.json` + `.platform` files.
+- **Browse `tests/test_prompts.py`** for the report-generation system prompt's content rules — every section keyword has a test that catches silent drift.
+- **Browse `tests/test_data_understanding.py`** for a realistic end-to-end scenario with FK orphans and cardinality hints.
+- **Browse `tests/test_repo_templates.py`** for the GitHub Actions templates — issue templates, PR template, dependabot config, etc.
 - If you hit a runtime error, see the [Troubleshooting](#troubleshooting) and [Limitations](#limitations) tables above for common causes and workarounds.
 - For token / cost budgeting across report-generation runs, see [Performance & cost](#performance--cost).
-- For raw throughput numbers (200-table round-trip, calc-group / OLS / field-param rendering rates, end-to-end orchestrator latency), see [Performance benchmarks](#performance-benchmarks).
+- For raw throughput numbers (200-table round-trip, calc-group / OLS / field-param rendering rates, end-to-end orchestrator latency, reflection-loop overhead), see [Performance benchmarks](#performance-benchmarks).
 - Extend `dax_library.json` with your own calculation groups and measure templates so planners lean on approved logic.
 - Register your raw data via `context["data_sources"]` so the LLM gets FK coverage, P50 of numeric columns, and schema.org vocabulary anchors rather than guessing.
 - Pin a specific prompt version via the planner payload's `prompt_meta.version` block for reproducible plan generation.
+- Use `Orchestrator.run_with_reflection(...)` instead of `Orchestrator.run(...)` for production calls — you get a `ReflectiveTrace` for debugging + a critic pass that catches plans where the LLM technically ran but missed the user's intent.
 
 ## Performance benchmarks
 
@@ -590,12 +695,18 @@ NL2PBIP_RUN_BENCHMARKS=1 pytest tests/test_performance.py -s
 | Writer + parser round-trip | 60 ms | 17 ops/sec |
 | Large file write (200 tables, disk I/O) | 63 ms | 16 ops/sec |
 | Calc-group, 10 items | 0.4 ms | 2,596 ops/sec |
+| Calc-group, 50 items | 1.75 ms | 573 ops/sec |
 | Calc-group, 100 items | 3.5 ms | 288 ops/sec |
+| Field-param render, 10 members | <0.01 ms | 338k ops/sec |
 | Field-param render, 50 members | 0.01 ms | 89,718 ops/sec |
+| OLS role render, 10 tables | 0.01 ms | 143k ops/sec |
 | OLS role render, 50 tables | 0.03 ms | 30,769 ops/sec |
-| Orchestrator end-to-end (10-step plan) | 6 ms | 170 ops/sec |
+| Orchestrator end-to-end (10-step plan) | 7 ms | 140 ops/sec |
+| Orchestrator with reflection loop | 7 ms | 143 ops/sec |
 
 **Parser is ~70× slower than the writer** for the 200-table model. The bottleneck is column extraction and the `add_column` validation checks inside `_parse_table`. If you have models bigger than ~200 tables and need faster round-trip, profile with `cProfile` before optimising.
+
+The reflection loop overhead is in the noise vs plain `run` (stub critic call is negligible vs planner + tool execution). See `tests/test_performance.py` for the full bench definitions.
 - Wire `python -m nl2pbip.cli generate` into deployment automation (e.g., GitHub Actions + `pbi-tools push`) to continuously ship fully reproducible Power BI apps from natural-language specs.
 
 ## License
@@ -608,7 +719,7 @@ Files committed prior to [`0af050c`](https://github.com/rollroyces/nl2pbip/commi
 
 To obtain a Commercial License Agreement, contact:
 
-> Royce &lt;rollroyces@users.noreply.github.com&gt;
+> Royce &lt;roycelam@umich.edu&gt;
 
 Your agreement will define scope, duration, fees, support, confidentiality, warranties, and termination.
 

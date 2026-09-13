@@ -449,6 +449,84 @@ class TestSecurityPolicy:
         assert "Out of scope" in text or "out of scope" in text
 
 
+class TestContactInfo:
+    """Regression test for the 2026-09-13 rebrand.
+
+    The author email must be consistent across pyproject.toml,
+    LICENSE, README, and SECURITY.md. The historical email
+    ``rollroyces@users.noreply.github.com`` should not appear in
+    any user-facing file."""
+
+    AUTHOR_EMAIL = "roycelam@umich.edu"
+    HISTORICAL_EMAIL = "rollroyces@users.noreply.github.com"
+
+    def _user_facing_files(self):
+        """Return paths that ship to end users (excludes CHANGELOG
+        history links, .venv, __pycache__)."""
+        candidates = [
+            REPO_ROOT / "pyproject.toml",
+            REPO_ROOT / "LICENSE",
+            REPO_ROOT / "README.md",
+            REPO_ROOT / ".github" / "SECURITY.md",
+        ]
+        return [p for p in candidates if p.exists()]
+
+    def test_author_email_consistent_across_files(self):
+        for path in self._user_facing_files():
+            text = path.read_text()
+            assert self.AUTHOR_EMAIL in text, (
+                f"{path.relative_to(REPO_ROOT)}: missing author email "
+                f"{self.AUTHOR_EMAIL!r}"
+            )
+
+    def test_historical_email_not_in_user_facing_files(self):
+        """The historical email must not appear in user-facing files.
+
+        CHANGELOG.md is allowed to keep the historical email because
+        it documents the v1.1.0 -> v1.1.1 rebrand."""
+        for path in self._user_facing_files():
+            text = path.read_text()
+            assert self.HISTORICAL_EMAIL not in text, (
+                f"{path.relative_to(REPO_ROOT)}: still contains the "
+                f"historical email {self.HISTORICAL_EMAIL!r}"
+            )
+
+    def test_pyproject_authors_field(self):
+        """``pyproject.toml [project] authors`` must list the new
+        email exactly once (not zero, not twice, no orphans)."""
+        text = (REPO_ROOT / "pyproject.toml").read_text()
+        # Look for ``email = "..."`` inside the authors block.
+        import re
+
+        matches = re.findall(
+            r'authors\s*=\s*\[[^\]]*email\s*=\s*"([^"]+)"',
+            text,
+            re.DOTALL,
+        )
+        assert matches == [self.AUTHOR_EMAIL], (
+            f"pyproject.toml [project] authors should list "
+            f"{self.AUTHOR_EMAIL!r} exactly once; got {matches}"
+        )
+
+    def test_license_email(self):
+        """LICENSE must reference the author email in the
+        ``Contact:`` line."""
+        text = (REPO_ROOT / "LICENSE").read_text()
+        # Find the line after "Contact:".
+        for line in text.splitlines():
+            if "Contact:" in line:
+                # Next non-empty line should have the email.
+                idx = text.splitlines().index(line)
+                for following in text.splitlines()[idx + 1 : idx + 5]:
+                    if following.strip():
+                        assert self.AUTHOR_EMAIL in following, (
+                            f"LICENSE Contact line points at "
+                            f"{following!r}, not {self.AUTHOR_EMAIL!r}"
+                        )
+                        return
+        pytest.fail("LICENSE has no Contact: line")
+
+
 # ---------------------------------------------------------------------------
 # CONTRIBUTING.md
 # ---------------------------------------------------------------------------
@@ -474,6 +552,135 @@ class TestContributingGuide:
 # ---------------------------------------------------------------------------
 # Cross-template consistency
 # ---------------------------------------------------------------------------
+
+
+class TestReadmeConsistency:
+    """Lock in README claims that are easy to drift.
+
+    These tests guard against the failure mode where a feature
+    ships, the test count grows, the perf bench list changes, but
+    nobody updates the README to match. Each test pulls live data
+    from the repo and asserts the README reflects it.
+    """
+
+    def test_readme_mentions_published_versions(self) -> None:
+        """The Overview / capability matrix should mention that
+        the project is published on PyPI, with a link to the
+        project page. Drifts if the README is rewritten without
+        re-checking the deployment story."""
+        text = (REPO_ROOT / "README.md").read_text()
+        assert "pypi.org/project/nl2pbip" in text, (
+            "README should link to https://pypi.org/project/nl2pbip/ "
+            "in the Overview section now that the project ships to PyPI."
+        )
+
+    def test_readme_test_count_matches_pytest_collection(self) -> None:
+        """README test-counts claim must match what pytest actually
+        collects. Drift here is a smell — usually a release was cut
+        without refreshing the docs."""
+        import subprocess
+        import sys
+
+        # Use the project venv to collect.
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "tests/",
+                "--collect-only",
+                "-q",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+        )
+        # The last line of --collect-only output is ``N tests collected``.
+        last_line = result.stdout.strip().splitlines()[-1]
+        actual_count = int(last_line.split()[0])
+        # README claim lives in the test-counts section. We compare
+        # against the headline ``Pytest collects N test cases ...``
+        # line (the "everything that ships" count, not the CI count).
+        text = (REPO_ROOT / "README.md").read_text()
+        # Find the headline number.
+        import re
+
+        m = re.search(
+            r"Pytest collects \*\*(\d+) test cases across \d+ test files",
+            text,
+        )
+        assert m, (
+            "README missing 'Pytest collects N test cases across M "
+            "test files' headline"
+        )
+        claim = int(m.group(1))
+        assert claim == actual_count, (
+            f"README test count claims {claim} but pytest collects "
+            f"{actual_count} tests. Refresh the README's test-counts "
+            "table (and the headline)."
+        )
+
+    def test_readme_lists_m_builder_module(self) -> None:
+        """The project layout section must list `m_builder.py` —
+        Power Query M partition generation (PR #19)."""
+        text = (REPO_ROOT / "README.md").read_text()
+        assert "m_builder.py" in text, (
+            "README project layout tree is missing `m_builder.py`. "
+            "Add it under the `nl2pbip/` directory entry."
+        )
+
+    def test_readme_benchmarks_table_matches_test_performance(self) -> None:
+        """The README performance-benchmarks table should mention
+        the same set of benches that ``tests/test_performance.py``
+        defines. We count pytest functions whose name starts with
+        ``test_benchmark_`` and require the README mentions at
+        least that many."""
+        import re
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "tests/test_performance.py",
+                "--collect-only",
+                "-q",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+        )
+        bench_lines = [
+            line for line in result.stdout.splitlines() if "::test_benchmark_" in line
+        ]
+        actual = len(bench_lines)
+        text = (REPO_ROOT / "README.md").read_text()
+        # Find the performance benchmarks table.
+        in_table = False
+        table_rows = 0
+        for raw in text.splitlines():
+            if "## Performance benchmarks" in raw:
+                in_table = True
+                continue
+            if in_table and raw.startswith("##"):
+                break
+            if in_table and raw.startswith("|"):
+                # Skip header + separator rows.
+                cells = [c.strip() for c in raw.strip().strip("|").split("|")]
+                if not cells or all(
+                    c in {"---", ""} or set(c) <= {"-", ":"} for c in cells
+                ):
+                    continue
+                if cells[0].lower() == "path":
+                    continue  # header row
+                table_rows += 1
+        assert actual == table_rows, (
+            f"README performance-benchmarks table lists {table_rows} "
+            f"rows but tests/test_performance.py defines {actual} "
+            "benches. Update the table."
+        )
 
 
 class TestCrossTemplateConsistency:

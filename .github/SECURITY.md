@@ -14,7 +14,7 @@ vulnerabilities.**
 
 Email security disclosures to:
 
-> **rollroyces@users.noreply.github.com**
+> **roycelam@umich.edu**
 
 You should receive an acknowledgement within **3 business days**.
 We aim to triage and patch within **14 days** for critical
