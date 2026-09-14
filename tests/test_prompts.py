@@ -235,10 +235,48 @@ class TestPreFlightScrubbingGuidance:
         import re
 
         rules = re.findall(r"\n\s*(\d+[a-z]?)\.\s", REPORT_GENERATION_SYSTEM_PROMPT)
-        # 1-31 plus the three sub-rules 21a / 23a / 23b / 23c.
-        assert "31" in rules, "rule 31 should appear in the prompt"
+        # 1-35 (rules 1-31 + the four anti-patterns added in v7)
+        # plus the three sub-rules 21a / 23a / 23b / 23c.
+        assert "31" in rules, "rule 31 (pre-flight scrubbing) should appear"
+        for n in ("32", "33", "34", "35"):
+            assert n in rules, f"rule {n} (anti-pattern) should appear"
         for n in ("21a", "23a", "23b", "23c"):
-            assert n in rules, f"sub-rule {n} should appear in the prompt"
+            assert n in rules, f"sub-rule {n} should appear"
+
+
+# ---------------------------------------------------------------------------
+# Anti-patterns (rules 32-35, added in v7)
+# ---------------------------------------------------------------------------
+
+
+class TestAntiPatternsGuidance:
+    def test_common_mistakes_section_present(self) -> None:
+        prompt = REPORT_GENERATION_SYSTEM_PROMPT
+        assert (
+            "COMMON MISTAKES" in prompt
+        ), "Rules 32-35 should live under a COMMON MISTAKES section."
+
+    def test_rule_32_dangling_relationships(self) -> None:
+        prompt = REPORT_GENERATION_SYSTEM_PROMPT
+        assert "define_relationship" in prompt
+        # Rule 32 must call out dangling endpoints.
+        assert "don't" in prompt.lower() or "Don't" in prompt
+
+    def test_rule_33_no_overlapping_tools(self) -> None:
+        prompt = REPORT_GENERATION_SYSTEM_PROMPT
+        assert "overlapping" in prompt.lower() or "two tools" in prompt.lower()
+
+    def test_rule_34_visual_dependencies(self) -> None:
+        prompt = REPORT_GENERATION_SYSTEM_PROMPT
+        # Rule 34 must tell the LLM that add_visual needs its
+        # dependencies emitted first.
+        assert "add_visual" in prompt
+        assert "depends" in prompt.lower() or "dependencies" in prompt.lower()
+
+    def test_rule_35_no_duplicate_measures(self) -> None:
+        prompt = REPORT_GENERATION_SYSTEM_PROMPT
+        assert "add_pattern_measure" in prompt
+        assert "duplicate" in prompt.lower()
 
 
 # ---------------------------------------------------------------------------

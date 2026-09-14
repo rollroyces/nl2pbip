@@ -60,7 +60,7 @@ from typing import Any, Dict, List, Mapping, Optional
 #: every time :data:`REPORT_GENERATION_SYSTEM_PROMPT` changes. The
 #: orchestrator embeds the version in the planner payload so callers
 #: can pin / inspect the prompt they received.
-REPORT_GENERATION_PROMPT_VERSION: int = 6
+REPORT_GENERATION_PROMPT_VERSION: int = 7
 
 #: Changelog entries are append-only. Each entry has ``version``,
 #: ``date``, and ``changes`` (list of human-readable lines).
@@ -137,6 +137,17 @@ PROMPT_CHANGELOG: List[Dict[str, Any]] = [
             "Rule 31 lists the marker tokens ([REDACTED:PII], [REDACTED:SECRET], [INJECTION_SCRUBBED]) so the LLM can recognise scrubbed output.",
             "Rule 31 instructs the LLM to prefer placeholder patterns (example.com, sk-FAKEPLACEHOLDER...) over realistic-looking PII or secrets in examples.",
             "Module docstring corrected: the report-generation prompt is the default; report_focus_enabled=False opts OUT to the legacy generic prompt.",
+        ],
+    },
+    {
+        "version": 7,
+        "date": "2026-09-14",
+        "summary": "Common mistakes anti-patterns section (rules 32-35).",
+        "changes": [
+            "Rule 32: don't propose define_relationship for endpoints that haven't been created in the same plan.",
+            "Rule 33: don't put two tools with overlapping responsibilities in the same plan (template vs raw M, manual vs catalog-driven).",
+            "Rule 34: don't emit add_visual until every column / measure / relationship it depends on has been emitted in the same plan.",
+            "Rule 35: don't re-emit duplicate measures — use add_pattern_measure when dax_catalog already provides a match.",
         ],
     },
 ]
@@ -331,9 +342,31 @@ REPORT_GENERATION_SYSTEM_PROMPT: str = (
     "(`example.com`, `sk-FAKEPLACEHOLDER...`, "
     "`ghp_FAKEPLACEHOLDER...`) rather than realistic-looking "
     "PII or secrets. Never embed real credentials, even when the "
-    "user asks. Real-looking tokens will reach the LLM as "
+    "rule the user asks. Real-looking tokens will reach the LLM as "
     "`[REDACTED:SECRET]` and the user will have to redo the "
     "request.\n"
+    "\n"
+    "COMMON MISTAKES (avoid these)\n"
+    "32. Don't propose `define_relationship` for endpoints that "
+    "don't yet exist — every referenced table must have been "
+    "created in an earlier `create_table` step in the same plan. "
+    "The relationship handler will reject dangling endpoints.\n"
+    "33. Don't put two tools with overlapping responsibilities in the "
+    "same plan (e.g. a manual M partition + a `csv` template "
+    "partition for the same table). Pick one — typically the "
+    "template is safer for known sources; raw M is for hand-crafted "
+    "logic the templates can't express.\n"
+    "34. Don't emit `add_visual` until every column, measure, and "
+    "relationship it depends on has been emitted in the same plan. "
+    "If you need a measure that doesn't exist, add it first with "
+    "`add_measure` and then reference it. Trying to skip ahead is "
+    "the #1 cause of `Projection 'X' references unknown field` "
+    "errors.\n"
+    "35. Don't re-emit duplicate measures. If `dax_catalog.patterns` "
+    "already provides a measure that matches the user's request, "
+    "use it via `add_pattern_measure` instead of inventing a new "
+    "`add_measure` with the same expression. The handler will reject "
+    "duplicates by name.\n"
 )
 
 

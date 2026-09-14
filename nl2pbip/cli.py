@@ -18,6 +18,16 @@ from nl2pbip.tmdl_engine import MODEL_PATH_KEY
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    """Parse ``argv`` into an :class:`argparse.Namespace`.
+
+    Accepts the same shape as :func:`sys.argv` minus the program
+    name. ``argv[0]`` may be a subcommand (``"generate"`` /
+    ``"export"``); the rest is forwarded to the per-subcommand
+    argparse subparser.
+
+    Pass ``None`` (the default) to parse ``sys.argv[1:]`` —
+    the production CLI entry point relies on this.
+    """
     parsed_argv: list[str]
     if argv is None:
         parsed_argv = list(sys.argv[1:])

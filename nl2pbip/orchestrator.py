@@ -206,6 +206,11 @@ class ReflectiveTrace:
 
     @property
     def succeeded(self) -> bool:
+        """``True`` when the planner produced results without a final
+        error — i.e. ``final_results`` is non-empty and ``final_error``
+        is ``None``. Used by callers to decide whether the trace is
+        worth introspecting for errors.
+        """
         return self.final_error is None and self.final_results is not None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -253,17 +258,37 @@ class ToolRegistry:
         self._registry: Dict[str, ToolSpec] = {}
 
     def register(self, spec: ToolSpec) -> None:
+        """Register a tool spec.
+
+        Raises ``ValueError`` if a tool with the same name is
+        already registered — the registry is keyed by tool name,
+        so callers must unregister first if they want to replace
+        an existing entry.
+        """
         if spec.name in self._registry:
             raise ValueError(f"Tool '{spec.name}' already registered.")
         self._registry[spec.name] = spec
 
     def get(self, name: str) -> ToolSpec:
+        """Look up a tool by name.
+
+        Raises ``ValueError`` (with ``Unknown tool '...'.``) when
+        no tool is registered under that name — distinct from
+        ``KeyError`` so the orchestrator's planner-error path can
+        surface a single error type.
+        """
         try:
             return self._registry[name]
         except KeyError as exc:
             raise ValueError(f"Unknown tool '{name}'.") from exc
 
     def all_specs(self) -> List[ToolSpec]:
+        """Snapshot the registered specs.
+
+        Returns a fresh list each call; mutating the result does
+        not affect the registry. Used by the orchestrator to
+        serialise tool metadata into the planner payload.
+        """
         return list(self._registry.values())
 
 

@@ -140,6 +140,22 @@ class PBIRValidator:
     # Public API
     # ------------------------------------------------------------------
     def validate_page(self, page_json: Dict[str, Any]) -> None:
+        """Validate a PBIR page payload against the page JSON schema
+        and cascade into every contained visual.
+
+        Parameters
+        ----------
+        page_json
+            Parsed ``page.json`` content. Must declare
+            ``$schema == PBIR_PAGE_SCHEMA_URI``.
+
+        Raises
+        ------
+        PBIRValidationError
+            On any schema, layout, or projection error. The
+            ``path`` field points at the offending JSON path
+            (e.g. ``"visualContainers/3/layout.x"``).
+        """
         self._require_schema_uri(page_json, PBIR_PAGE_SCHEMA_URI, "page")
         self._run_validator(self._page_validator, page_json, "page")
         page_size = page_json["pageSize"]
@@ -172,6 +188,33 @@ class PBIRValidator:
         visual_json: Dict[str, Any],
         page_bounds: Optional[Tuple[float, float]] = None,
     ) -> None:
+        """Validate a PBIR visual-container payload.
+
+        Checks: JSON schema, ``visualType`` canonicalisation
+        (alias rewriting + outer/inner consistency), layout coordinates
+        (non-negative, in-canvas, integer z), and projection bindings
+        (every role declares a ``queryRef`` or ``measureRef`` that
+        resolves against the bound TMDL model).
+
+        Parameters
+        ----------
+        visual_json
+            Parsed ``visualContainer`` payload (one element of
+            ``page.json``'s ``visualContainers`` array). The
+            ``visualType`` field may be a friendly alias
+            (``"table"``, ``"matrix"``, ``"pie"`` …) — the validator
+            rewrites it to the canonical spelling before returning.
+        page_bounds
+            ``(width, height)`` of the parent page. Defaults to
+            ``DEFAULT_CANVAS_SIZE`` when not provided.
+
+        Raises
+        ------
+        PBIRValidationError
+            On any schema, layout, type, or projection error. The
+            ``path`` field points at the offending JSON path
+            (e.g. ``"config/singleVisual/visualType"``).
+        """
         # Check visualType presence BEFORE running the JSON schema
         # validator so a missing field surfaces a clearer message
         # than the jsonschema "required property" boilerplate.

@@ -6,6 +6,43 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-09-13
+
+### Changed
+- **Docstring coverage pass.** Added Google-style docstrings to
+  the public API surface of `pbir_validator.py` (`validate_page`,
+  `validate_visual`), `orchestrator.py` (`ToolRegistry.register`,
+  `get`, `all_specs`; `ReflectiveTrace.succeeded`),
+  `data_inspector.py` (`TableProfile.to_json`,
+  `DataProfile.to_json`), and `cli.py` (`parse_args`). Dataclass
+  field docstrings intentionally left alone (the class-level
+  docstring covers them).
+- **Performance benchmarks table** gained a provenance note
+  explaining that the numbers were measured on an M-series Mac
+  with Python 3.11 and are reproduced verbatim in
+  `tests/test_performance.py` so callers can refresh them locally.
+
+### Added
+- **Rules 32–35 (COMMON MISTAKES section) in the system prompt.**
+  Adds an anti-patterns block the LLM can pattern-match on
+  before producing bad output:
+  - **Rule 32**: don't propose `define_relationship` for endpoints
+    that don't yet exist in the same plan.
+  - **Rule 33**: don't put two tools with overlapping
+    responsibilities in the same plan (e.g. manual M partition +
+    `csv` template partition for the same table).
+  - **Rule 34**: don't emit `add_visual` until every column,
+    measure, and relationship it depends on has been emitted in
+    the same plan. Cites the actual error mode
+    (`Projection 'X' references unknown field`).
+  - **Rule 35**: don't re-emit duplicate measures — use
+    `add_pattern_measure` when `dax_catalog` already provides a
+    match.
+- **`PROMPT_CHANGELOG` v7 entry** documenting rules 32–35.
+- **`TestAntiPatternsGuidance`** (5 tests in `tests/test_prompts.py`)
+  asserting the COMMON MISTAKES section header is present and that
+  rules 32–35 each contain the expected keywords.
+
 ## [1.2.1] - 2026-09-13
 
 ### Changed

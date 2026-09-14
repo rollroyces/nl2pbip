@@ -7,7 +7,7 @@ Natural Language to Power BI Project (.pbip) Engine
 [![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
 [![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml)
-[![Tests](https://img.shields.io/badge/tests-777%20collected%2C%20764%20passing-brightgreen.svg)](#test-counts)
+[![Tests](https://img.shields.io/badge/tests-782%20collected%2C%20769%20passing-brightgreen.svg)](#test-counts)
 [![Benchmarks](https://img.shields.io/badge/benchmarks-13-blue.svg)](#performance-benchmarks)
 
 ## Overview
@@ -27,17 +27,17 @@ Natural Language to Power BI Project (.pbip) Engine
 | **Agentic self-reflection loop** | `Orchestrator.run_with_reflection` records every attempt in a `ReflectiveTrace`, then runs a post-success critic pass (`correctness` / `completeness` / `alignment_with_prompt` scores) and re-invokes the planner with the critic's suggestions when the score is below threshold. New `PlannerClarification` exception lets the LLM ask the user clarifying questions instead of guessing. |
 | **Performance benchmarks** | 13 opt-in benchmarks covering TMDL writer / parser round-trip on a 200-table model, calc-group / field-param / OLS rendering at multiple sizes, end-to-end orchestrator latency, and the reflection-loop overhead. See [Performance benchmarks](#performance-benchmarks). |
 | **GitHub repo templates** | Issue templates, PR template, CODEOWNERS, Dependabot (pip + GitHub Actions, weekly), CodeQL workflow, release workflow (PyPI trusted publishing via OIDC + GitHub release), `SECURITY.md`, `CONTRIBUTING.md`. CI workflow hardened with concurrency groups, permissions hardening, and a smoke test that catches `package_pbip` regressions. |
-| **PyPI published releases** | Tag-push driven release workflow. `v1.1.0`, `v1.1.1`, `v1.1.2`, `v1.2.0`, and `v1.2.1` are live at https://pypi.org/project/nl2pbip/. Trusted publishing via OIDC — no API token stored in the repo. |
+| **PyPI published releases** | Tag-push driven release workflow. `v1.1.0`, `v1.1.1`, `v1.1.2`, `v1.2.0`, `v1.2.1`, and `v1.2.2` are live at https://pypi.org/project/nl2pbip/. Trusted publishing via OIDC — no API token stored in the repo. |
 | **Pre-LLM prompt polish layer** | `nl2pbip.prompt_polisher.DefaultPromptPolisher` runs six deterministic scrub passes (encoding normalise, whitespace collapse, PII redact, secret redact, prompt-injection scrub, length budget) before every LLM call. Redact-and-warn by default — redactions are recorded in `ReflectiveTrace.attempts[i].polish_steps` so callers can audit what was changed without failing the call. Bounded regex quantifiers keep adversarial input linear-time. |
 
-Beyond model generation, `nl2pbip` ships an **LLM context layer** that profiles your data, validates your relationships against Power BI Desktop's actual constraints, anchors column names to a curated `schema.org`/`PROV-O` subset, and asks the LLM for column roles / measures / visuals with concrete numbers rather than guesses. The system prompt that guides the LLM is **tuned for report generation** — 35 rules (rules 1–31 + sub-rules 21a / 23a / 23b / 23c) covering narrative flow, visual selection by data shape, layout, measure–visual pairing, and pre-flight scrubbing — so plans produce layouts a senior Power BI designer would approve of rather than a pile of charts.
+Beyond model generation, `nl2pbip` ships an **LLM context layer** that profiles your data, validates your relationships against Power BI Desktop's actual constraints, anchors column names to a curated `schema.org`/`PROV-O` subset, and asks the LLM for column roles / measures / visuals with concrete numbers rather than guesses. The system prompt that guides the LLM is **tuned for report generation** — 39 rules (rules 1–35 + sub-rules 21a / 23a / 23b / 23c) covering narrative flow, visual selection by data shape, layout, measure–visual pairing, pre-flight scrubbing, and anti-patterns (don't propose dangling relationships, don't skip ahead of dependencies, don't duplicate measures) — so plans produce layouts a senior Power BI designer would approve of rather than a pile of charts.
 
 ## Architecture at a glance
 
 | Layer | Module | What it does |
 |---|---|---|
 | Planner | `StructuredLLMClient` | Normalizes responses from OpenAI, Azure OpenAI, Anthropic, DeepSeek, Qwen, Zhipu, Moonshot, or any OpenAI-compatible endpoint |
-| **Prompts** | `prompts` | Versioned system + user messages tuned for report generation. 35 numbered rules (rules 1–31 + sub-rules 21a / 23a / 23b / 23c) covering narrative flow, visual selection by data shape, layout, measure–visual pairing, filters, TMDL/relationship/RLS/OLS plumbing, and pre-flight scrubbing. Legacy prompt preserved for opt-out. |
+| **Prompts** | `prompts` | Versioned system + user messages tuned for report generation. 39 numbered rules (rules 1–35 + sub-rules 21a / 23a / 23b / 23c) covering narrative flow, visual selection by data shape, layout, measure–visual pairing, filters, TMDL/relationship/RLS/OLS plumbing, pre-flight scrubbing (rule 31), and anti-patterns (rules 32–35). Legacy prompt preserved for opt-out. |
 | Agent runtime | `Orchestrator` | Validates the plan, dispatches domain tools, retries after lint feedback. Six orthogonal context blocks feed the LLM (see [LLM context layer](#llm-context-layer)). The planner payload exposes a `prompt_meta` block (`version`, `name`, `focused_on_report_generation`) so callers can audit which prompt produced a given plan. |
 | TMDL engine | `tmdl_engine` | Parser, writer, 13 handlers — `add_report_page`, `add_visual`, `create_table`, `define_relationship`, `package_pbip`, `add_measure`, `add_pattern_measure` (catalog-driven), `add_calculation_group` (with `formatStringDefinition`), `add_ols_role` (Microsoft Sept 2025 grammar), `add_field_parameter`, `add_power_query_partition`, `add_rls_role`, `set_page_layout`. Data-type and visual-type aliases normalised. Relationships validated for endpoint existence, type compatibility, self-refs, and duplicate-active guards. |
 | Visual engine | `pbir_engine` | PBIR layout, OPC-compliant `.pbit` archive builder with `[Content_Types].xml` + manifest parts |
@@ -98,7 +98,7 @@ Every string the orchestrator sends to the LLM lives in `nl2pbip.prompts`. Curre
 
 | Symbol | Purpose |
 |---|---|
-| `REPORT_GENERATION_SYSTEM_PROMPT` | The 35-rule system prompt (v6) tuned for report generation. Output contract, narrative composition (overview → breakdown → detail), visual selection (data shape → visual type), layout (no overlap, slicer strip), measure–visual pairing, filters, and TMDL/security rules. Sub-rule 21a covers field-parameter switching; sub-rules 23a / 23b / 23c cover Power Query M partition authoring; rule 27 covers OLS; rule 31 (added in v6) tells the LLM its output will be passed through `nl2pbip.prompt_polisher.DefaultPromptPolisher` and to prefer placeholder patterns over realistic-looking PII / secrets in examples. |
+| `REPORT_GENERATION_SYSTEM_PROMPT` | The 39-rule system prompt (v7) tuned for report generation. Output contract, narrative composition (overview → breakdown → detail), visual selection (data shape → visual type), layout (no overlap, slicer strip), measure–visual pairing, filters, and TMDL/security rules. Sub-rule 21a covers field-parameter switching; sub-rules 23a / 23b / 23c cover Power Query M partition authoring; rule 27 covers OLS; rule 31 (added in v6) tells the LLM its output will be passed through `nl2pbip.prompt_polisher.DefaultPromptPolisher` and to prefer placeholder patterns over realistic-looking PII / secrets in examples; rules 32–35 (added in v7) list anti-patterns (don't propose dangling relationships, don't put two tools with overlapping responsibilities in the same plan, don't emit `add_visual` before its dependencies exist, don't re-emit duplicate measures). |
 | `LEGACY_GENERIC_SYSTEM_PROMPT` | The original 9-rule generic prompt, preserved verbatim for callers that opt out. |
 | `select_system_prompt(context)` | Returns the focused prompt by default, or the legacy prompt if `context["report_focus_enabled"] = False`. The returned string is prefixed with `[nl2pbip prompt vN (name)]` so callers can log / pin the version they received. |
 | `build_user_message(user_prompt, payload)` | Assembles the user-side message: `user_prompt + indented JSON payload`. |
@@ -653,7 +653,7 @@ nl2pbip/
 │   ├── cli.py                   # argparse CLI (generate / export subcommands)
 │   ├── py.typed                 # PEP 561 marker
 │   └── __init__.py
-├── tests/                       # 777 pytest cases across 23 test files
+├── tests/                       # 782 pytest cases across 23 test files
 ├── artifacts/                   # example Run output (SalesInsights.pbipdir)
 ├── .github/                     # workflows, issue templates, CODEOWNERS,
 │                                # dependabot.yml, SECURITY.md, etc.
@@ -665,7 +665,7 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **777 test cases across 23 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **764 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra (`datasets` / `transformers` / `trl`) — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **782 test cases across 23 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **769 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra (`datasets` / `transformers` / `trl`) — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Collected tests |
 |---|---:|
@@ -723,6 +723,10 @@ Opt-in benchmark suite (`NL2PBIP_RUN_BENCHMARKS=1`):
 ```bash
 NL2PBIP_RUN_BENCHMARKS=1 pytest tests/test_performance.py -s
 ```
+
+The numbers below were measured on an M-series Mac with Python 3.11
+and are reproduced verbatim in `tests/test_performance.py` so
+callers can refresh them locally:
 
 | Path | Median | Throughput |
 |---|---:|---:|

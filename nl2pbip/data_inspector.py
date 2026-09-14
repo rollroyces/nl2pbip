@@ -101,6 +101,17 @@ class TableProfile:
     sampled_at_least: int  # full row count when known
 
     def to_json(self, *, redact_distinct_values: bool = False) -> Dict[str, Any]:
+        """Serialise the table profile to a JSON-friendly dict.
+
+        Parameters
+        ----------
+        redact_distinct_values
+            When ``True``, every column's ``distinct_examples`` is
+            replaced with ``"<redacted: N values>"`` — used when
+            the profile feeds the planner payload and the data may
+            contain PII (the planner only needs cardinality, not
+            the actual distinct values).
+        """
         return {
             "name": self.name,
             "row_count": self.row_count,
@@ -122,6 +133,14 @@ class DataProfile:
     warnings: List[str] = field(default_factory=list)
 
     def to_json(self, *, redact_distinct_values: bool = False) -> Dict[str, Any]:
+        """Serialise the data source profile to a JSON-friendly dict.
+
+        Parameters
+        ----------
+        redact_distinct_values
+            Forwarded to every child :class:`TableProfile`. See
+            :meth:`TableProfile.to_json` for semantics.
+        """
         return {
             "source_name": self.source_name,
             "source_kind": self.source_kind,
