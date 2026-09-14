@@ -6,6 +6,69 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-13
+
+### Changed
+- **Documentation audit pass.** Corrected the README, SECURITY.md,
+  prompts module docstring, and ontology module docstring to
+  match the actual codebase:
+  - README "What ships" header bumped from v1.1.1 to v1.2.0.
+  - README rule count corrected from "30 rules" to "35 rules"
+    (rules 1–31 + sub-rules 21a / 23a / 23b / 23c).
+  - README Fabric type count corrected from "20 canonical" to
+    "21 canonical" (`FABRIC_ITEM_TYPES` is a frozenset of 21).
+  - README Architecture table handler count corrected from
+    "11 handlers" to "13 handlers" (added `add_pattern_measure`
+    and `set_page_layout`); same fix in the project-layout tree.
+  - README Ontology counts corrected (41 / 72 / 71 / 9 instead
+    of "~39 / ~72 / ~71 / 9"). Module docstring in
+    `nl2pbip/ontology.py` brought in sync (was "~30 / ~50 /
+    ~10" — now 41 / 72 / 9).
+  - README test-counts table corrected: `test_field_parameter.py`
+    → `test_field_parameters.py` (the actual filename),
+    `test_repo_templates.py` 62 → 67 (post-rebrand), added
+    `test_llm_client.py` (2) and `test_prompts.py` 38 → 43
+    (new rule-31 coverage tests).
+  - README headline test count bumped 772 → 777 to match
+    `pytest tests/ --ignore=tests/test_finetune.py --collect-only`.
+  - README Limitations header bumped "as of v1.0.0" → "as of
+    v1.2.0".
+  - `SECURITY.md` Supported-versions table expanded from
+    "1.0.x ✅ / < 1.0 ❌" to "1.2.x / 1.1.x ✅ / < 1.1 ❌" with
+    a note about best-effort patches.
+  - `nl2pbip/prompts.py` module docstring corrected: the
+    report-generation prompt is the **default**, not the opt-in
+    — `report_focus_enabled=False` opts OUT to the legacy
+    generic prompt.
+  - `nl2pbip/prompts.py` `PROMPT_CHANGELOG` updated; the v5 entry's
+    misleading "OLS + Fabric" claim replaced with a reference to
+    the new v6 entry (rule 31).
+
+### Added
+- **Rule 31 (PRE-FLIGHT SCRUBBING) in the system prompt.** The
+  planner prompt now tells the LLM that
+  `nl2pbip.prompt_polisher.DefaultPromptPolisher` runs every
+  message through a deterministic scrubber before it leaves the
+  Python process. The rule lists the redaction markers
+  (`[REDACTED:PII]`, `[REDACTED:SECRET]`, `[INJECTION_SCRUBBED]`)
+  and the recognised secret prefixes (`sk-`, `AKIA`, `ghp_`,
+  `xoxb-`, `ya29.`, `AIza`, `Bearer`). It also instructs the LLM
+  to **prefer placeholder patterns** (`example.com`,
+  `sk-FAKEPLACEHOLDER...`) rather than realistic-looking PII or
+  secrets in examples — otherwise the scrubber strips the LLM's
+  own output and the user has to redo the request.
+- **`PROMPT_CHANGELOG` v6 entry** documenting rule 31 and the
+  module-docstring fix.
+- **New regression test class `TestPreFlightScrubbingGuidance`**
+  in `tests/test_prompts.py` (5 tests) asserting that rule 31
+  appears in the prompt, that the polisher's marker tokens are
+  documented, that the secret-prefix list is included, that the
+  placeholder-pattern recommendation is present, and that rule
+  31 appears in the numbered-rules list. Future drift in this
+  area fails CI.
+- **Updated `TestReadmeConsistency` claim count** to keep the
+  headline test count in sync with the actual collection.
+
 ## [1.2.0] - 2026-09-13
 
 ### Added

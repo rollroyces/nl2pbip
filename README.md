@@ -7,7 +7,7 @@ Natural Language to Power BI Project (.pbip) Engine
 [![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
 [![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml)
-[![Tests](https://img.shields.io/badge/tests-772%20collected%2C%20759%20passing-brightgreen.svg)](#test-counts)
+[![Tests](https://img.shields.io/badge/tests-777%20collected%2C%20764%20passing-brightgreen.svg)](#test-counts)
 [![Benchmarks](https://img.shields.io/badge/benchmarks-13-blue.svg)](#performance-benchmarks)
 
 ## Overview
@@ -18,34 +18,34 @@ Natural Language to Power BI Project (.pbip) Engine
 - A **report surface** captured as PBIR JSON (pages, visuals, bindings)
 - A **packaged `.pbip` workspace** that can be exported to `.pbix` or `.pbit` and committed to a Git repo connected to a Microsoft Fabric workspace
 
-### What ships in v1.1.1
+### What ships in v1.2.0
 
 | Capability | What it gives you |
 |---|---|
 | **TMDL feature expansion** | Calculation groups + dynamic format strings (Microsoft's `formatStringDefinition`), Object-Level Security (Sept 2025 grammar — nested `tablePermission` / `columnPermission`), field parameters for dynamic measure / column / table switching via slicer, and Power Query (M) partition generation with six source templates (`csv` / `sql` / `json` / `sharepoint` / `odata` / `web`) plus `promotedTable` / `merge` / `append` / `group` transformations. |
-| **Fabric Git integration** | `package_pbip` writes `itemMetadata.json` + `.platform` per Fabric item so the PBIP folder is ready for a Git repo connected to a Fabric workspace. Validated against the 20 canonical Fabric item types. |
+| **Fabric Git integration** | `package_pbip` writes `itemMetadata.json` + `.platform` per Fabric item so the PBIP folder is ready for a Git repo connected to a Fabric workspace. Validated against the 21 canonical Fabric item types. |
 | **Agentic self-reflection loop** | `Orchestrator.run_with_reflection` records every attempt in a `ReflectiveTrace`, then runs a post-success critic pass (`correctness` / `completeness` / `alignment_with_prompt` scores) and re-invokes the planner with the critic's suggestions when the score is below threshold. New `PlannerClarification` exception lets the LLM ask the user clarifying questions instead of guessing. |
 | **Performance benchmarks** | 13 opt-in benchmarks covering TMDL writer / parser round-trip on a 200-table model, calc-group / field-param / OLS rendering at multiple sizes, end-to-end orchestrator latency, and the reflection-loop overhead. See [Performance benchmarks](#performance-benchmarks). |
 | **GitHub repo templates** | Issue templates, PR template, CODEOWNERS, Dependabot (pip + GitHub Actions, weekly), CodeQL workflow, release workflow (PyPI trusted publishing via OIDC + GitHub release), `SECURITY.md`, `CONTRIBUTING.md`. CI workflow hardened with concurrency groups, permissions hardening, and a smoke test that catches `package_pbip` regressions. |
-| **PyPI published releases** | Tag-push driven release workflow. `v1.1.0`, `v1.1.1`, `v1.1.2`, and `v1.2.0` are live at https://pypi.org/project/nl2pbip/. Trusted publishing via OIDC — no API token stored in the repo. |
+| **PyPI published releases** | Tag-push driven release workflow. `v1.1.0`, `v1.1.1`, `v1.1.2`, `v1.2.0`, and `v1.2.1` are live at https://pypi.org/project/nl2pbip/. Trusted publishing via OIDC — no API token stored in the repo. |
 | **Pre-LLM prompt polish layer** | `nl2pbip.prompt_polisher.DefaultPromptPolisher` runs six deterministic scrub passes (encoding normalise, whitespace collapse, PII redact, secret redact, prompt-injection scrub, length budget) before every LLM call. Redact-and-warn by default — redactions are recorded in `ReflectiveTrace.attempts[i].polish_steps` so callers can audit what was changed without failing the call. Bounded regex quantifiers keep adversarial input linear-time. |
 
-Beyond model generation, `nl2pbip` ships an **LLM context layer** that profiles your data, validates your relationships against Power BI Desktop's actual constraints, anchors column names to a curated `schema.org`/`PROV-O` subset, and asks the LLM for column roles / measures / visuals with concrete numbers rather than guesses. The system prompt that guides the LLM is **tuned for report generation** — 30 rules covering narrative flow, visual selection by data shape, layout, and measure–visual pairing — so plans produce layouts a senior Power BI designer would approve of rather than a pile of charts.
+Beyond model generation, `nl2pbip` ships an **LLM context layer** that profiles your data, validates your relationships against Power BI Desktop's actual constraints, anchors column names to a curated `schema.org`/`PROV-O` subset, and asks the LLM for column roles / measures / visuals with concrete numbers rather than guesses. The system prompt that guides the LLM is **tuned for report generation** — 35 rules (rules 1–31 + sub-rules 21a / 23a / 23b / 23c) covering narrative flow, visual selection by data shape, layout, measure–visual pairing, and pre-flight scrubbing — so plans produce layouts a senior Power BI designer would approve of rather than a pile of charts.
 
 ## Architecture at a glance
 
 | Layer | Module | What it does |
 |---|---|---|
 | Planner | `StructuredLLMClient` | Normalizes responses from OpenAI, Azure OpenAI, Anthropic, DeepSeek, Qwen, Zhipu, Moonshot, or any OpenAI-compatible endpoint |
-| **Prompts** | `prompts` | Versioned system + user messages tuned for report generation. 30 numbered rules covering narrative flow, visual selection by data shape, layout, measure–visual pairing, filters, and TMDL/relationship/RLS/OLS plumbing. Legacy prompt preserved for opt-out. |
+| **Prompts** | `prompts` | Versioned system + user messages tuned for report generation. 35 numbered rules (rules 1–31 + sub-rules 21a / 23a / 23b / 23c) covering narrative flow, visual selection by data shape, layout, measure–visual pairing, filters, TMDL/relationship/RLS/OLS plumbing, and pre-flight scrubbing. Legacy prompt preserved for opt-out. |
 | Agent runtime | `Orchestrator` | Validates the plan, dispatches domain tools, retries after lint feedback. Six orthogonal context blocks feed the LLM (see [LLM context layer](#llm-context-layer)). The planner payload exposes a `prompt_meta` block (`version`, `name`, `focused_on_report_generation`) so callers can audit which prompt produced a given plan. |
-| TMDL engine | `tmdl_engine` | Parser, writer, 11 handlers — `create_table`, `add_measure`, `define_relationship`, `add_calculation_group` (with `formatStringDefinition`), `add_ols_role` (Microsoft Sept 2025 grammar), `add_field_parameter`, `add_power_query_partition`, `add_visual`, `add_report_page`, `package_pbip`. Data-type and visual-type aliases normalised. Relationships validated for endpoint existence, type compatibility, self-refs, and duplicate-active guards. |
+| TMDL engine | `tmdl_engine` | Parser, writer, 13 handlers — `add_report_page`, `add_visual`, `create_table`, `define_relationship`, `package_pbip`, `add_measure`, `add_pattern_measure` (catalog-driven), `add_calculation_group` (with `formatStringDefinition`), `add_ols_role` (Microsoft Sept 2025 grammar), `add_field_parameter`, `add_power_query_partition`, `add_rls_role`, `set_page_layout`. Data-type and visual-type aliases normalised. Relationships validated for endpoint existence, type compatibility, self-refs, and duplicate-active guards. |
 | Visual engine | `pbir_engine` | PBIR layout, OPC-compliant `.pbit` archive builder with `[Content_Types].xml` + manifest parts |
 | Power Query M | `m_builder` | Safe M-string quoting (`""` escape), six source templates (`csv` / `sql` / `json` / `sharepoint` / `odata` / `web`), and four transformation builders (`promotedTable` / `merge` / `append` / `group`) |
-| Packager | `packager` | Writes the PBIP folder, Fabric `itemMetadata.json` + `.platform` per item, validated against 20 canonical Fabric item types |
+| Packager | `packager` | Writes the PBIP folder, Fabric `itemMetadata.json` + `.platform` per item, validated against 21 canonical Fabric item types |
 | Data context | `data_inspector` | Deterministic per-column profile: type inference, distinct counts (top-N by frequency), numeric stats, date ranges, sample-bounded. |
 | Cross-table analysis | `data_understanding` | PK detection, FK coverage with orphan counts, cardinality hints, numeric quantiles, time ranges |
-| Ontology grounding | `ontology` | Curated ~39 schema.org Types + ~72 Properties + ~71 alias entries + 9 PROV-O terms (~50 KB, no external deps) |
+| Ontology grounding | `ontology` | Curated 41 schema.org Types + 72 Properties + 71 alias entries + 9 PROV-O terms (<100 KB, no external deps) |
 | AI schema advisor | `schema_advisor` | LLM-driven column-role / measure / visual suggestions with result caching and tolerant JSON parsing |
 | Agent runtime | `Orchestrator` | Validates the plan, dispatches domain tools, retries after lint feedback. `run()` does validation-aware self-correction; `run_with_reflection()` adds a persistent trace + post-success critic pass + reflection loop. New `PlannerClarification` exception lets the LLM ask clarifying questions instead of guessing. Six orthogonal context blocks feed the LLM (see [LLM context layer](#llm-context-layer)). The planner payload exposes a `prompt_meta` block (`version`, `name`, `focused_on_report_generation`) so callers can audit which prompt produced a given plan. |
 | Exporter | `PBIPExporter` | Calls `pbi-tools compile` for `.pbix`; falls back to in-process ZIP for `.pbit` |
@@ -98,7 +98,7 @@ Every string the orchestrator sends to the LLM lives in `nl2pbip.prompts`. Curre
 
 | Symbol | Purpose |
 |---|---|
-| `REPORT_GENERATION_SYSTEM_PROMPT` | The 30-rule system prompt tuned for report generation. Output contract, narrative composition (overview → breakdown → detail), visual selection (data shape → visual type), layout (no overlap, slicer strip), measure–visual pairing, filters, and TMDL/security rules. v5 adds rules 21a (field parameter switching), 23a/23b/23c (Power Query M partition authoring), and metadata about OLS + Fabric item types. |
+| `REPORT_GENERATION_SYSTEM_PROMPT` | The 35-rule system prompt (v6) tuned for report generation. Output contract, narrative composition (overview → breakdown → detail), visual selection (data shape → visual type), layout (no overlap, slicer strip), measure–visual pairing, filters, and TMDL/security rules. Sub-rule 21a covers field-parameter switching; sub-rules 23a / 23b / 23c cover Power Query M partition authoring; rule 27 covers OLS; rule 31 (added in v6) tells the LLM its output will be passed through `nl2pbip.prompt_polisher.DefaultPromptPolisher` and to prefer placeholder patterns over realistic-looking PII / secrets in examples. |
 | `LEGACY_GENERIC_SYSTEM_PROMPT` | The original 9-rule generic prompt, preserved verbatim for callers that opt out. |
 | `select_system_prompt(context)` | Returns the focused prompt by default, or the legacy prompt if `context["report_focus_enabled"] = False`. The returned string is prefixed with `[nl2pbip prompt vN (name)]` so callers can log / pin the version they received. |
 | `build_user_message(user_prompt, payload)` | Assembles the user-side message: `user_prompt + indented JSON payload`. |
@@ -394,7 +394,7 @@ Inspecting the orchestrator's intermediate state is straightforward — `results
 
 ## Limitations
 
-What `nl2pbip` doesn't do well, as of v1.0.0:
+What `nl2pbip` doesn't do well, as of v1.2.0:
 
 | Limitation | Why | Workaround |
 |---|---|---|
@@ -617,8 +617,9 @@ nl2pbip/
 │   ├── orchestrator.py          # planner payload assembly + retry loop
 │   │                           # + run_with_reflection (post-success critic pass)
 │   ├── llm_client.py            # OpenAI-compatible client + structured output
-│   ├── tmdl_engine.py           # parser, writer, 10 handlers (calc-group, OLS,
-│   │                           # field-param, power-query, …)
+│   ├── tmdl_engine.py           # parser, writer, 13 handlers (calc-group, OLS,
+│   │                           # field-param, power-query, RLS, pattern-measure,
+│   │                           # page-layout, …)
 │   ├── tmdl_linter.py           # TMDLValidationError
 │   ├── pbir_engine.py           # PBIR layout, OPC-compliant .pbit archive
 │   ├── pbir_validator.py        # PBIR schema + semantic checks
@@ -652,7 +653,7 @@ nl2pbip/
 │   ├── cli.py                   # argparse CLI (generate / export subcommands)
 │   ├── py.typed                 # PEP 561 marker
 │   └── __init__.py
-├── tests/                       # 772 pytest cases across 23 test files
+├── tests/                       # 777 pytest cases across 23 test files
 ├── artifacts/                   # example Run output (SalesInsights.pbipdir)
 ├── .github/                     # workflows, issue templates, CODEOWNERS,
 │                                # dependabot.yml, SECURITY.md, etc.
@@ -664,23 +665,23 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **772 test cases across 23 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **759 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra (`datasets` / `transformers` / `trl`) — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **777 test cases across 23 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **764 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra (`datasets` / `transformers` / `trl`) — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Collected tests |
 |---|---:|
-| `tests/test_repo_templates.py` | 62 |
+| `tests/test_repo_templates.py` | 67 |
 | `tests/test_power_query.py` | 65 |
 | `tests/test_prompt_polisher.py` | 76 |
 | `tests/test_polisher_integration.py` | 11 |
+| `tests/test_prompts.py` | 43 |
 | `tests/test_opc_export.py` | 49 |
 | `tests/test_ontology.py` | 42 |
-| `tests/test_prompts.py` | 38 |
 | `tests/test_object_level_security.py` | 32 |
 | `tests/test_data_inspector.py` | 31 |
 | `tests/test_fabric_metadata.py` | 30 |
 | `tests/test_agentic_reflection.py` | 29 |
 | `tests/test_calculation_groups.py` | 27 |
-| `tests/test_field_parameter.py` | 27 |
+| `tests/test_field_parameters.py` | 27 |
 | `tests/test_data_types.py` | 90 |
 | `tests/test_data_understanding.py` | 24 |
 | `tests/test_relationship_validation.py` | 23 |

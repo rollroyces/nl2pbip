@@ -41,9 +41,10 @@ than generic PBIP plumbing. It includes rules for:
 
 The legacy prompt from the original inline implementation is still
 available as :data:`LEGACY_GENERIC_SYSTEM_PROMPT` for callers that
-want the old behaviour; it can be selected with
-``context["report_focus_enabled"] = False`` (which is the default —
-opt in to the new prompt to use it).
+want the old behaviour. Opt **out** of the report-generation prompt
+with ``context["report_focus_enabled"] = False`` — the default
+(and what callers get when the flag is unset) is the
+report-generation prompt.
 """
 
 from __future__ import annotations
@@ -59,7 +60,7 @@ from typing import Any, Dict, List, Mapping, Optional
 #: every time :data:`REPORT_GENERATION_SYSTEM_PROMPT` changes. The
 #: orchestrator embeds the version in the planner payload so callers
 #: can pin / inspect the prompt they received.
-REPORT_GENERATION_PROMPT_VERSION: int = 5
+REPORT_GENERATION_PROMPT_VERSION: int = 6
 
 #: Changelog entries are append-only. Each entry has ``version``,
 #: ``date``, and ``changes`` (list of human-readable lines).
@@ -125,6 +126,17 @@ PROMPT_CHANGELOG: List[Dict[str, Any]] = [
             "Rule 23a documents the 'promote' flag (Table.PromoteHeaders + Table.TransformColumnTypes).",
             "Rule 23b added: SQL sources accept a SELECT statement (or stored-procedure wrapped in Value.NativeQuery) verbatim; never embed credentials in the query.",
             "Rule 23c added: path / URL parameters are M-quoted automatically; do NOT pre-quote them in the params object.",
+        ],
+    },
+    {
+        "version": 6,
+        "date": "2026-09-14",
+        "summary": "Pre-flight scrubbing rule: tell the LLM its output is scrubbed.",
+        "changes": [
+            "Rule 31 added under PRE-FLIGHT SCRUBBING: documents that the orchestrator runs every message through nl2pbip.prompt_polisher.DefaultPromptPolisher before it leaves the Python process.",
+            "Rule 31 lists the marker tokens ([REDACTED:PII], [REDACTED:SECRET], [INJECTION_SCRUBBED]) so the LLM can recognise scrubbed output.",
+            "Rule 31 instructs the LLM to prefer placeholder patterns (example.com, sk-FAKEPLACEHOLDER...) over realistic-looking PII or secrets in examples.",
+            "Module docstring corrected: the report-generation prompt is the default; report_focus_enabled=False opts OUT to the legacy generic prompt.",
         ],
     },
 ]
@@ -304,6 +316,24 @@ REPORT_GENERATION_SYSTEM_PROMPT: str = (
     "the column names, distinct-value ratios, FK coverage, and "
     "schema.org vocabulary anchors they describe. Do not "
     "invent column names that contradict the profile.\n"
+    "\n"
+    "PRE-FLIGHT SCRUBBING\n"
+    "31. The orchestrator runs every message through a deterministic "
+    "scrubber (`nl2pbip.prompt_polisher.DefaultPromptPolisher`) "
+    "before it leaves the Python process. The scrubber replaces "
+    "email-shaped strings, IPv4/IPv6 literals, phone numbers, "
+    "API-key prefixes (`sk-`, `AKIA`, `ghp_`, `xoxb-`, `ya29.`, "
+    "`AIza`, `Bearer`), and obvious prompt-injection phrases "
+    "(`ignore previous instructions`, `disregard the system "
+    "prompt`, etc.) with `[REDACTED:PII]`, `[REDACTED:SECRET]`, "
+    "and `[INJECTION_SCRUBBED]` markers. To keep your output "
+    "useful, prefer **placeholder patterns** in any examples "
+    "(`example.com`, `sk-FAKEPLACEHOLDER...`, "
+    "`ghp_FAKEPLACEHOLDER...`) rather than realistic-looking "
+    "PII or secrets. Never embed real credentials, even when the "
+    "user asks. Real-looking tokens will reach the LLM as "
+    "`[REDACTED:SECRET]` and the user will have to redo the "
+    "request.\n"
 )
 
 

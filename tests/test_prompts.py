@@ -196,9 +196,54 @@ class TestLegacyPrompt:
             assert f"{i}." in prompt, f"rule {i} missing from legacy prompt"
 
 
-# ----------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Pre-flight scrubbing guidance (rule 31, added in v6)
+# ---------------------------------------------------------------------------
+
+
+class TestPreFlightScrubbingGuidance:
+    def test_rule_31_mentions_polisher_module(self) -> None:
+        prompt = REPORT_GENERATION_SYSTEM_PROMPT
+        assert (
+            "PRE-FLIGHT SCRUBBING" in prompt
+        ), "Rule 31 section heading missing from the system prompt."
+        assert (
+            "DefaultPromptPolisher" in prompt
+        ), "Rule 31 should name the nl2pbip.prompt_polisher module."
+
+    def test_rule_31_documents_redaction_markers(self) -> None:
+        prompt = REPORT_GENERATION_SYSTEM_PROMPT
+        # The LLM must be able to recognise a scrubbed response.
+        assert "[REDACTED:SECRET]" in prompt
+        assert "[REDACTED:PII]" in prompt
+        assert "[INJECTION_SCRUBBED]" in prompt
+
+    def test_rule_31_documents_secret_prefixes(self) -> None:
+        prompt = REPORT_GENERATION_SYSTEM_PROMPT
+        for prefix in ("sk-", "AKIA", "ghp_", "xoxb-", "ya29.", "AIza"):
+            assert (
+                prefix in prompt
+            ), f"Rule 31 should list {prefix!r} as a known scrubber prefix."
+
+    def test_rule_31_recommends_placeholder_patterns(self) -> None:
+        prompt = REPORT_GENERATION_SYSTEM_PROMPT
+        # The LLM is told to prefer placeholder patterns so its
+        # output isn't all stripped out by the scrubber.
+        assert "FAKEPLACEHOLDER" in prompt or "placeholder" in prompt.lower()
+
+    def test_numbered_rules_include_rule_31(self) -> None:
+        import re
+
+        rules = re.findall(r"\n\s*(\d+[a-z]?)\.\s", REPORT_GENERATION_SYSTEM_PROMPT)
+        # 1-31 plus the three sub-rules 21a / 23a / 23b / 23c.
+        assert "31" in rules, "rule 31 should appear in the prompt"
+        for n in ("21a", "23a", "23b", "23c"):
+            assert n in rules, f"sub-rule {n} should appear in the prompt"
+
+
+# ---------------------------------------------------------------------------
 # User message assembly
-# ----------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 
 class TestBuildUserMessage:

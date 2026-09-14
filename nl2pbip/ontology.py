@@ -11,14 +11,14 @@ scratch every time.
 This module embeds a **curated subset** of schema.org + selected
 PROV-O terms relevant to business / Power BI data:
 
-* ~30 schema.org Types (Person, Organization, Product, Order,
+* ~41 schema.org Types (Person, Organization, Product, Order,
   Invoice, Place, Event, PostalAddress, …) with their
   ``rdfs:label`` and ``rdfs:comment``.
-* ~50 schema.org Properties (name, email, telephone, price,
+* ~72 schema.org Properties (name, email, telephone, price,
   priceCurrency, sku, identifier, …) with the canonical parent
   Type they describe.
-* ~10 PROV-O terms (Entity, Activity, Agent) for lineage.
-* A small **alias index** — common data-warehouse column names
+* 9 PROV-O terms (Entity, Activity, Agent) for lineage.
+* A small **alias index** — 71 common data-warehouse column names
   like ``cust_id``, ``customer_email``, ``order_total`` mapped
   to their most likely ontology term.
 

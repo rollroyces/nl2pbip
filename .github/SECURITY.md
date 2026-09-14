@@ -4,8 +4,13 @@
 
 | Version | Supported |
 | ------- | --------- |
-| 1.0.x   | ✅ |
-| < 1.0   | ❌ |
+| 1.2.x   | ✅ |
+| 1.1.x   | ✅ |
+| < 1.1   | ❌ |
+
+We follow the latest minor release plus the previous one. Older
+versions may receive critical security patches on a best-effort
+basis; please open an issue if you need an exception.
 
 ## Reporting a vulnerability
 
