@@ -7,7 +7,7 @@ Natural Language to Power BI Project (.pbip) Engine
 [![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
 [![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml)
-[![Tests](https://img.shields.io/badge/tests-687%20collected%2C%20674%20passing-brightgreen.svg)](#test-counts)
+[![Tests](https://img.shields.io/badge/tests-772%20collected%2C%20759%20passing-brightgreen.svg)](#test-counts)
 [![Benchmarks](https://img.shields.io/badge/benchmarks-13-blue.svg)](#performance-benchmarks)
 
 ## Overview
@@ -28,6 +28,7 @@ Natural Language to Power BI Project (.pbip) Engine
 | **Performance benchmarks** | 13 opt-in benchmarks covering TMDL writer / parser round-trip on a 200-table model, calc-group / field-param / OLS rendering at multiple sizes, end-to-end orchestrator latency, and the reflection-loop overhead. See [Performance benchmarks](#performance-benchmarks). |
 | **GitHub repo templates** | Issue templates, PR template, CODEOWNERS, Dependabot (pip + GitHub Actions, weekly), CodeQL workflow, release workflow (PyPI trusted publishing via OIDC + GitHub release), `SECURITY.md`, `CONTRIBUTING.md`. CI workflow hardened with concurrency groups, permissions hardening, and a smoke test that catches `package_pbip` regressions. |
 | **PyPI published releases** | Tag-push driven release workflow. `v1.1.0`, `v1.1.1`, and `v1.1.2` are live at https://pypi.org/project/nl2pbip/. Trusted publishing via OIDC — no API token stored in the repo. |
+| **Pre-LLM prompt polish layer** | `nl2pbip.prompt_polisher.DefaultPromptPolisher` runs six deterministic scrub passes (encoding normalise, whitespace collapse, PII redact, secret redact, prompt-injection scrub, length budget) before every LLM call. Redact-and-warn by default — redactions are recorded in `ReflectiveTrace.attempts[i].polish_steps` so callers can audit what was changed without failing the call. Bounded regex quantifiers keep adversarial input linear-time. |
 
 Beyond model generation, `nl2pbip` ships an **LLM context layer** that profiles your data, validates your relationships against Power BI Desktop's actual constraints, anchors column names to a curated `schema.org`/`PROV-O` subset, and asks the LLM for column roles / measures / visuals with concrete numbers rather than guesses. The system prompt that guides the LLM is **tuned for report generation** — 30 rules covering narrative flow, visual selection by data shape, layout, and measure–visual pairing — so plans produce layouts a senior Power BI designer would approve of rather than a pile of charts.
 
@@ -323,6 +324,35 @@ print(results[-1].output["project_path"])
 
 The orchestrator returns structured `ToolResult` objects so you can inspect intermediate tool outputs, log them, or enforce custom compliance checks before persisting artifacts.
 
+### Enable the prompt-polish layer (recommended for production)
+
+By default the orchestrator installs a no-op polisher so legacy callers
+see no behaviour change. To scrub PII / secrets / prompt-injection
+attempts before they reach the LLM, pass `DefaultPromptPolisher()`
+explicitly:
+
+```python
+from nl2pbip.orchestrator import Orchestrator
+from nl2pbip.prompt_polisher import DefaultPromptPolisher
+
+orch = Orchestrator(
+    llm_client=llm,
+    prompt_polisher=DefaultPromptPolisher(),
+)
+```
+
+Every attempt in the resulting `ReflectiveTrace` carries a
+`PolishReport` provenance record so you can audit what was scrubbed:
+
+```python
+trace = orch.run_with_reflection("...", context=ctx)
+for a in trace.attempts:
+    print(a.attempt, a.polish_steps, a.polish_redactions)
+```
+
+Tune the budget with `DefaultPromptPolisher(max_chars=...)`. Disable
+individual scrub passes with `enable_secret_redact=False` etc.
+
 ### Type & visual handling
 
 The TMDL handler accepts both schema.org-native and SQL-flavored spellings — aliases resolve to the canonical form:
@@ -595,6 +625,7 @@ nl2pbip/
 │   ├── packager.py              # package_pbip_handler + Fabric metadata
 │   │                           # (itemMetadata.json + .platform per item)
 │   ├── m_builder.py             # Power Query M expression builders
+│   ├── prompt_polisher.py        # pre-LLM message normaliser
 │   │                           # (csv / sql / json / sharepoint / odata / web
 │   │                           # + promoted / merge / append / group)
 │   ├── dax_catalog.py           # organisation-specific DAX patterns
@@ -621,7 +652,7 @@ nl2pbip/
 │   ├── cli.py                   # argparse CLI (generate / export subcommands)
 │   ├── py.typed                 # PEP 561 marker
 │   └── __init__.py
-├── tests/                       # 684 pytest cases across 21 test files
+├── tests/                       # 772 pytest cases across 23 test files
 ├── artifacts/                   # example Run output (SalesInsights.pbipdir)
 ├── .github/                     # workflows, issue templates, CODEOWNERS,
 │                                # dependabot.yml, SECURITY.md, etc.
@@ -633,12 +664,14 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **684 test cases across 21 test files** (Python 3.10 / 3.11 / 3.12). Of those, **671 pass** on every supported Python version in CI; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra (`datasets` / `transformers` / `trl`) — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **772 test cases across 23 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **759 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra (`datasets` / `transformers` / `trl`) — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Collected tests |
 |---|---:|
 | `tests/test_repo_templates.py` | 62 |
 | `tests/test_power_query.py` | 65 |
+| `tests/test_prompt_polisher.py` | 76 |
+| `tests/test_polisher_integration.py` | 11 |
 | `tests/test_opc_export.py` | 49 |
 | `tests/test_ontology.py` | 42 |
 | `tests/test_prompts.py` | 38 |

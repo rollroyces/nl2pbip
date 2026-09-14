@@ -637,6 +637,15 @@ class TestReadmeConsistency:
             "Add it under the `nl2pbip/` directory entry."
         )
 
+    def test_readme_lists_prompt_polisher_module(self) -> None:
+        """The project layout section must list `prompt_polisher.py` —
+        the pre-LLM message normalisation layer."""
+        text = (REPO_ROOT / "README.md").read_text()
+        assert "prompt_polisher.py" in text, (
+            "README project layout tree is missing `prompt_polisher.py`. "
+            "Add it under the `nl2pbip/` directory entry."
+        )
+
     def test_readme_benchmarks_table_matches_test_performance(self) -> None:
         """The README performance-benchmarks table should mention
         the same set of benches that ``tests/test_performance.py``

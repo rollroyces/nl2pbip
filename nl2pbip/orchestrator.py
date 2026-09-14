@@ -154,6 +154,14 @@ class AttemptRecord:
     error: Optional[str] = None
     feedback_included: List[str] = field(default_factory=list)
     reflection: Optional[str] = None
+    # Polish provenance: which steps ran and how many redactions /
+    # truncations happened before this attempt hit the LLM.
+    polish_steps: List[str] = field(default_factory=list)
+    polish_redactions: Dict[str, int] = field(default_factory=dict)
+    polish_injections_scrubbed: int = 0
+    polish_truncated: int = 0
+    polish_bytes_in: int = 0
+    polish_bytes_out: int = 0
 
 
 @dataclass
@@ -267,10 +275,20 @@ class Orchestrator:
         llm_client: LLMClient,
         tool_registry: Optional[ToolRegistry] = None,
         dax_catalog: Optional[DAXCatalog] = None,
+        prompt_polisher: Optional[Any] = None,
     ) -> None:
+        # Lazy import to avoid a circular dependency at module load
+        # (prompt_polisher only imports stdlib).
+        from nl2pbip.prompt_polisher import NoopPromptPolisher
+
         self._llm = llm_client
         self._tools = tool_registry or ToolRegistry()
         self._dax_catalog = dax_catalog
+        # ``None`` is treated as the no-op polisher so the orchestrator
+        # stays call-compatible with callers that don't care about
+        # polishing. Callers that want full scrubbing pass an instance
+        # of ``DefaultPromptPolisher``.
+        self._polisher: Any = prompt_polisher or NoopPromptPolisher()
 
     def register_tool(
         self, name: str, description: str, schema: Dict[str, Any], handler: ToolHandler
@@ -292,7 +310,9 @@ class Orchestrator:
         last_error: Optional[Exception] = None
         for attempt in range(1, max_attempts + 1):
             effective_prompt = self._augment_prompt(user_prompt, feedback)
-            plan_response = self._request_plan(effective_prompt, context)
+            plan_response, _polish_report = self._request_plan(
+                effective_prompt, context
+            )
             plan = self._parse_plan(plan_response)
             try:
                 return self._execute_plan(plan, context)
@@ -382,12 +402,13 @@ class Orchestrator:
         max_total = max_attempts + max_reflection_rounds
         for attempt in range(1, max_total + 1):
             effective_prompt = self._augment_prompt(user_prompt, feedback)
-            plan_response = self._request_plan(effective_prompt, context)
+            plan_response, polish_report = self._request_plan(effective_prompt, context)
             record = AttemptRecord(
                 attempt=attempt,
                 plan=[],
                 feedback_included=list(feedback),
             )
+            record = self._apply_polish_to_record(record, polish_report)
             try:
                 plan = self._parse_plan(plan_response)
             except PlannerClarification as exc:
@@ -465,8 +486,9 @@ class Orchestrator:
                 reflection=reflection_feedback,
             )
             try:
-                plan_response = self._request_plan(reflection_prompt, context)
-                plan = self._parse_plan(plan_response)
+                plan_response, polish_report = self._request_plan(
+                    reflection_prompt, context
+                )
             except PlannerClarification as exc:
                 record.error = f"clarification: {exc.question}"
                 trace.attempts.append(record)
@@ -477,6 +499,17 @@ class Orchestrator:
                 record.error = self._feedback_for_exception(exc)
                 trace.attempts.append(record)
                 break
+            try:
+                plan = self._parse_plan(plan_response)
+            except PlannerClarification as exc:
+                record.error = f"clarification: {exc.question}"
+                trace.attempts.append(record)
+                break
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                record.error = self._feedback_for_exception(exc)
+                trace.attempts.append(record)
+                break
+            record = self._apply_polish_to_record(record, polish_report)
             record.plan = plan
             try:
                 results = self._execute_plan(plan, context)
@@ -602,7 +635,17 @@ class Orchestrator:
     # ------------------------------------------------------------------
     # Planning helpers
     # ------------------------------------------------------------------
-    def _request_plan(self, user_prompt: str, context: Dict[str, Any]) -> str:
+    def _request_plan(
+        self, user_prompt: str, context: Dict[str, Any]
+    ) -> "tuple[str, Any]":
+        """Assemble + polish the planner message list, then invoke the LLM.
+
+        Returns ``(plan_response, polish_report)``. The polish report
+        is attached to the :class:`AttemptRecord` so the
+        :class:`ReflectiveTrace` shows what was changed before the
+        call. Callers that don't care about the report can unpack
+        just the first element via ``response, _ = ...``.
+        """
         from nl2pbip.prompts import build_user_message, select_system_prompt
 
         system_prompt = select_system_prompt(context)
@@ -613,7 +656,8 @@ class Orchestrator:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ]
-        return self._llm.generate(planning_messages)
+        polished, report = self._polisher.polish(planning_messages)
+        return self._llm.generate(polished), report
 
     def _parse_plan(self, plan_text: str) -> List[ToolCall]:
         try:
@@ -1014,6 +1058,26 @@ class Orchestrator:
         from nl2pbip.prompts import build_feedback_message
 
         return build_feedback_message(error)
+
+    def _apply_polish_to_record(
+        self, record: "AttemptRecord", polish_report: Any
+    ) -> "AttemptRecord":
+        """Copy a ``PolishReport`` onto an ``AttemptRecord`` in-place.
+
+        Returns the same record for chaining. Used inside
+        ``_request_plan`` callers to attach provenance to the trace.
+        """
+        if polish_report is None:
+            return record
+        record.polish_steps = list(getattr(polish_report, "steps_applied", []))
+        record.polish_redactions = dict(getattr(polish_report, "redactions", {}))
+        record.polish_injections_scrubbed = int(
+            getattr(polish_report, "injections_scrubbed", 0)
+        )
+        record.polish_truncated = int(getattr(polish_report, "truncated", 0))
+        record.polish_bytes_in = int(getattr(polish_report, "bytes_in", 0))
+        record.polish_bytes_out = int(getattr(polish_report, "bytes_out", 0))
+        return record
 
 
 # ----------------------------------------------------------------------

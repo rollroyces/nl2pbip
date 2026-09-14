@@ -4,6 +4,29 @@ All notable changes to `nl2pbip` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **`nl2pbip.prompt_polisher` — pre-LLM message normalisation layer.**
+  New module that scrubs every message the orchestrator is about to
+  send to the LLM. Six ordered steps: encoding normalise (Unicode
+  NFC, BOM strip, smart-quote replacement), whitespace normalise
+  (CRLF / CR → LF, control-char strip, run-of-spaces collapse,
+  paragraph-preserving blank-line dedup), **secret redact**
+  (OpenAI / Anthropic / Stripe / AWS / GitHub / Slack / Google /
+  Bearer tokens → `[REDACTED:SECRET]`), **PII redact** (emails /
+  phones / IPv4 / IPv6 → `[REDACTED:PII]`), **injection scrub**
+  (prompt-injection phrases wrapped in `[INJECTION_SCRUBBED]...
+  [/INJECTION_SCRUBBED]` markers), and length budget (over-budget
+  payloads truncated with a `[TRUNCATED]` marker). All regexes use
+  bounded quantifiers so adversarial input stays linear-time. The
+  default is opt-in: pass `prompt_polisher=DefaultPromptPolisher()`
+  to `Orchestrator(...)`. The polish report is captured on each
+  `AttemptRecord` so `ReflectiveTrace.attempts[i].polish_steps`
+  shows what changed before the call. `tests/test_prompt_polisher.py`
+  (76 tests) + `tests/test_polisher_integration.py` (11 tests)
+  lock the behaviour in.
+
 ## [1.1.2] - 2026-09-13
 
 ### Changed
