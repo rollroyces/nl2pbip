@@ -406,8 +406,12 @@ class TestCIWorkflow:
     def test_dev_extra_pins_vulture(self) -> None:
         """``pip install -e ".[dev]"`` must include Vulture so
         local runs (e.g. `make test` or `tox`) match CI."""
-        import tomllib
-
+        # Python 3.11+ ships tomllib in stdlib. On 3.10, fall
+        # back to the tomli package.
+        try:
+            import tomllib  # type: ignore[import-not-found]
+        except ImportError:  # pragma: no cover - 3.10 fallback
+            import tomli as tomllib  # type: ignore[no-redef]
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)
         dev_deps = data["project"]["optional-dependencies"]["dev"]
@@ -419,8 +423,10 @@ class TestCIWorkflow:
         """``pip install -e ".[dev]"`` must include pip-licenses
         so the license-check workflow runs in the same env as
         the test that asserts the workflow exists."""
-        import tomllib
-
+        try:
+            import tomllib  # type: ignore[import-not-found]
+        except ImportError:  # pragma: no cover - 3.10 fallback
+            import tomli as tomllib  # type: ignore[no-redef]
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)
         dev_deps = data["project"]["optional-dependencies"]["dev"]
