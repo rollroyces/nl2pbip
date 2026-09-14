@@ -27,8 +27,8 @@ if [[ ! -x "$BIN" ]]; then
     # ships per-arch archives; pick by uname.
     case "$(uname -s)-$(uname -m)" in
         Linux-x86_64)  ASSET="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" ;;
-        Darwin-x86_64) ASSET="actionlint_${ACTIONLINT_VERSION}_macos_amd64.tar.gz" ;;
-        Darwin-arm64)  ASSET="actionlint_${ACTIONLINT_VERSION}_macos_arm64.tar.gz" ;;
+        Darwin-x86_64) ASSET="actionlint_${ACTIONLINT_VERSION}_darwin_amd64.tar.gz" ;;
+        Darwin-arm64)  ASSET="actionlint_${ACTIONLINT_VERSION}_darwin_arm64.tar.gz" ;;
         *) echo "unsupported arch: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
     esac
     URL="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${ASSET}"
@@ -41,3 +41,11 @@ if [[ ! -x "$BIN" ]]; then
 fi
 
 echo "exe=${BIN}"
+
+# GitHub Actions workflow context: if $GITHUB_OUTPUT is set,
+# also write the value there so downstream steps can read it via
+# ``${{ steps.<id>.outputs.exe }}``. We append instead of
+# replacing so callers can stack extra ``key=value`` lines.
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    echo "exe=${BIN}" >> "$GITHUB_OUTPUT"
+fi
