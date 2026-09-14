@@ -6,6 +6,31 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-09-14
+
+### Added
+- **PR labeler workflow** (`.github/workflows/pr-labeler.yml` +
+  `.github/labeler.yml`): `actions/labeler@v5` auto-applies
+  one of 8 labels (`CI`, `Dependencies`, `Docs`, `Examples`,
+  `Prompts`, `Core`, `Finetune`, `Tests`) based on files
+  touched in the PR. Capped at 5 changed-files labels per
+  PR (`changed-files-labels-limit: 5`) and 200 files total
+  (`max-files-changed: 200`) so a tree-wide refactor doesn't
+  spam labels.
+- 8 new GH labels (`CI`, `Dependencies`, `Docs`, `Examples`,
+  `Prompts`, `Core`, `Finetune`, `Tests`) created via
+  `gh label create` so the labeler has names to apply.
+- 4 regression tests in `tests/test_repo_templates.py`:
+  - `test_pr_labeler_workflow_runs_on_pull_request_target`
+    (lock the event so it keeps write access)
+  - `test_pr_labeler_uses_actions_labeler_v5` (lock the
+    major version)
+  - `test_labeler_config_parses` (require `changed-files-
+    labels-limit` and sane bounds)
+  - `test_labeler_config_references_existing_labels` (fetch
+    live labels from the GH API and verify every label in
+    `LABEL_*` rules exists in the repo)
+
 ## [1.3.3] - 2026-09-14
 
 ### Added

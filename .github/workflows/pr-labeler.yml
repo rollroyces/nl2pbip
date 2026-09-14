@@ -1,0 +1,33 @@
+name: "PR labeler"
+
+# Auto-apply labels to PRs based on the files they touch.
+# Uses actions/labeler v5 with a .github/labeler.yml config.
+# Triggered only on pull_request_target (read-mostly tokens
+# need write access to apply labels — set via GITHUB_TOKEN
+# default permissions).
+#
+# If a maintainer wants to add a new label rule, edit
+# .github/labeler.yml and add a matching label in the repo
+# settings — the regression tests in tests/test_repo_templates.py
+# ensure the config is valid YAML and that every label
+# referenced there exists in the labels manifest.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  labeler:
+    name: Apply labels
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/labeler@v5
+        with:
+          configuration-path: .github/labeler.yml

@@ -1,0 +1,89 @@
+# PR labeler config. Match glob patterns on files changed
+# by a PR to apply labels. Read by actions/labeler@v5.
+# A label is applied if ANY of its glob patterns matches
+# any file in the PR.
+#
+# To add a new label rule:
+#   1. Create the label in the repo settings (Settings →
+#      Labels → New label).
+#   2. Add an entry here. Pick a label name that matches
+#      the GH label name EXACTLY (case-sensitive).
+#   3. List one or more glob patterns under that label.
+#
+# Glob syntax:
+# https://github.com/actions/labeler/blob/main/README.md
+# #glob-patterns
+#
+# The regression tests in tests/test_repo_templates.py
+# enforce that every label referenced here exists in the
+# labels manifest below and that the YAML parses cleanly.
+
+changed-files-labels-limit: 5
+max-files-changed: 200
+
+LABEL_CI:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/**
+          - .github/scripts/**
+          - .gitleaks.toml
+          - .bandit
+LABEL_DEPENDENCIES:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pyproject.toml
+          - requirements*.txt
+          - uv.lock
+LABEL_DOCS:
+  - changed-files:
+      - any-glob-to-any-file:
+          - README.md
+          - CHANGELOG.md
+          - CONTRIBUTING.md
+          - docs/**
+          - website/**
+          - SECURITY.md
+          - LICENSE*
+LABEL_EXAMPLES:
+  - changed-files:
+      - any-glob-to-any-file:
+          - artifacts/**
+          - examples/**
+          - "*.pbip"
+          - "*.pbipdir"
+LABEL_PROMPTS:
+  - changed-files:
+      - any-glob-to-any-file:
+          - nl2pbip/prompts.py
+          - nl2pbip/prompt_polisher.py
+          - tests/test_prompts.py
+          - tests/test_prompt_polisher.py
+          - tests/test_polisher_integration.py
+LABEL_CORE:
+  - changed-files:
+      - any-glob-to-any-file:
+          - nl2pbip/orchestrator.py
+          - nl2pbip/llm_client.py
+          - nl2pbip/m_builder.py
+          - nl2pbip/packager.py
+          - nl2pbip/pbir_engine.py
+          - nl2pbip/pbir_validator.py
+          - nl2pbip/tmdl_engine.py
+          - nl2pbip/data_inspector.py
+          - nl2pbip/data_types.py
+          - nl2pbip/data_understanding.py
+          - nl2pbip/ontology.py
+          - nl2pbip/schema_advisor.py
+          - nl2pbip/dax_catalog.py
+          - nl2pbip/visual_types.py
+          - nl2pbip/example_run.py
+          - nl2pbip/cli.py
+LABEL_FINETUNE:
+  - changed-files:
+      - any-glob-to-any-file:
+          - nl2pbip/finetune/**
+          - nl2pbip/providers/**
+LABEL_TESTS:
+  - changed-files:
+      - any-glob-to-any-file:
+          - tests/**

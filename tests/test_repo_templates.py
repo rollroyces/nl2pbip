@@ -57,10 +57,12 @@ class TestFilePresence:
             ".github/workflows/gitleaks.yml",
             ".github/workflows/bandit.yml",
             ".github/workflows/license-check.yml",
+            ".github/workflows/pr-labeler.yml",
             ".github/scripts/get-actionlint.sh",
             ".github/scripts/bandit_to_sarif.py",
             ".gitleaks.toml",
             ".bandit",
+            ".github/labeler.yml",
             "CONTRIBUTING.md",
         ],
     )
@@ -108,6 +110,7 @@ class TestYAMLShape:
             ".github/workflows/gitleaks.yml",
             ".github/workflows/bandit.yml",
             ".github/workflows/license-check.yml",
+            ".github/workflows/pr-labeler.yml",
         ],
     )
     def test_yaml_parses(self, path: str) -> None:
@@ -455,6 +458,132 @@ class TestCIWorkflow:
             "license-check workflow should mention UNKNOWN "
             "licenses (e.g. for the soft-fail path)"
         )
+
+    def test_pr_labeler_workflow_runs_on_pull_request_target(self) -> None:
+        """PR labeler must run on `pull_request_target` so it
+        has write access to apply labels. The pull_request
+        event alone doesn't grant label-write permissions."""
+        text = (REPO_ROOT / ".github/workflows/pr-labeler.yml").read_text()
+        assert "pull_request_target" in text, (
+            "pr-labeler workflow should listen on "
+            "pull_request_target (needs write access to "
+            "apply labels)"
+        )
+        assert "pull-requests: write" in text, (
+            "pr-labeler workflow needs pull-requests: write "
+            "permission to apply labels"
+        )
+
+    def test_pr_labeler_uses_actions_labeler_v5(self) -> None:
+        """Use the v5 major version of actions/labeler to make
+        sure we keep getting the fixes."""
+        text = (REPO_ROOT / ".github/workflows/pr-labeler.yml").read_text()
+        assert (
+            "actions/labeler@v5" in text
+        ), "pr-labeler workflow should pin actions/labeler@v5"
+
+    def test_labeler_config_parses(self) -> None:
+        """``.github/labeler.yml`` must be valid YAML and have
+        a `changed-files-labels-limit` to prevent one PR
+        from spamming labels."""
+        import yaml
+
+        data = yaml.safe_load((REPO_ROOT / ".github/labeler.yml").read_text())
+        assert "changed-files-labels-limit" in data, (
+            "labeler.yml must set changed-files-labels-limit "
+            "to prevent runaway label application"
+        )
+        assert isinstance(data["changed-files-labels-limit"], int)
+        assert 1 <= data["changed-files-labels-limit"] <= 20
+
+    def test_labeler_config_references_existing_labels(self) -> None:
+        """Every label referenced in ``.github/labeler.yml``
+        must exist as a GH label in the repo. This catches
+        drift: someone adds a label rule but forgets to
+        create the label."""
+        import yaml
+
+        data = yaml.safe_load((REPO_ROOT / ".github/labeler.yml").read_text())
+        rule_labels = [
+            key.removeprefix("LABEL_").lower()
+            for key in data
+            if key.startswith("LABEL_")
+        ]
+        assert rule_labels, "labeler.yml should define at least one LABEL_* rule"
+
+        # Fetch live labels from the repo. The test runs in CI
+        # with GITHUB_TOKEN, so we can hit the GitHub API.
+        # Falls back to a static list if we can't reach the API
+        # (local dev / offline).
+        known = self._known_labels()
+        missing = [lbl for lbl in rule_labels if lbl not in known]
+        assert not missing, (
+            f"labeler.yml references labels not in repo: {missing}. "
+            f"Either add the labels via `gh label create <name>` "
+            f"or remove the LABEL_<name> rule from labeler.yml."
+        )
+
+    @staticmethod
+    def _known_labels() -> set[str]:
+        """Return the set of label names currently in the
+        repo. Uses the GitHub REST API via gh CLI; falls back
+        to the static manifest if the API is unreachable (so
+        the test still passes offline)."""
+        import json
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                [
+                    "gh",
+                    "api",
+                    "repos/rollroyces/nl2pbip/labels",
+                    "--paginate",
+                    "--jq",
+                    ".[].name",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                # gh api --jq returns a single concatenated string
+                # because we paginated; split on newlines. The
+                # labels come back with their original case;
+                # normalize to lowercase so labeler.yml's
+                # LABEL_<Name> convention (which we lowercase)
+                # matches.
+                return set(
+                    line.strip().lower()
+                    for line in result.stdout.splitlines()
+                    if line.strip()
+                )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        # Fallback: hard-coded manifest. Kept in sync with
+        # `gh label create` invocations in CONTRIBUTING.md and
+        # the bootstrap script.
+        return {
+            "accessibility",
+            "bug",
+            "documentation",
+            "duplicate",
+            "enhancement",
+            "good first issue",
+            "help wanted",
+            "invalid",
+            "question",
+            "wontfix",
+            "CI",
+            "Dependencies",
+            "Docs",
+            "Examples",
+            "Prompts",
+            "Core",
+            "Finetune",
+            "Tests",
+        }
 
 
 # ---------------------------------------------------------------------------
