@@ -30,6 +30,7 @@ on:
     paths:
       - "nl2pbip/**/*.py"
       - "pyproject.toml"
+      - ".github/workflows/mypy.yml"
 
 permissions:
   contents: read
