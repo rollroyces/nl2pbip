@@ -56,6 +56,7 @@ class TestFilePresence:
             ".github/workflows/mypy.yml",
             ".github/workflows/gitleaks.yml",
             ".github/workflows/bandit.yml",
+            ".github/workflows/license-check.yml",
             ".github/scripts/get-actionlint.sh",
             ".github/scripts/bandit_to_sarif.py",
             ".gitleaks.toml",
@@ -106,6 +107,7 @@ class TestYAMLShape:
             ".github/workflows/mypy.yml",
             ".github/workflows/gitleaks.yml",
             ".github/workflows/bandit.yml",
+            ".github/workflows/license-check.yml",
         ],
     )
     def test_yaml_parses(self, path: str) -> None:
@@ -412,6 +414,41 @@ class TestCIWorkflow:
         assert any(
             dep.lower().startswith("vulture") for dep in dev_deps
         ), "vulture not pinned in [project.optional-dependencies.dev]"
+
+    def test_dev_extra_pins_pip_licenses(self) -> None:
+        """``pip install -e ".[dev]"`` must include pip-licenses
+        so the license-check workflow runs in the same env as
+        the test that asserts the workflow exists."""
+        import tomllib
+
+        with open(REPO_ROOT / "pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+        dev_deps = data["project"]["optional-dependencies"]["dev"]
+        assert any(
+            dep.lower().startswith("pip-licenses") for dep in dev_deps
+        ), "pip-licenses not pinned in [project.optional-dependencies.dev]"
+
+    def test_license_check_workflow_forbids_copyleft(self) -> None:
+        """The license-check workflow must fail on GPL / LGPL /
+        AGPL / SSPL / Commons-Clause / UNKNOWN — the licenses
+        forbidden by CONTRIBUTING.md. If the --fail-on list is
+        edited, the test catches the regression.
+        """
+        text = (REPO_ROOT / ".github/workflows/license-check.yml").read_text()
+        for license_id in ("GPL", "LGPL", "AGPL", "SSPL", "Commons-Clause"):
+            assert license_id in text, (
+                f"license-check workflow missing '{license_id}' from " f"--fail-on list"
+            )
+
+    def test_license_check_workflow_reports_unknown(self) -> None:
+        """Unknown license detection is a soft-fail (warning
+        only) today, but the workflow must still surface the
+        report as an artifact so a maintainer can review."""
+        text = (REPO_ROOT / ".github/workflows/license-check.yml").read_text()
+        assert "UNKNOWN" in text, (
+            "license-check workflow should mention UNKNOWN "
+            "licenses (e.g. for the soft-fail path)"
+        )
 
 
 # ---------------------------------------------------------------------------

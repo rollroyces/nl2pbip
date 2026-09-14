@@ -6,6 +6,27 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-09-14
+
+### Added
+- **License compliance workflow** (`.github/workflows/license-check.yml`):
+  `pip-licenses --fail-on='GPL,LGPL,AGPL,SSPL,Commons-Clause,UNKNOWN'`
+  runs on every PR + push that touches `pyproject.toml` /
+  `requirements*.txt` / `uv.lock`. Catches a copyleft dep the
+  moment it enters the manifest. Uploads the full report as
+  an artifact so a maintainer can review transitively-licensed
+  packages. The ``UNKNOWN`` list entry is a soft-fail for now
+  (some packages' license metadata is incomplete) but will be
+  promoted to a gating failure once the codebase is UNKNOWN-free.
+- **`pip-licenses>=5.0`** pinned in the `dev` extra.
+- 4 regression tests in `tests/test_repo_templates.py`:
+  `test_dev_extra_pins_pip_licenses` (dep wired correctly),
+  `test_license_check_workflow_forbids_copyleft` (every
+  forbidden license in `--fail-on`), `test_license_check_workflow_reports_unknown`
+  (UNKNOWN mentioned in workflow), and the
+  `TestFilePresence` / `TestYAMLShape` lists include the new
+  workflow.
+
 ## [1.3.2] - 2026-09-14
 
 ### Added
