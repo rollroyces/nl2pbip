@@ -80,11 +80,13 @@ jobs:
         # before re-raising it at the end.
         run: |
           set +e
-          OUTPUT=$(mypy --strict --no-incremental --show-error-count nl2pbip 2>&1)
+          OUTPUT=$(mypy --strict --no-incremental nl2pbip 2>&1)
           EXIT=$?
           set -e
           echo "$OUTPUT" | tee mypy.log
-          COUNT=$(echo "$OUTPUT" | grep -oE '[0-9]+ errors?' | head -1 | grep -oE '[0-9]+' || echo "?")
+          # ``--show-error-count`` was removed in mypy 2.0;
+          # parse the trailing 'Found N errors' line instead.
+          COUNT=$(echo "$OUTPUT" | grep -oE 'Found [0-9]+ errors?' | grep -oE '[0-9]+' | tail -1 || echo "0")
           {
               echo "## mypy --strict"
               echo ""
