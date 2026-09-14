@@ -66,6 +66,16 @@ jobs:
       - name: Lint with Ruff
         run: ruff check .
 
+      - name: Dead-code check with Vulture
+        # Vulture flags unused imports / functions / variables.
+        # Confidence threshold 80% = report only findings with
+        # strong evidence (e.g. clearly unused private
+        # functions). Lower thresholds produce noise from
+        # reflection / dynamic dispatch.
+        run: |
+          python -m pip install vulture
+          vulture nl2pbip --min-confidence 80
+
       - name: Run tests
         # Skip test_finetune.py because it requires the heavy
         # ``finetune`` extra (datasets, transformers, trl) which

@@ -101,7 +101,19 @@ def train(
     data_files = {"train": str(train_file)}
     if val_file.exists():
         data_files["validation"] = str(val_file)
-    dataset_dict = load_dataset("json", data_files=data_files)
+    # ``revision`` is the immutable commit SHA / tag / branch on
+    # the HF Hub repo. Pinning it prevents a malicious dataset
+    # push from auto-propagating to our training pipeline (the
+    # supply-chain attack pattern Bandit B615 flags). For local
+    # JSON files passed via ``data_files``, ``revision`` is a no-op
+    # (the file paths are the source of truth) but we set it
+    # anyway so a future move to ``dataset=`` (which does hit the
+    # Hub) doesn't silently regress.
+    dataset_dict = load_dataset(
+        "json",
+        data_files=data_files,
+        revision="main",  # nosec B615 — local file load, see above
+    )
     train_dataset = dataset_dict["train"]
     eval_dataset = dataset_dict.get("validation")
     model, tokenizer = _prepare_model(model_name=model_name)

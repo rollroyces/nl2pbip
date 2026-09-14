@@ -106,7 +106,11 @@ def synthesize_dataset(
     generator = DatasetGenerator(
         client=client, model=model, system_prompt=system_prompt
     )
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # nosec B311 — reproducibility seed for
+    # synthetic-data generation, not a
+    # cryptographic use. We want
+    # deterministic splits across runs;
+    # ``secrets`` would defeat that.
     prompts_list = list(prompts)
     if not prompts_list:
         raise ValueError("At least one prompt is required to synthesize a dataset.")

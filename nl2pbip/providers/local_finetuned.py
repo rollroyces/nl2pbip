@@ -61,5 +61,10 @@ class LocalFineTunedProvider:
     ) -> "LocalFineTunedProvider":  # pragma: no cover - context helper
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:  # pragma: no cover - context helper
+    def __exit__(self, _exc_type, exc, tb) -> None:  # pragma: no cover - context helper
+        # ``_exc_type`` / ``exc`` / ``tb`` are required by the
+        # context-manager protocol even though we don't inspect
+        # them. The leading underscore on ``_exc_type`` signals
+        # "intentionally unused" to Vulture / Ruff without
+        # changing the public signature.
         self.close()

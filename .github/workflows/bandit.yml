@@ -89,13 +89,22 @@ jobs:
               --recursive nl2pbip \
               --format json \
               --output bandit-results.json
-          echo "bandit exit: $?"
+          EXIT=$?
+          echo "bandit exit: $EXIT"
           python .github/scripts/bandit_to_sarif.py
-          exit 0
-        # Reporting mode — don't fail the PR. The next step
-        # uploads the SARIF; the ``continue-on-error`` on
+          # Gating mode: as of v1.3.1, the codebase is Bandit-clean
+          # (5 known-justified findings carry ``# nosec`` markers).
+          # Any new finding fails the build. To add a new
+          # exception, prefer fixing the underlying code; only
+          # add a ``# nosec <id> — <reason>`` marker when the
+          # finding is genuinely a false positive (and the
+          # reason must be multi-line so a code review catches
+          # a casual ``# nosec`` sweep).
+          exit $EXIT
+        # Reporting mode + SARIF upload. ``continue-on-error`` on
         # the upload step below means a missing SARIF file
-        # doesn't break the build.
+        # doesn't break the build (Bandit exits non-zero on
+        # findings, the upload step runs anyway via ``if: always()``).
 
       - name: Upload SARIF to Security tab
         if: always()

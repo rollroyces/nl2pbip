@@ -2270,7 +2270,15 @@ def add_power_query_partition_handler(
         staging = build_from_template(template, params)
     else:
         # m_expression mode — validate shape only.
-        assert m_expression is not None  # checked above
+        if m_expression is None:  # nosec B101 — guard against the
+            # case where the caller didn't
+            # pass either template or raw M.
+            # Equivalent assertion but Bandit
+            # ignores the `if` form.
+            raise ValueError(
+                "add_power_query_partition requires either template+params "
+                "or m_expression."
+            )
         validate_m_expression(m_expression)
         staging = m_expression
 

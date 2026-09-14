@@ -386,6 +386,33 @@ class TestCIWorkflow:
             "github.event_name == 'workflow_dispatch'"
         ), "benchmarks job should only run via workflow_dispatch"
 
+    def test_ci_runs_vulture(self) -> None:
+        """Vulture is the dead-code gate. If the step gets removed,
+        dead imports / functions can accumulate silently — the
+        build won't catch them, and refactors that delete the
+        only caller of a private function will look clean until
+        we notice the orphaned code months later.
+        """
+        text = (REPO_ROOT / ".github/workflows/ci.yml").read_text()
+        assert "vulture" in text, "CI workflow missing the Vulture dead-code step"
+        # Must target the production source tree (tests/ and
+        # artifacts/ are noisy by design).
+        assert (
+            "vulture nl2pbip" in text
+        ), "Vulture step should run against nl2pbip/ specifically"
+
+    def test_dev_extra_pins_vulture(self) -> None:
+        """``pip install -e ".[dev]"`` must include Vulture so
+        local runs (e.g. `make test` or `tox`) match CI."""
+        import tomllib
+
+        with open(REPO_ROOT / "pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+        dev_deps = data["project"]["optional-dependencies"]["dev"]
+        assert any(
+            dep.lower().startswith("vulture") for dep in dev_deps
+        ), "vulture not pinned in [project.optional-dependencies.dev]"
+
 
 # ---------------------------------------------------------------------------
 # Release workflow

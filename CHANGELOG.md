@@ -6,6 +6,49 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-09-14
+
+### Added
+- **Vulture dead-code check** in `ci.yml`: fails the build on
+  unused imports / functions / variables with confidence
+  >= 80% (a low threshold that catches obvious dead code
+  without flagging reflection / dynamic-dispatch false
+  positives). `vulture>=2.16` added to the `dev` extra so
+  `pip install -e ".[dev]"` brings it in locally. Used to
+  enforce that all new code paths are actually used.
+
+### Changed
+- **Bandit promoted from report-only to gating.** The codebase
+  is now Bandit-clean: 5 known-justified findings carry
+  ``# nosec <id> — <reason>`` markers with multi-line comments
+  (Bandit's `--no-nosec` interpretation prefers the long form
+  so code review catches casual `nosec` sweeps). Any new finding
+  fails the build. To suppress a finding: prefer fixing the
+  underlying code; only add a ``# nosec`` marker when the
+  finding is genuinely a false positive.
+
+### Fixed
+- **B615 Hugging Face Hub dataset download without revision
+  pin** (`nl2pbip/finetune/train.py`): real supply-chain risk.
+  `load_dataset("json", data_files=...)` is a local-file load
+  and `revision` is a no-op for that path, but we set it
+  anyway so a future move to `dataset=...` (which does hit
+  the Hub) doesn't silently regress.
+- **B110 try/except/pass** (`nl2pbip/data_inspector.py:270`):
+  inline comment now documents the intentional fallback to
+  the polars / list paths below the `except`.
+- **B404 + B603 subprocess** (`nl2pbip/exporter/exporter.py`):
+  inline comments document that `cmd` is constructed from a
+  hardcoded `pbi-tools` invocation and no untrusted input
+  reaches the shell.
+- **B311 random** (`nl2pbip/finetune/dataset_generator.py:109`):
+  inline comment documents that this is a reproducibility
+  seed, not a crypto use.
+- **B101 assert** (`nl2pbip/tmdl_engine.py:2273`): replaced the
+  `assert m_expression is not None` guard with an explicit
+  `if m_expression is None: raise ValueError(...)` so the
+  bytecode-stripped case still fails the build.
+
 ## [1.3.1] - 2026-09-14
 
 ### Added

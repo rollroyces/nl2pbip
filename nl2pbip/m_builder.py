@@ -159,11 +159,14 @@ def build_csv_source(
         f"Encoding={encoding}",
         f"QuoteStyle={quote_style}",
     ]
-    # When has_headers is true, CSV uses the first row as headers —
-    # Power BI's Csv.Document helper signals that with a positional
-    # argument ``null`` for the delimiter (no, actually with the
-    # ``QuoteStyle.Csv`` flag). For now we keep the options array
-    # minimal; the *promotion* is done by build_promoted_table.
+    if not has_headers:
+        # Csv.Document's positional signature is
+        # ``(path, columns, delimiter, ...)``. Passing an empty
+        # list for ``columns`` tells the helper there are no
+        # headers, in which case Power BI generates Column1, …
+        # ColumnN placeholders (which ``build_promoted_table`` can
+        # then rename via ``Table.PromoteHeaders`` with skip=N).
+        options.append("Columns=null")
     if extra_options:
         options.extend(extra_options)
     options_str = "[" + ", ".join(options) + "]"

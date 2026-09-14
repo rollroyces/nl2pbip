@@ -267,7 +267,10 @@ def _records_from_dataframe_like(obj: Any) -> List[Dict[str, Any]]:
     if hasattr(obj, "to_dict") and hasattr(obj, "columns"):
         try:
             return obj.head(1000).to_dict(orient="records")  # type: ignore[union-attr]
-        except Exception:
+        except Exception:  # nosec B110 — best-effort fallback to the
+            # polars / list paths below. The raised
+            # error from the final branch will surface
+            # the real type problem to the caller.
             pass
     # Already a list of records
     if isinstance(obj, list):

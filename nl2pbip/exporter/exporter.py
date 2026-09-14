@@ -26,7 +26,12 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-import subprocess
+import subprocess  # nosec B404 — only invoked via ``subprocess.run``
+
+# with a hardcoded ``pbi-tools`` binary path. The
+# flag, args, and target directory are all
+# constructed in this module; no untrusted input
+# reaches the shell.
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -74,7 +79,15 @@ class PBIPExporter:
             fmt,
         ]
         self._logger.debug("Running pbi-tools compile: %s", " ".join(cmd))
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        result = subprocess.run(  # nosec B603 — see subprocess nosec
+            # B404 on the import above. Args
+            # are constructed from a hardcoded
+            # command list; no untrusted input.
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
         if result.returncode != 0:
             stderr = result.stderr.strip()
             if stderr:
