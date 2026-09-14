@@ -563,7 +563,8 @@ class TestCIWorkflow:
             pass
         # Fallback: hard-coded manifest. Kept in sync with
         # `gh label create` invocations in CONTRIBUTING.md and
-        # the bootstrap script.
+        # the bootstrap script. Lowercase because we normalize
+        # the live-API labels to lowercase as well.
         return {
             "accessibility",
             "bug",
@@ -575,14 +576,14 @@ class TestCIWorkflow:
             "invalid",
             "question",
             "wontfix",
-            "CI",
-            "Dependencies",
-            "Docs",
-            "Examples",
-            "Prompts",
-            "Core",
-            "Finetune",
-            "Tests",
+            "ci",
+            "dependencies",
+            "docs",
+            "examples",
+            "prompts",
+            "core",
+            "finetune",
+            "tests",
         }
 
 
