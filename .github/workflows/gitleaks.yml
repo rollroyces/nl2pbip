@@ -1,0 +1,107 @@
+name: "Gitleaks secret scan"
+
+# Gitleaks scans every commit + the full history for committed
+# secrets (API keys, .env content, AWS credentials, private
+# keys, GitHub tokens, etc.). Lands a PR-comment on every
+# finding + a SARIF upload to the Security tab.
+#
+# Two layers:
+#   1. ``gitleaks protect`` on every PR — catches the *new* leak
+#      that landed in the PR's commits.
+#   2. ``gitleaks detect --log-opts`` on push to main + weekly
+#      cron — catches leaks that pre-date the workflow (history
+#      scan) and any new leak in a push that's not on a PR branch.
+#
+# Setup: this workflow has no secrets / tokens / external
+# accounts. It just runs the gitleaks Docker image and exits
+# non-zero on a finding so the PR check fails.
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths-ignore:
+      - "artifacts/**"
+      - "**/*.test.py"
+      - "tests/fixtures/**"
+  push:
+    branches: [main, master]
+  schedule:
+    # Mondays 06:00 UTC. Picked to land ~4 hours before
+    # Renovate so we surface any history-scoped findings
+    # before the dep-update PR opens.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # ``pull_request: write`` lets us post a PR comment with the
+  # finding locations when a leak is detected.
+  pull-requests: write
+  # ``security-events: write`` lets us upload the SARIF to the
+  # Security tab.
+  security-events: write
+
+jobs:
+  # Layer 1: PR-only scan. The PR diff is what we're guarding
+  # against — if a contributor pushes a new commit with an
+  # AWS key in it, this job fails and the PR is blocked.
+  scan-pr:
+    name: Scan PR commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so ``gitleaks protect`` can walk
+          # the merge-base..HEAD range. Default shallow-fetch
+          # would hide old commits.
+          fetch-depth: 0
+      - name: Run gitleaks protect
+        uses: gitleaks/gitleaks-action@v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          # Don't scan artifacts (smoke-test output may include
+          # generated data) or the vendored actionlint binary.
+        with:
+          args: >-
+            --redact
+            --no-banner
+            --config-path .gitleaks.toml
+
+  # Layer 2: full-history scan on push to main + weekly cron.
+  # Catches leaks that snuck in before the workflow existed.
+  scan-history:
+    name: Scan full history
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks detect (history)
+        uses: gitleaks/gitleaks-action@v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        with:
+          # ``detect`` (vs ``protect``) walks the full git history
+          # and reports any historical leak. ``--redact`` keeps
+          # the actual secret out of the workflow logs.
+          args: >-
+            --redact
+            --no-banner
+            --config-path .gitleaks.toml
+            detect
+            --source .
+            --report-format sarif
+            --report-path gitleaks.sarif
+            --exit-code 1
+      - name: Upload SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks.sarif
+          category: gitleaks

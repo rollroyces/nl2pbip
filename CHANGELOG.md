@@ -6,6 +6,34 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-14
+
+### Added
+- **Gitleaks secret scanning** (`.github/workflows/gitleaks.yml`
+  + `.gitleaks.toml`): scans every commit + the full git history
+  for committed secrets. Two layers — `protect` on every PR
+  (catches new leaks before merge) and `detect` on push to
+  main + weekly cron (catches historical leaks). Posts a SARIF
+  to the Security tab. Configured to allowlist the test
+  fixtures (which use `_fake("VENDOR", "FAKE...")` patterns)
+  and the smoke-test output under `artifacts/`.
+- **Bandit Python security linter** (`.github/workflows/bandit.yml`
+  + `.bandit`): catches Python-specific security issues that
+  CodeQL misses — B101 `assert` for input validation, B311
+  `random` for crypto, B404 subprocess without `shell=False`
+  validation, B615 `load_dataset` without `revision` pinning,
+  B603 subprocess with untrusted input, etc. Posts a SARIF
+  to the Security tab via a small JSON→SARIF converter
+  (Bandit 1.9 doesn't emit SARIF natively). Report-only for
+  now — the codebase has ~6 known issues, all of which need
+  a `# nosec` review before this can be a gating check.
+
+### Changed
+- **Test count** bumped from 791 → 799 (+8 new tests: 2 TOML
+  parse tests for `.gitleaks.toml` and `.bandit`, 6 new file
+  presence tests in `tests/test_repo_templates.py` for the new
+  workflow + config files).
+
 ## [1.3.0] - 2026-09-13
 
 ### Added

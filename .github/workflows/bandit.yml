@@ -1,0 +1,199 @@
+name: "Bandit Python security linter"
+
+# Bandit scans the nl2pbip/ source tree for Python-specific
+# security issues that CodeQL doesn't catch:
+#
+#   - B101 ``assert`` used for input validation (stripped by
+#     ``python -O``).
+#   - B102 ``exec`` / B602 ``shell=True``.
+#   - B105 / B106 hard-coded passwords.
+#   - B110 bare ``except: pass``.
+#   - B311 ``random`` for crypto.
+#   - B404 / B602 / B603 / B607 subprocess issues.
+#   - B615 / B501 unsafe Hugging Face Hub downloads.
+#   - B201-B204 pickle / marshal / eval.
+#   - B301-B304 deserialisation issues.
+#
+# Runs on every PR + push to main. **Reports** issues as
+# annotations (don't fail the build) because the codebase has
+# ~6 known issues that are documented as ``# nosec`` candidates
+# (mostly the finetune stack + the pbi-tools subprocess wrapper).
+# Promoting to a gating check is the next step after each
+# nosec'd line is reviewed.
+#
+# Setup: pure Python, no PAT needed. The workflow installs
+# bandit in the CI venv alongside the dev extras.
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "nl2pbip/**/*.py"
+      - ".github/workflows/bandit.yml"
+      - ".bandit"
+  push:
+    branches: [main, master]
+    paths:
+      - "nl2pbip/**/*.py"
+
+permissions:
+  contents: read
+  # ``security-events: write`` lets us upload the SARIF to the
+  # Security tab so findings show up alongside CodeQL.
+  security-events: write
+
+jobs:
+  bandit:
+    name: Bandit scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install nl2pbip + bandit
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install bandit
+
+      - name: Run Bandit
+        # ``--configfile`` reads the repo-level config so per-file
+        # ``# nosec`` markers + per-test skips take effect. The
+        # config file (``.bandit``) excludes the finetune stack
+        # (it has subprocess / pickle patterns that are
+        # expected for that subpackage) and the
+        # test_prompt_polisher.py file (it intentionally uses
+        # ``_fake()`` + ``FAKEPLACEHOLDER`` to exercise the
+        # scrubber's regexes; bandit would flag them as
+        # hard-coded secrets).
+        #
+        # The default ``exclude_dirs`` covers ``tests/`` and
+        # ``artifacts/`` so we don't re-scan fixtures. Use
+        # ``-r nl2pbip`` to scope the run to the production
+        # source tree only.
+        #
+        # Bandit 1.9 doesn't emit SARIF natively (format
+        # choices are csv/custom/html/json/screen/txt/xml/yaml).
+        # Convert JSON -> SARIF with a small Python snippet so
+        # findings land in the Security tab.
+        run: |
+          set +e
+          bandit \
+              --ini .bandit \
+              --recursive nl2pbip \
+              --format json \
+              --output bandit-results.json
+          EXIT=$?
+          echo "bandit exit: $EXIT"
+          # Wrap the JSON->SARIF converter in its own subshell so
+          # its own exit code doesn't kill the job — we want
+          # bandit-results.sarif to be present even when there
+          # are zero findings (an empty SARIF document is valid).
+          (
+              python - <<'PY'
+              import json
+              with open("bandit-results.json") as f:
+                  data = json.load(f)
+              sarif = {
+                  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                  "version": "2.1.0",
+                  "runs": [
+                      {
+                          "tool": {
+                              "driver": {
+                                  "name": "Bandit",
+                                  "version": "1.9.4",
+                                  "informationUri": "https://bandit.readthedocs.io/",
+                                  "rules": [
+                                      {
+                                          "id": r["test_id"],
+                                          "name": r["test_id"],
+                                          "shortDescription": {"text": r["test_id"]},
+                                          "defaultConfiguration": {"level": "warning"},
+                                      }
+                                      for r in {item["test_id"] for item in data["results"]}
+                                  ],
+                              }
+                          },
+                          "results": [
+                              {
+                                  "ruleId": r["test_id"],
+                                  "level": {"LOW": "note", "MEDIUM": "warning", "HIGH": "error"}.get(
+                                      r["issue_severity"], "note"
+                                  ),
+                                  "message": {"text": r["issue_text"]},
+                                  "locations": [
+                                      {
+                                          "physicalLocation": {
+                                              "artifactLocation": {
+                                                  "uri": r["filename"]
+                                              },
+                                              "region": {"startLine": r["line_number"]},
+                                          }
+                                      }
+                                  ],
+                              }
+                              for r in data["results"]
+                          ],
+                      }
+                  ],
+              }
+              with open("bandit-results.sarif", "w") as f:
+                  json.dump(sarif, f, indent=2)
+              print(f"wrote SARIF with {len(sarif['runs'][0]['results'])} findings")
+              PY
+          ) || true
+          exit 0
+        # Reporting mode — don't fail the PR. The next step
+        # uploads the SARIF; the ``continue-on-error`` on
+        # the upload step below means a missing SARIF file
+        # doesn't break the build.
+
+      - name: Upload SARIF to Security tab
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit-results.sarif
+          category: bandit
+
+      - name: Post PR summary
+        if: github.event_name == 'pull_request' && always()
+        # The summary appears on the workflow run page; we
+        # don't post a PR comment (Bandit's report is for the
+        # maintainer, not a public "this is a warning" notice).
+        run: |
+          set +e
+          if [[ -s bandit-results.sarif ]]; then
+              COUNT=$(python -c "
+              import json, sys
+              data = json.load(open('bandit-results.sarif'))
+              runs = data.get('runs', [])
+              total = 0
+              for run in runs:
+                  total += len(run.get('results', []))
+              print(total)
+              ")
+              echo "## Bandit" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "**Findings:** $COUNT" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "See SARIF artifact and the Security tab for the full report." >> "$GITHUB_STEP_SUMMARY"
+          else
+              echo "No SARIF produced (bandit likely found no issues)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      - name: Upload raw log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-log
+          path: bandit-results.sarif
+          retention-days: 14

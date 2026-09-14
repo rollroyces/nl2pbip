@@ -7,7 +7,7 @@ Natural Language to Power BI Project (.pbip) Engine
 [![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
 [![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml)
-[![Tests](https://img.shields.io/badge/tests-791%20collected%2C%20778%20passing-brightgreen.svg)](#test-counts)
+[![Tests](https://img.shields.io/badge/tests-799%20collected%2C%20786%20passing-brightgreen.svg)](#test-counts)
 [![Benchmarks](https://img.shields.io/badge/benchmarks-13-blue.svg)](#performance-benchmarks)
 
 ## Overview
@@ -26,8 +26,8 @@ Natural Language to Power BI Project (.pbip) Engine
 | **Fabric Git integration** | `package_pbip` writes `itemMetadata.json` + `.platform` per Fabric item so the PBIP folder is ready for a Git repo connected to a Fabric workspace. Validated against the 21 canonical Fabric item types. |
 | **Agentic self-reflection loop** | `Orchestrator.run_with_reflection` records every attempt in a `ReflectiveTrace`, then runs a post-success critic pass (`correctness` / `completeness` / `alignment_with_prompt` scores) and re-invokes the planner with the critic's suggestions when the score is below threshold. New `PlannerClarification` exception lets the LLM ask the user clarifying questions instead of guessing. |
 | **Performance benchmarks** | 13 opt-in benchmarks covering TMDL writer / parser round-trip on a 200-table model, calc-group / field-param / OLS rendering at multiple sizes, end-to-end orchestrator latency, and the reflection-loop overhead. See [Performance benchmarks](#performance-benchmarks). |
-| **GitHub repo templates** | Issue templates, PR template, CODEOWNERS, Renovate (pip + GitHub Actions, weekly), CodeQL workflow, release workflow (PyPI trusted publishing via OIDC + GitHub release), `SECURITY.md`, `CONTRIBUTING.md`, actionlint workflow, OpenSSF Scorecard (weekly), stale-bot, mypy-strict (report-only — see "Code quality" below). CI workflow hardened with concurrency groups, permissions hardening, and a smoke test that catches `package_pbip` regressions. |
-| **PyPI published releases** | Tag-push driven release workflow. `v1.1.0`, `v1.1.1`, `v1.1.2`, `v1.2.0`, `v1.2.1`, `v1.2.2`, and `v1.3.0` are live at https://pypi.org/project/nl2pbip/. Trusted publishing via OIDC — no API token stored in the repo. |
+| **GitHub repo templates** | Issue templates, PR template, CODEOWNERS, Renovate (pip + GitHub Actions, weekly), CodeQL workflow, release workflow (PyPI trusted publishing via OIDC + GitHub release), `SECURITY.md`, `CONTRIBUTING.md`, actionlint workflow, OpenSSF Scorecard (weekly), stale-bot, mypy-strict (report-only — see "Code quality" below), Gitleaks (secret scanning), Bandit (Python security linter). CI workflow hardened with concurrency groups, permissions hardening, and a smoke test that catches `package_pbip` regressions. |
+| **PyPI published releases** | Tag-push driven release workflow. `v1.1.0`, `v1.1.1`, `v1.1.2`, `v1.2.0`, `v1.2.1`, `v1.2.2`, `v1.3.0`, and `v1.3.1` are live at https://pypi.org/project/nl2pbip/. Trusted publishing via OIDC — no API token stored in the repo. |
 | **Pre-LLM prompt polish layer** | `nl2pbip.prompt_polisher.DefaultPromptPolisher` runs six deterministic scrub passes (encoding normalise, whitespace collapse, PII redact, secret redact, prompt-injection scrub, length budget) before every LLM call. Redact-and-warn by default — redactions are recorded in `ReflectiveTrace.attempts[i].polish_steps` so callers can audit what was changed without failing the call. Bounded regex quantifiers keep adversarial input linear-time. |
 
 Beyond model generation, `nl2pbip` ships an **LLM context layer** that profiles your data, validates your relationships against Power BI Desktop's actual constraints, anchors column names to a curated `schema.org`/`PROV-O` subset, and asks the LLM for column roles / measures / visuals with concrete numbers rather than guesses. The system prompt that guides the LLM is **tuned for report generation** — 39 rules (rules 1–35 + sub-rules 21a / 23a / 23b / 23c) covering narrative flow, visual selection by data shape, layout, measure–visual pairing, pre-flight scrubbing, and anti-patterns (don't propose dangling relationships, don't skip ahead of dependencies, don't duplicate measures) — so plans produce layouts a senior Power BI designer would approve of rather than a pile of charts.
@@ -524,6 +524,8 @@ The repo ships a complete GitHub Actions setup under `.github/workflows/`:
 | OpenSSF Scorecard | manual (workflow_dispatch) | Posts a 0–10 security score to the Security tab and workflow run page. **Requires a `SCORE_CARD_GITHUB_TOKEN` PAT secret**; without one the run times out at 10 min. To enable: create a classic PAT with `repo` + `admin:org:read` scope, add as repo secret, then re-enable the schedule. |
 | Stale bot | daily | Closes issues inactive for 30 days with a 7-day warning |
 | mypy --strict | per PR + per push to main (report-only) | Type-checks `nl2pbip/` (excludes `finetune/`). Report-only — gate promoted to blocking once the codebase is strict-clean |
+| Gitleaks | per PR + push + weekly history scan | Scans every commit + git history for committed secrets (API keys, .env files, AWS creds). Posts a SARIF to the Security tab. Configured via `.gitleaks.toml`. |
+| Bandit | per PR + push to main (report-only) | Python-specific security linter (B101 assert-for-auth, B311 random-for-crypto, B404 subprocess, B615 HF Hub without `revision` pin, etc.). Posts a SARIF to the Security tab. Configured via `.bandit`. |
 
 Minimal `ci.yml` reference (see `.github/workflows/ci.yml` for the full version):
 
@@ -657,7 +659,7 @@ nl2pbip/
 │   ├── cli.py                   # argparse CLI (generate / export subcommands)
 │   ├── py.typed                 # PEP 561 marker
 │   └── __init__.py
-├── tests/                       # 791 pytest cases across 23 test files
+├── tests/                       # 799 pytest cases across 23 test files
 ├── artifacts/                   # example Run output (SalesInsights.pbipdir)
 ├── .github/                     # workflows, issue templates, CODEOWNERS,
 │                                # renovate.json, SECURITY.md, etc.
@@ -669,7 +671,7 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **791 test cases across 23 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **778 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra (`datasets` / `transformers` / `trl`) — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **799 test cases across 23 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **786 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra (`datasets` / `transformers` / `trl`) — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Collected tests |
 |---|---:|

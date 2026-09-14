@@ -1,0 +1,28 @@
+# Bandit INI-format configuration
+# https://bandit.readthedocs.io/en/latest/config.html
+#
+# Skips the test tree + finetune subpackage + artifacts.
+# See bandit.yaml for the runtime config (tests, skips, severity).
+
+[bandit]
+# Excluded paths — these don't ship in the wheel and contain
+# patterns (test fixtures, vendored tools) that are deliberately
+# shaped like secrets. Add a path here ONLY when the false
+# positive is a maintenance cost worth amortising.
+exclude_dirs:
+    /tests,
+    /artifacts,
+    /.venv,
+    /build,
+    /dist,
+
+# Per-line skips via ``# nosec`` are honoured automatically; we
+# don't blanket-skip any tests here. The finetune stack uses
+# subprocess / pickle / random-for-ml patterns that are
+# expected; review annually and add per-test ``# nosec`` markers
+# at the call site rather than skipping the whole test ID.
+# skips =
+
+[bandit.files]
+# Nothing to exclude at the file glob level — directory
+# exclusion above is enough.

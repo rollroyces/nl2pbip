@@ -54,7 +54,11 @@ class TestFilePresence:
             ".github/workflows/scorecard.yml",
             ".github/workflows/stale.yml",
             ".github/workflows/mypy.yml",
+            ".github/workflows/gitleaks.yml",
+            ".github/workflows/bandit.yml",
             ".github/scripts/get-actionlint.sh",
+            ".gitleaks.toml",
+            ".bandit",
             "CONTRIBUTING.md",
         ],
     )
@@ -99,6 +103,8 @@ class TestYAMLShape:
             ".github/workflows/scorecard.yml",
             ".github/workflows/stale.yml",
             ".github/workflows/mypy.yml",
+            ".github/workflows/gitleaks.yml",
+            ".github/workflows/bandit.yml",
         ],
     )
     def test_yaml_parses(self, path: str) -> None:
@@ -107,7 +113,7 @@ class TestYAMLShape:
             pytest.skip(f"{path} not present.")
         with full.open() as fh:
             data = yaml.safe_load(fh)
-        assert data is not None, f"{path} parsed as empty"
+        assert data is not None, f"{path} is empty / not valid YAML"
         assert isinstance(data, dict), f"{path} should parse to a mapping"
 
     def test_workflows_have_name_field(self) -> None:
@@ -151,6 +157,54 @@ class TestYAMLShape:
 
 # ---------------------------------------------------------------------------
 # Issue / discussion form templates
+# ---------------------------------------------------------------------------
+# TOML / INI shape (for the non-YAML bot configs)
+# ---------------------------------------------------------------------------
+
+
+class TestTOMLConfigShape:
+    @pytest.mark.parametrize(
+        "path,parser",
+        [
+            (".gitleaks.toml", "toml"),
+        ],
+    )
+    def test_toml_parses(self, path: str, parser: str) -> None:
+        full = REPO_ROOT / path
+        if not full.exists():
+            pytest.skip(f"{path} not present.")
+        # Python 3.11+ ships tomllib in stdlib.
+        try:
+            import tomllib
+        except ImportError:  # pragma: no cover - 3.10 fallback
+            import tomli as tomllib  # type: ignore[no-redef]
+        with full.open("rb") as fh:
+            data = tomllib.load(fh)
+        assert data, f"{path} parsed as empty"
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            ".bandit",
+        ],
+    )
+    def test_bandit_ini_parses(self, path: str) -> None:
+        """``.bandit`` is INI format with a ``[bandit]`` section.
+        Bandit itself parses it, so we just verify the file
+        exists + is non-empty + has the required section header.
+        """
+        import configparser
+
+        full = REPO_ROOT / path
+        if not full.exists():
+            pytest.skip(f"{path} not present.")
+        config = configparser.ConfigParser()
+        config.read(full)
+        assert config.has_section("bandit"), (
+            f"{path} must declare a [bandit] section so the " "Bandit CLI picks it up."
+        )
+
+
 # ---------------------------------------------------------------------------
 
 
