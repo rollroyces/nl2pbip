@@ -14,13 +14,20 @@ try:  # Optional dependency
         OpenAI,
     )
 except ImportError:  # pragma: no cover - optional import
-    OpenAI = None
-    AzureOpenAI = None
+    # When the SDK isn't installed, fall back to ``None`` so
+    # attribute lookups fail loudly at runtime instead of
+    # producing a silent miscompile. The trailing ignores
+    # are needed when the SDK IS installed (mypy rejects
+    # ``type[X] = None``); the ``unused-ignore`` ignore
+    # suppresses the warning when the SDK is NOT installed
+    # and the assignment is unreachable from mypy's view.
+    OpenAI = None  # type: ignore[assignment,misc,unused-ignore]
+    AzureOpenAI = None  # type: ignore[assignment,misc,unused-ignore]
 
 try:  # Optional dependency
     import anthropic
 except ImportError:  # pragma: no cover - optional import
-    anthropic = None
+    anthropic = None  # type: ignore[assignment,unused-ignore]
 
 
 @dataclass(frozen=True)
