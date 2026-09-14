@@ -82,26 +82,39 @@ jobs:
         with:
           fetch-depth: 0
       - name: Run gitleaks detect (history)
+        # v3.x of the action runs ``gitleaks detect`` against
+        # ``--source .`` (i.e. the checkout) and writes a SARIF
+        # report to ``results.sarif`` + uploads it as the
+        # artifact named ``gitleaks-results.sarif.zip``. The
+        # ``--report-format`` + ``--report-path`` flags we used
+        # in v2 are no longer supported (``args`` are rejected
+        # as ``Unexpected input(s) 'args', valid inputs are ['']``).
+        # The action's defaults are good — config-path comes from
+        # ``.gitleaks.toml`` at the repo root automatically.
         uses: gitleaks/gitleaks-action@v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-        with:
-          # ``detect`` (vs ``protect``) walks the full git history
-          # and reports any historical leak. ``--redact`` keeps
-          # the actual secret out of the workflow logs.
-          args: >-
-            --redact
-            --no-banner
-            --config-path .gitleaks.toml
-            detect
-            --source .
-            --report-format sarif
-            --report-path gitleaks.sarif
-            --exit-code 1
+
+      - name: Ensure SARIF exists
+        # The v3 action uploads the SARIF as an artifact. The
+        # upload-sarif step below needs a local file; we write
+        # a stub here if the action's run produced no findings
+        # (the action's default exit code 0 suppresses the
+        # artifact). If the action did find something, the file
+        # is already on disk and the conditional below is a no-op.
+        if: always()
+        run: |
+          set +e
+          if [[ ! -f results.sarif ]]; then
+              cat > results.sarif <<'JSON'
+          {"$schema":"https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json","version":"2.1.0","runs":[]}
+          JSON
+          fi
+
       - name: Upload SARIF to Security tab
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: gitleaks.sarif
+          sarif_file: results.sarif
           category: gitleaks
