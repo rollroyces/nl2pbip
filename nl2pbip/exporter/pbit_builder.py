@@ -394,7 +394,9 @@ def _build_report_layout_from_pbip(report_dir: Path) -> Dict[str, Any]:
     report_json_path = definition_dir / "report.json"
     if not report_json_path.is_file():
         return {"pages": [], "settings": {}}
-    report_data = json.loads(report_json_path.read_text(encoding="utf-8"))
+    report_data: Dict[str, Any] = json.loads(
+        report_json_path.read_text(encoding="utf-8")
+    )
     # Ingest each page directory and merge its contents into the
     # corresponding entry of ``report_data.pages``.
     pages_dir = definition_dir / "pages"

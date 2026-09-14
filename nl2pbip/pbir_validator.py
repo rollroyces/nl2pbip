@@ -441,15 +441,15 @@ class PBIRValidator:
                 f"Projection '{role}' references unknown measure '{measure_ref}'.",
             )
 
-    def _build_column_lookup(self, model: "TMDLModel") -> Dict[str, set]:
-        lookup: Dict[str, set] = {}
+    def _build_column_lookup(self, model: "TMDLModel") -> Dict[str, set[str]]:
+        lookup: Dict[str, set[str]] = {}
         for name, table in getattr(model, "tables", {}).items():
             columns = getattr(table, "columns", {}) or {}
             lookup[name] = set(columns.keys())
         return lookup
 
-    def _build_measure_set(self, model: "TMDLModel") -> set:
-        measures = set()
+    def _build_measure_set(self, model: "TMDLModel") -> set[str]:
+        measures: set[str] = set()
         for table in getattr(model, "tables", {}).values():
             for measure_name in getattr(table, "measures", {}).keys():
                 measures.add(measure_name)

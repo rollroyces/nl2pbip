@@ -366,8 +366,8 @@ class RowState:
         self.row_height = row_height
         self.page_width = page_width
         self.page_height = page_height
-        self.row_cycle = 0
-        self.x_cursor = PADDING
+        self.row_cycle: int = 0
+        self.x_cursor: float = float(PADDING)
 
     def reserve(self, width: float, height: float) -> Tuple[float, float]:
         # Grow the row height if a new visual is taller than the
@@ -375,8 +375,8 @@ class RowState:
         # mixes tall tableEx visuals with short card visuals in the
         # same category.
         self.row_height = max(self.row_height, height)
-        x = self.x_cursor
-        y = self.base_y + self.row_cycle * (self.row_height + V_GAP)
+        x = float(self.x_cursor)
+        y = float(self.base_y + self.row_cycle * (self.row_height + V_GAP))
         # Wrap on width OR if the new row cycle would overflow the
         # canvas height. Without the height check, a category with
         # several tall visuals stacks off the bottom of the canvas.
@@ -386,8 +386,8 @@ class RowState:
             and y + height > self.page_height - PADDING
         ):
             self.row_cycle += 1
-            x = PADDING
-            y = self.base_y + self.row_cycle * (self.row_height + V_GAP)
+            x = float(PADDING)
+            y = float(self.base_y + self.row_cycle * (self.row_height + V_GAP))
         self.x_cursor = x + width + H_GAP
         return x, y
 

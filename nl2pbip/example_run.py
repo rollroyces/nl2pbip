@@ -17,7 +17,7 @@ class StaticPlanLLM:
     def __init__(self, plan: List[Dict[str, Any]]) -> None:
         self._plan = plan
 
-    def generate(self, _: List[Dict[str, str]]) -> str:  # type: ignore[override]
+    def generate(self, _: List[Dict[str, str]]) -> str:
         return json.dumps(self._plan, indent=2)
 
 

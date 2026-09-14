@@ -799,7 +799,7 @@ _PROPERTIES: List[Tuple[str, str, str, Tuple[str, ...]]] = [
 # "telephone", "description", "manufacturer", "dateCreated").
 # We keep the first occurrence so the curated list reads top-down
 # by importance.
-_seen: set = set()
+_seen: set[str] = set()
 _PROPERTIES_DEDUPED: List[Tuple[str, str, str, Tuple[str, ...]]] = []
 for entry in _PROPERTIES:
     iri = entry[0]

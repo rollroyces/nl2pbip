@@ -61,7 +61,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, cast
 
 from nl2pbip.data_inspector import DataProfile
 
@@ -327,7 +327,7 @@ class SchemaAdvisor:
 
         result = SchemaAdvisorResult()
 
-        for entry in payload.get("columns", []) or []:
+        for entry in cast(Iterable[Dict[str, Any]], payload.get("columns", []) or []):
             if not isinstance(entry, dict):
                 continue
             name = str(entry.get("name", "")).strip()
@@ -336,7 +336,11 @@ class SchemaAdvisor:
             # planner payload with empty-name garbage.
             if not name:
                 continue
-            table = str(entry.get("table", ""))
+            # Rename to ``col_table`` to avoid colliding with the
+            # outer ``for table in profile.tables`` loop variable.
+            # mypy --strict treats the inner ``table =`` as an
+            # attempt to retype the outer ``TableProfile`` var.
+            col_table = str(entry.get("table", ""))
             role = str(entry.get("role", "unknown")).lower()
             if role not in {"dimension", "measure", "identifier", "date", "unknown"}:
                 role = "unknown"
@@ -346,7 +350,7 @@ class SchemaAdvisor:
             suggested_name = entry.get("suggested_measure_name")
             result.column_semantics.append(
                 ColumnSemantics(
-                    table=table,
+                    table=col_table,
                     name=name,
                     role=role,
                     description=description,
@@ -356,19 +360,21 @@ class SchemaAdvisor:
                 )
             )
 
-        for entry in payload.get("measures", []) or []:
+        for entry in cast(Iterable[Dict[str, Any]], payload.get("measures", []) or []):
             if not isinstance(entry, dict):
                 continue
-            table = str(entry.get("table", ""))
+            # See ``col_table`` comment above for why we rename
+            # the inner ``table`` variable.
+            ms_table = str(entry.get("table", ""))
             name = str(entry.get("name", ""))
             expression = str(entry.get("expression", ""))
             format_string = entry.get("format_string")
             rationale = str(entry.get("rationale", ""))
-            if not (table and name and expression):
+            if not (ms_table and name and expression):
                 continue
             result.measure_suggestions.append(
                 MeasureSuggestion(
-                    table=table,
+                    table=ms_table,
                     name=name,
                     expression=expression,
                     format_string=str(format_string) if format_string else None,
@@ -376,20 +382,21 @@ class SchemaAdvisor:
                 )
             )
 
-        for entry in payload.get("visuals", []) or []:
+        for entry in cast(Iterable[Dict[str, Any]], payload.get("visuals", []) or []):
             if not isinstance(entry, dict):
                 continue
             visual_type = str(entry.get("visual_type", ""))
-            table = str(entry.get("table", ""))
+            # See ``col_table`` comment above.
+            vs_table = str(entry.get("table", ""))
             measure = entry.get("measure")
             dimension = entry.get("dimension")
             rationale = str(entry.get("rationale", ""))
-            if not (visual_type and table):
+            if not (visual_type and vs_table):
                 continue
             result.visual_suggestions.append(
                 VisualSuggestion(
                     visual_type=visual_type,
-                    table=table,
+                    table=vs_table,
                     measure=str(measure) if measure else None,
                     dimension=str(dimension) if dimension else None,
                     rationale=rationale,

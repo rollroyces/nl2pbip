@@ -459,6 +459,48 @@ class TestCIWorkflow:
             "licenses (e.g. for the soft-fail path)"
         )
 
+    def test_mypy_workflow_is_gating(self) -> None:
+        """The mypy --strict workflow is a real CI gate (not
+        report-only). It must NOT carry ``continue-on-error:
+        true`` because the codebase is now strict-clean
+        (0 errors) and new errors must fail the build."""
+        text = (REPO_ROOT / ".github/workflows/mypy.yml").read_text()
+        assert "continue-on-error" not in text, (
+            "mypy workflow is gating — should not carry " "continue-on-error: true"
+        )
+        # Gating workflows must propagate the exit code from
+        # the mypy command. The previous (report-only) version
+        # had ``exit 0`` hard-coded; the gating version reads
+        # ``EXIT=$?`` and propagates it.
+        assert "EXIT=$?" in text, (
+            "mypy workflow must capture and propagate the "
+            "mypy exit code (no hard-coded 'exit 0')"
+        )
+
+    def test_mypy_config_excludes_finetune_and_providers(self) -> None:
+        """``[tool.mypy.overrides]`` in pyproject.toml must
+        exclude ``nl2pbip.finetune.*`` and ``nl2pbip.providers.*``
+        because their heavy ML deps (unsloth / trl / datasets)
+        don't ship py.typed markers. If someone removes these
+        overrides the gate would suddenly fail with dozens
+        of import errors."""
+        try:
+            import tomllib  # type: ignore[import-not-found]
+        except ImportError:  # pragma: no cover - 3.10 fallback
+            import tomli as tomllib  # type: ignore[no-redef]
+        with open(REPO_ROOT / "pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+        overrides = data["tool"]["mypy"]["overrides"]
+        excluded_modules: set[str] = set()
+        for entry in overrides:
+            excluded_modules.update(entry.get("module", []))
+        assert (
+            "nl2pbip.finetune.*" in excluded_modules
+        ), "mypy overrides must exclude nl2pbip.finetune.*"
+        assert (
+            "nl2pbip.providers.*" in excluded_modules
+        ), "mypy overrides must exclude nl2pbip.providers.*"
+
     def test_pr_labeler_workflow_runs_on_pull_request_target(self) -> None:
         """PR labeler must run on `pull_request_target` so it
         has write access to apply labels. The pull_request

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from typing import Any, Callable, Dict, List, Optional, Protocol, cast
 
 from nl2pbip.dax_catalog import DAXCatalog
 from nl2pbip.packager import package_pbip_handler
@@ -617,11 +617,16 @@ class Orchestrator:
         if not isinstance(scores, dict):
             return None
         try:
-            correctness = float(scores.get("correctness", 0.0))
-            completeness = float(scores.get("completeness", 0.0))
-            alignment = float(
-                scores.get("alignment_with_prompt", scores.get("alignment", 0.0))
+            # scores.get returns Any | float since the dict's
+            # value type is Any. The cast lets mypy see through.
+            correctness_raw: Any = scores.get("correctness", 0.0)
+            completeness_raw: Any = scores.get("completeness", 0.0)
+            alignment_raw: Any = scores.get(
+                "alignment_with_prompt", scores.get("alignment", 0.0)
             )
+            correctness = float(correctness_raw)
+            completeness = float(completeness_raw)
+            alignment = float(alignment_raw)
         except (TypeError, ValueError):
             return None
         suggestions = data.get("suggestions", [])
@@ -1617,7 +1622,7 @@ def _matches_type(expected: Any, value: Any) -> bool:
     if isinstance(expected, list):
         return any(_matches_type(entry, value) for entry in expected)
 
-    py_type = mapping.get(expected)
+    py_type = cast(Any, mapping.get(expected))
     if py_type is None:
         return True  # fallback for enums/const
 
@@ -1626,4 +1631,4 @@ def _matches_type(expected: Any, value: Any) -> bool:
     if expected == "integer" and isinstance(value, bool):
         return False
 
-    return isinstance(value, py_type)
+    return isinstance(value, cast(Any, py_type))

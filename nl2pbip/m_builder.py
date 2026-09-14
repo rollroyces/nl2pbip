@@ -458,4 +458,5 @@ def build_from_template(template: str, params: Mapping[str, Any]) -> str:
             f"Valid templates: {sorted(TEMPLATE_BUILDERS)}."
         )
     builder = TEMPLATE_BUILDERS[template]
-    return builder(**dict(params))
+    result: str = builder(**dict(params))
+    return result

@@ -266,7 +266,8 @@ def _records_from_dataframe_like(obj: Any) -> List[Dict[str, Any]]:
     # pandas
     if hasattr(obj, "to_dict") and hasattr(obj, "columns"):
         try:
-            return obj.head(1000).to_dict(orient="records")  # type: ignore[union-attr]
+            result: List[Dict[str, Any]] = obj.head(1000).to_dict(orient="records")
+            return result
         except Exception:  # nosec B110 — best-effort fallback to the
             # polars / list paths below. The raised
             # error from the final branch will surface
@@ -529,7 +530,7 @@ def _default_name(source: DataSource) -> str:
 
 def _gather_columns(records: List[Dict[str, Any]]) -> List[str]:
     seen: List[str] = []
-    seen_set: set = set()
+    seen_set: set[str] = set()
     for r in records:
         if not isinstance(r, dict):
             continue

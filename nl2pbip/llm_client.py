@@ -6,21 +6,21 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, cast
 
 try:  # Optional dependency
     from openai import (
-        AzureOpenAI,  # type: ignore
+        AzureOpenAI,
         OpenAI,
     )
 except ImportError:  # pragma: no cover - optional import
-    OpenAI = None  # type: ignore
-    AzureOpenAI = None  # type: ignore
+    OpenAI = None
+    AzureOpenAI = None
 
 try:  # Optional dependency
     import anthropic
 except ImportError:  # pragma: no cover - optional import
-    anthropic = None  # type: ignore
+    anthropic = None
 
 
 @dataclass(frozen=True)
@@ -256,14 +256,16 @@ class StructuredLLMClient:
         if self._anthropic_client is None:
             self._anthropic_client = anthropic.Anthropic(api_key=api_key)
         system_prompt, chat_messages = self._split_messages(messages)
-        response = (
-            self._anthropic_client.messages.create(  # pragma: no cover - network code
-                model=self.model,
-                system=system_prompt,
-                messages=self._to_anthropic_messages(chat_messages),
-                temperature=self.temperature,
-                max_tokens=self.max_output_tokens,
-            )
+        # Cast: anthropic SDK overloads don't expose temperature as a
+        # top-level field on the messages.create() stub, but it is a
+        # valid kwarg at runtime. Cast Any so mypy stops complaining.
+        anthropic_client = cast(Any, self._anthropic_client)
+        response = anthropic_client.messages.create(  # pragma: no cover - network code
+            model=self.model,
+            system=system_prompt,
+            messages=self._to_anthropic_messages(chat_messages),
+            temperature=self.temperature,
+            max_tokens=self.max_output_tokens,
         )
         text_parts = [part.text for part in response.content if part.type == "text"]
         return "".join(text_parts)

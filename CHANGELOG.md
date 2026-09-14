@@ -6,6 +6,30 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-09-14
+
+### Changed
+- **mypy --strict promoted from report-only to gating.**
+  The codebase reached 0 errors under mypy --strict
+  (down from 77 baseline). `[tool.mypy.overrides]`
+  excludes `nl2pbip.finetune.*` + `nl2pbip.providers.*`
+  because their ML deps don't ship `py.typed` markers,
+  and `openai` / `anthropic` because they're optional
+  extras. All other errors were fixed by tightening
+  generic type arguments (`set` → `set[str]`,
+  `Dict[str, set]` → `Dict[str, set[str]]`), adding
+  `cast(Any, ...)` for SDK overloads that mypy can't
+  see through (Anthropic `temperature`), and renaming
+  one loop variable (`table` → `col_table`) that
+  collided with an outer-scope `TableProfile` variable.
+- `mypy>=1.10` + 4 type stubs (`types-jsonschema`,
+  `types-PyYAML`, `types-requests`, `types-tabulate`)
+  pinned in `[dev]` extra.
+- `.github/workflows/mypy.yml` now uses the
+  `[tool.mypy]` config from `pyproject.toml` (no more
+  inline `--exclude` flags) and exits non-zero on any
+  error.
+
 ## [1.3.4] - 2026-09-14
 
 ### Added

@@ -32,7 +32,7 @@ source so the model can be recompiled.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 # ---------------------------------------------------------------------------
 # Content-Type catalogue
@@ -151,7 +151,7 @@ def make_minimal_data_model_schema(
     name: str = "nl2pbip Generated Model",
     compatibility_level: int = DEFAULT_COMPATIBILITY_LEVEL,
     culture: str = DEFAULT_CULTURE,
-) -> dict:
+) -> dict[str, Any]:
     """Return a minimal Tabular Model JSON for a template.
 
     The real ``DataModelSchema`` payload is a full Tabular Model
@@ -177,7 +177,7 @@ def make_metadata_json(
     description: Optional[str] = None,
     created: Optional[str] = None,
     generator: str = "nl2pbip",
-) -> dict:
+) -> dict[str, Any]:
     """Return a template ``Metadata.json`` payload.
 
     The ``Metadata`` part of a ``.pbit`` archive holds user-supplied
@@ -193,7 +193,7 @@ def make_metadata_json(
     }
 
 
-def make_settings_json() -> dict:
+def make_settings_json() -> dict[str, Any]:
     """Return the minimal ``Settings`` payload Power BI expects."""
     return {
         "defaultDrillThroughOther": "TopCount",
@@ -201,7 +201,7 @@ def make_settings_json() -> dict:
     }
 
 
-def make_security_bindings_json() -> dict:
+def make_security_bindings_json() -> dict[str, Any]:
     """Return an empty ``SecurityBindings`` payload.
 
     Power BI writes an empty list here when no role bindings are
@@ -210,7 +210,7 @@ def make_security_bindings_json() -> dict:
     return {"roleBindings": []}
 
 
-def make_diagram_layout_json() -> dict:
+def make_diagram_layout_json() -> dict[str, Any]:
     """Return a minimal ``DiagramLayout`` payload.
 
     Power BI Desktop's model diagram view is optional; the empty
@@ -251,7 +251,7 @@ def make_data_model_schema_template(
     name: str = "nl2pbip Generated Model",
     compatibility_level: int = DEFAULT_COMPATIBILITY_LEVEL,
     culture: str = DEFAULT_CULTURE,
-) -> dict:
+) -> dict[str, Any]:
     """Return the ``DataModelSchemaTemplate.json`` payload.
 
     This is the part that the legacy ``export_as_pbit_zip`` used to

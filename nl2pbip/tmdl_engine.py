@@ -898,10 +898,7 @@ def _find_partition_blocks(body: str) -> List[Dict[str, Any]]:
         name = next((g for g in match.groups() if g), "")
         rest = body[match.end() :]
         expr_match = re.search(r"expression\s*=\s*'''(.*?)'''", rest, re.DOTALL)
-        entry: Dict[str, Any] = {
-            "name": name,
-            "mode": "calculated",
-        }
+        entry = {"name": name, "mode": "calculated"}
         if expr_match:
             entry["expression"] = expr_match.group(1).strip()
         results.append(entry)
@@ -940,7 +937,7 @@ def _find_partition_blocks(body: str) -> List[Dict[str, Any]]:
                             break
                 if end_idx != -1:
                     source_text = rest[source_start : end_idx + 1]
-        entry: Dict[str, Any] = {"name": name, "mode": mode}
+        entry = {"name": name, "mode": mode}
         if source_text:
             entry["source"] = _parse_source_dict(source_text)
         results.append(entry)
@@ -1804,6 +1801,12 @@ def define_relationship_handler(
     if errors:
         raise TMDLValidationError("define_relationship: " + " ".join(errors))
 
+    if from_table_obj is None or to_table_obj is None:
+        raise TMDLValidationError(
+            f"Relationship '{from_table}' -> '{to_table}' references "
+            f"a table that does not exist in the model."
+        )
+
     # Type compatibility — Power BI Desktop refuses to load a model
     # whose relationships join incompatible column types. Surface a
     # clear message instead of letting the model silently load and
@@ -1983,7 +1986,7 @@ def add_calculation_group_handler(
     if "Ordinal" not in table.columns:
         table.add_column(TMDLColumn(name="Ordinal", data_type="wholeNumber"))
 
-    seen_names: set = set()
+    seen_names: set[str] = set()
     for ordinal, item in enumerate(effective_items, start=1):
         if not isinstance(item, dict):
             raise TMDLValidationError(
@@ -2463,6 +2466,14 @@ def add_ols_role_handler(
                 )
             metadata_permission = entry.get(
                 "metadata_permission", entry.get("metadataPermission", "none")
+            )
+            # Coerce to str — entry.get can return None for
+            # the default branch, but the chained default of
+            # ``"none"`` makes that path unreachable at
+            # runtime. mypy can't see through the chained
+            # default though.
+            metadata_permission = (
+                metadata_permission if isinstance(metadata_permission, str) else "none"
             )
             role.add_column_permission(
                 table_name=table_name,

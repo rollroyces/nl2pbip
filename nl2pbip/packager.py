@@ -132,9 +132,10 @@ def _load_report(context: Dict[str, Any] | None) -> Dict[str, Any]:
     report_path = Path(context[REPORT_PATH_KEY]).expanduser()
     if not report_path.exists():
         raise FileNotFoundError(f"Report file not found at {report_path}.")
-    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    payload: Dict[str, Any] = json.loads(report_path.read_text(encoding="utf-8"))
     if isinstance(payload, dict) and "pbir" in payload:
-        return payload["pbir"]
+        inner: Dict[str, Any] = payload["pbir"]
+        return inner
     return payload
 
 
@@ -156,7 +157,7 @@ def _write_project_manifests(
     project_name: str,
     write_fabric_metadata: bool = True,
 ) -> Dict[str, str]:
-    manifest = {
+    manifest: Dict[str, Any] = {
         "version": PBIP_VERSION,
         "name": project_name,
         "components": [

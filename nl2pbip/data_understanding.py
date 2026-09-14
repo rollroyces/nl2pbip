@@ -49,9 +49,8 @@ Design constraints
 
 from __future__ import annotations
 
-from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Counter, Dict, Iterable, List, Optional, Set, Tuple
 
 from nl2pbip.data_inspector import DataProfile
 
@@ -170,7 +169,7 @@ class RelationshipCoverage:
 
 def _build_index(
     records: Iterable[Dict[str, Any]], key: str
-) -> Tuple[List[Dict[str, Any]], set, Counter]:
+) -> Tuple[List[Dict[str, Any]], Set[str], Counter[str]]:
     """Index records by ``key`` and return (records, distinct_values, counter).
 
     Returns the records list, the set of distinct non-null values
@@ -178,8 +177,8 @@ def _build_index(
     detect the right-side distinct count).
     """
     out: List[Dict[str, Any]] = []
-    distinct: set = set()
-    counts: Counter = Counter()
+    distinct: Set[str] = set()
+    counts: Counter[str] = Counter()
     for record in records:
         out.append(record)
         value = record.get(key)
