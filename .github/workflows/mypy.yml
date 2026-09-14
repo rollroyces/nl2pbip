@@ -68,14 +68,15 @@ jobs:
           set +e
           OUTPUT=$(mypy --strict --no-incremental --show-error-count nl2pbip \
                      --exclude '(^|/)nl2pbip/finetune/' 2>&1)
-          EXIT=$?
           echo "$OUTPUT" | tee mypy.log
           COUNT=$(echo "$OUTPUT" | grep -oE '[0-9]+ errors?' | head -1 | grep -oE '[0-9]+' || echo "?")
-          echo "## mypy --strict" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Errors:** $COUNT" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Full output: see \`mypy.log\` artifact." >> "$GITHUB_STEP_SUMMARY"
+          {
+              echo "## mypy --strict"
+              echo ""
+              echo "**Errors:** $COUNT"
+              echo ""
+              echo "Full output: see \`mypy.log\` artifact."
+          } >> "$GITHUB_STEP_SUMMARY"
           exit 0
 
       - name: Upload mypy log

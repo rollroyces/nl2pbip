@@ -39,27 +39,18 @@ jobs:
           persist-credentials: false
 
       - name: Run Scorecard
-        # The ossf/scorecard-action image is published on both
-        # gcr.io and ghcr.io. gcr.io requires billing to be
-        # enabled on a Google Cloud project for Docker pulls, but
-        # the Scorecard action's source-of-truth is on
-        # GitHub Container Registry — pin there to avoid the
-        # unrelated gcr.io billing requirement.
-        uses: ossf/scorecard-action@v2.4.0
+        # ``ossf/scorecard-action@v2.4.0`` defaults to a gcr.io
+        # image that requires a billed Google Cloud project
+        # on the runner. v2.4.4+ re-bases the image on
+        # ``ghcr.io/ossf/scorecard-action`` (no billing needed).
+        # Pin the latest release of the v2.4 line.
+        uses: ossf/scorecard-action@v2.4.4
         with:
-          # Same as ``action.yaml`` upstream — used to override the
-          # default ``gcr.io/ossf/scorecard-action:v2.4.0`` reference
-          # when no Google Cloud billing account is linked to the
-          # workflow's runner.
-          image_name: ghcr.io/ossf/scorecard-action:v2.4.0
           # Publish to the repo's security tab so findings show
           # up alongside CodeQL alerts.
           results_file: results.sarif
           results_format: sarif
-          # Publish a 0-10 score badge to the workflow run page
-          # and (if the workflow has the
-          # ``repo-public`` token permission) to the public badge
-          # endpoint.
+          # Publish a 0-10 score badge to the workflow run page.
           publish_results: true
         # PAT required for Scorecard to read branch-protection
         # and token-permission settings that the default
