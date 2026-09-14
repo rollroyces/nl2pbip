@@ -57,6 +57,7 @@ class TestFilePresence:
             ".github/workflows/gitleaks.yml",
             ".github/workflows/bandit.yml",
             ".github/scripts/get-actionlint.sh",
+            ".github/scripts/bandit_to_sarif.py",
             ".gitleaks.toml",
             ".bandit",
             "CONTRIBUTING.md",

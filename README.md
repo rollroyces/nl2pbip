@@ -7,7 +7,7 @@ Natural Language to Power BI Project (.pbip) Engine
 [![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
 [![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml)
-[![Tests](https://img.shields.io/badge/tests-799%20collected%2C%20786%20passing-brightgreen.svg)](#test-counts)
+[![Tests](https://img.shields.io/badge/tests-800%20collected%2C%20787%20passing-brightgreen.svg)](#test-counts)
 [![Benchmarks](https://img.shields.io/badge/benchmarks-13-blue.svg)](#performance-benchmarks)
 
 ## Overview
@@ -659,7 +659,7 @@ nl2pbip/
 │   ├── cli.py                   # argparse CLI (generate / export subcommands)
 │   ├── py.typed                 # PEP 561 marker
 │   └── __init__.py
-├── tests/                       # 799 pytest cases across 23 test files
+├── tests/                       # 800 pytest cases across 23 test files
 ├── artifacts/                   # example Run output (SalesInsights.pbipdir)
 ├── .github/                     # workflows, issue templates, CODEOWNERS,
 │                                # renovate.json, SECURITY.md, etc.
@@ -671,7 +671,7 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **799 test cases across 23 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **786 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra (`datasets` / `transformers` / `trl`) — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **800 test cases across 23 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **787 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra (`datasets` / `transformers` / `trl`) — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Collected tests |
 |---|---:|

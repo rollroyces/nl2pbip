@@ -63,7 +63,7 @@ jobs:
           pip install bandit
 
       - name: Run Bandit
-        # ``--configfile`` reads the repo-level config so per-file
+        # ``--ini`` reads the repo-level config so per-file
         # ``# nosec`` markers + per-test skips take effect. The
         # config file (``.bandit``) excludes the finetune stack
         # (it has subprocess / pickle patterns that are
@@ -73,15 +73,11 @@ jobs:
         # scrubber's regexes; bandit would flag them as
         # hard-coded secrets).
         #
-        # The default ``exclude_dirs`` covers ``tests/`` and
-        # ``artifacts/`` so we don't re-scan fixtures. Use
-        # ``-r nl2pbip`` to scope the run to the production
-        # source tree only.
-        #
         # Bandit 1.9 doesn't emit SARIF natively (format
         # choices are csv/custom/html/json/screen/txt/xml/yaml).
-        # Convert JSON -> SARIF with a small Python snippet so
-        # findings land in the Security tab.
+        # Convert JSON -> SARIF with the small
+        # ``bandit_to_sarif.py`` helper in ``.github/scripts/``
+        # so findings land in the Security tab.
         run: |
           set +e
           bandit \
@@ -89,66 +85,8 @@ jobs:
               --recursive nl2pbip \
               --format json \
               --output bandit-results.json
-          EXIT=$?
-          echo "bandit exit: $EXIT"
-          # Wrap the JSON->SARIF converter in its own subshell so
-          # its own exit code doesn't kill the job — we want
-          # bandit-results.sarif to be present even when there
-          # are zero findings (an empty SARIF document is valid).
-          (
-              python - <<'PY'
-              import json
-              with open("bandit-results.json") as f:
-                  data = json.load(f)
-              sarif = {
-                  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
-                  "version": "2.1.0",
-                  "runs": [
-                      {
-                          "tool": {
-                              "driver": {
-                                  "name": "Bandit",
-                                  "version": "1.9.4",
-                                  "informationUri": "https://bandit.readthedocs.io/",
-                                  "rules": [
-                                      {
-                                          "id": r["test_id"],
-                                          "name": r["test_id"],
-                                          "shortDescription": {"text": r["test_id"]},
-                                          "defaultConfiguration": {"level": "warning"},
-                                      }
-                                      for r in {item["test_id"] for item in data["results"]}
-                                  ],
-                              }
-                          },
-                          "results": [
-                              {
-                                  "ruleId": r["test_id"],
-                                  "level": {"LOW": "note", "MEDIUM": "warning", "HIGH": "error"}.get(
-                                      r["issue_severity"], "note"
-                                  ),
-                                  "message": {"text": r["issue_text"]},
-                                  "locations": [
-                                      {
-                                          "physicalLocation": {
-                                              "artifactLocation": {
-                                                  "uri": r["filename"]
-                                              },
-                                              "region": {"startLine": r["line_number"]},
-                                          }
-                                      }
-                                  ],
-                              }
-                              for r in data["results"]
-                          ],
-                      }
-                  ],
-              }
-              with open("bandit-results.sarif", "w") as f:
-                  json.dump(sarif, f, indent=2)
-              print(f"wrote SARIF with {len(sarif['runs'][0]['results'])} findings")
-              PY
-          ) || true
+          echo "bandit exit: $?"
+          python .github/scripts/bandit_to_sarif.py
           exit 0
         # Reporting mode — don't fail the PR. The next step
         # uploads the SARIF; the ``continue-on-error`` on
@@ -180,11 +118,13 @@ jobs:
                   total += len(run.get('results', []))
               print(total)
               ")
-              echo "## Bandit" >> "$GITHUB_STEP_SUMMARY"
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-              echo "**Findings:** $COUNT" >> "$GITHUB_STEP_SUMMARY"
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-              echo "See SARIF artifact and the Security tab for the full report." >> "$GITHUB_STEP_SUMMARY"
+              {
+                  echo "## Bandit"
+                  echo ""
+                  echo "**Findings:** $COUNT"
+                  echo ""
+                  echo "See SARIF artifact and the Security tab for the full report."
+              } >> "$GITHUB_STEP_SUMMARY"
           else
               echo "No SARIF produced (bandit likely found no issues)." >> "$GITHUB_STEP_SUMMARY"
           fi
