@@ -1,37 +1,43 @@
-name: "OpenSSF Scorecard"
+name: "OpenSSF Scorecard (manual)"
 
-# Weekly security audit that posts a 0-10 score to the repo and
-# uploads the SARIF results to the Security tab. Catches weak
-# spots that dependabot / codeql don't cover: branch protection,
-# dangerous workflow patterns, pinned action versions, etc.
+# OpenSSF Scorecard audit. Posts a 0-10 score to the Security tab
+# + the workflow run page, and uploads the SARIF results.
 #
-# Run on the weekly cron + every push to main so the badge stays
-# fresh. Read-only — no PRs opened, just a status check.
+# Runs ONLY on workflow_dispatch (manual) because Scorecard's
+# full check set requires a PAT (``SCORE_CARD_GITHUB_TOKEN``)
+# to inspect branch-protection rules + token-permission
+# settings the default ``GITHUB_TOKEN`` can't see. Without the
+# PAT, Scorecard runs for ~15 minutes and times out. Once the
+# PAT is provisioned, schedule a weekly run by editing the
+# ``on:`` block below.
+#
+# Setup:
+#   1. Create a PAT with ``repo`` + ``admin:org:read`` scope
+#      at https://github.com/settings/tokens (classic).
+#   2. Add it as a repo secret named ``SCORE_CARD_GITHUB_TOKEN``
+#      at https://github.com/rollroyces/nl2pbip/settings/secrets/actions.
+#   3. Trigger this workflow from the Actions tab.
 
 on:
-  push:
-    branches: [main, master]
-  schedule:
-    # Mondays 10:00 UTC. Picked to land ~1 hour after Dependabot
-    # so the audit catches any newly-disclosed vulnerabilities
-    # once a week.
-    - cron: "0 10 * * 1"
   workflow_dispatch:
+    inputs:
+      publish_score:
+        description: "Publish the score to the public badge"
+        type: boolean
+        default: false
 
 permissions:
   # Scorecard writes the SARIF results to the Security tab.
   security-events: write
   contents: read
   actions: read
-  # Token permission needed for Scorecard to inspect branch
-  # protection rules.
   pull-requests: read
 
 jobs:
   analysis:
     name: Scorecard
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -39,23 +45,20 @@ jobs:
           persist-credentials: false
 
       - name: Run Scorecard
-        # ``ossf/scorecard-action@v2.4.0`` defaults to a gcr.io
-        # image that requires a billed Google Cloud project
-        # on the runner. v2.4.4+ re-bases the image on
-        # ``ghcr.io/ossf/scorecard-action`` (no billing needed).
-        # Pin the latest release of the v2.4 line.
+        # v2.4.4+ uses ghcr.io (no Google Cloud billing required).
+        # Older v2.4.x pulled from gcr.io which fails on GitHub-
+        # hosted runners because the runner's GCloud project
+        # doesn't have billing enabled.
         uses: ossf/scorecard-action@v2.4.4
         with:
-          # Publish to the repo's security tab so findings show
-          # up alongside CodeQL alerts.
           results_file: results.sarif
           results_format: sarif
-          # Publish a 0-10 score badge to the workflow run page.
-          publish_results: true
-        # PAT required for Scorecard to read branch-protection
-        # and token-permission settings that the default
-        # ``GITHUB_TOKEN`` can't see.
+          publish_results: ${{ github.event.inputs.publish_score }}
         env:
+          # PAT required for Scorecard to read branch-protection
+          # and token-permission settings that the default
+          # ``GITHUB_TOKEN`` can't see. Empty value triggers a
+          # graceful failure — see the workflow run logs.
           GITHUB_TOKEN: ${{ secrets.SCORE_CARD_GITHUB_TOKEN }}
 
       - name: Upload SARIF results to Security tab

@@ -18,10 +18,13 @@ to [Semantic Versioning](https://semver.org/).
     syntax errors that escaped notice (the class of bug that hit
     us on the CodeQL `paths-ignore` config in PR #28).
   - **OpenSSF Scorecard** (`.github/workflows/scorecard.yml`) runs
-    weekly + per push to main and posts a 0–10 security score to
-    the Security tab. Catches weak spots the other bots don't
-    cover (branch protection, dangerous workflow patterns, pinned
-    action versions, etc.).
+    on `workflow_dispatch` (manual). Default `GITHUB_TOKEN`
+    doesn't have the `admin:org:read` scope Scorecard needs,
+    and without a PAT the run times out at the 10-minute mark.
+    Setup instructions are inline in the workflow file: create a
+    classic PAT with `repo` + `admin:org:read` scope, add as the
+    `SCORE_CARD_GITHUB_TOKEN` repo secret, then re-enable the
+    `schedule:` block for a weekly cron.
   - **Stale bot** (`.github/workflows/stale.yml`) auto-closes
     inactive issues after 30 days (with a 7-day warning). Honors
     the `pinned`, `security`, `in-progress`, and

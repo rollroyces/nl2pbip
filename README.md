@@ -521,7 +521,7 @@ The repo ships a complete GitHub Actions setup under `.github/workflows/`:
 | `release.yml` | tag push (`vX.Y.Z`) | Build sdist + wheel, `twine check`, publish to PyPI via trusted publishing (OIDC — no API token), create GitHub release |
 | Renovate | weekly | Pip + GitHub Actions dependency updates (patch + minor grouped; auto-merge on patch if CI green; heavy ML extras ignored) |
 | actionlint | per PR + per push | Lints `.github/workflows/*.yml` for syntax + GH Actions context errors |
-| OpenSSF Scorecard | weekly + per push to main | Posts a 0–10 security score to the Security tab and workflow run page |
+| OpenSSF Scorecard | manual (workflow_dispatch) | Posts a 0–10 security score to the Security tab and workflow run page. **Requires a `SCORE_CARD_GITHUB_TOKEN` PAT secret**; without one the run times out at 10 min. To enable: create a classic PAT with `repo` + `admin:org:read` scope, add as repo secret, then re-enable the schedule. |
 | Stale bot | daily | Closes issues inactive for 30 days with a 7-day warning |
 | mypy --strict | per PR + per push to main (report-only) | Type-checks `nl2pbip/` (excludes `finetune/`). Report-only — gate promoted to blocking once the codebase is strict-clean |
 
