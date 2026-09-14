@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-13
+
 ### Added
 - **`nl2pbip.prompt_polisher` — pre-LLM message normalisation layer.**
   New module that scrubs every message the orchestrator is about to
