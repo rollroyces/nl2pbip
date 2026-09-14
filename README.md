@@ -2,13 +2,16 @@
 
 Natural Language to Power BI Project (.pbip) Engine
 
-[![PyPI](https://img.shields.io/pypi/v/nl2pbip.svg)](https://pypi.org/project/nl2pbip/)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#installation)
-[![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
-[![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml)
-[![Tests](https://img.shields.io/badge/tests-816%20collected%2C%20803%20passing-brightgreen.svg)](#test-counts)
-[![Benchmarks](https://img.shields.io/badge/benchmarks-13-blue.svg)](#performance-benchmarks)
+![PyPI](https://img.shields.io/pypi/v/nl2pbip.svg)](https://pypi.org/project/nl2pbip/)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#installation)
+![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
+![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
+![CodeQL](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/codeql.yml)
+![mypy --strict](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml)
+![Bandit](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml)
+![Gitleaks](https://github.com/rollroyces/nl2pbip/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/gitleaks.yml)
+![Tests](https://img.shields.io/badge/tests-816%20collected%2C%20803%20passing-brightgreen.svg)](#test-counts)
+![Benchmarks](https://img.shields.io/badge/benchmarks-13-blue.svg)](#performance-benchmarks)
 
 ## Overview
 
@@ -18,7 +21,7 @@ Natural Language to Power BI Project (.pbip) Engine
 - A **report surface** captured as PBIR JSON (pages, visuals, bindings)
 - A **packaged `.pbip` workspace** that can be exported to `.pbix` or `.pbit` and committed to a Git repo connected to a Microsoft Fabric workspace
 
-### What ships in v1.2.0
+### What ships in v1.3.5
 
 | Capability | What it gives you |
 |---|---|
@@ -26,9 +29,12 @@ Natural Language to Power BI Project (.pbip) Engine
 | **Fabric Git integration** | `package_pbip` writes `itemMetadata.json` + `.platform` per Fabric item so the PBIP folder is ready for a Git repo connected to a Fabric workspace. Validated against the 21 canonical Fabric item types. |
 | **Agentic self-reflection loop** | `Orchestrator.run_with_reflection` records every attempt in a `ReflectiveTrace`, then runs a post-success critic pass (`correctness` / `completeness` / `alignment_with_prompt` scores) and re-invokes the planner with the critic's suggestions when the score is below threshold. New `PlannerClarification` exception lets the LLM ask the user clarifying questions instead of guessing. |
 | **Performance benchmarks** | 13 opt-in benchmarks covering TMDL writer / parser round-trip on a 200-table model, calc-group / field-param / OLS rendering at multiple sizes, end-to-end orchestrator latency, and the reflection-loop overhead. See [Performance benchmarks](#performance-benchmarks). |
+| **Pre-LLM prompt polish layer** | `nl2pbip.prompt_polisher.DefaultPromptPolisher` runs seven deterministic scrub passes (encoding normalise, whitespace collapse, length budget, PII redact, secret redact, prompt-injection scrub, term canonicalisation) before every LLM call. Pluggable via the `PromptPolisher` ABC + `register_polisher()` registry. Each pass is captured on `AttemptRecord.polish_report` so callers can audit what was changed without failing the call. |
+| **Type safety** | The codebase reaches **0 errors under mypy --strict** (down from a 77-error baseline). Gated by CI since v1.3.5 — any new type error fails the build. Heavy ML deps (`finetune/`, `providers/`) are excluded via `[tool.mypy.overrides]` because they don't ship `py.typed` markers. |
+| **Security automation** | 13 GitHub Actions workflows cover CI matrix (3.10 / 3.11 / 3.12), CodeQL, actionlint, OpenSSF Scorecard, stale bot, mypy --strict, Gitleaks (secret scanning), Bandit (Python SAST, gating since v1.3.2), Vulture (dead-code detection), `pip-licenses` (license compliance), PR labeler, and Renovate. See [CI/CD Integration](#cicd-integration) for the full table. |
+| **Real fixes from the security audit** | 6 Bandit findings nosec'd with documented justifications (B110 try/except/pass, B311 random seed, B404/B603 subprocess with hardcoded pbi-tools path, B101 assert in a non-debug path); 1 real fix (B615: HF Hub `revision='main'` pin in `finetune/train.py`); 2 dead-code fixes (m_builder `has_headers` parameter now wired through, `local_finetuned.__exit__` `_exc_type` convention). |
 | **GitHub repo templates** | Issue templates, PR template, CODEOWNERS, Renovate (pip + GitHub Actions, weekly), CodeQL workflow, release workflow (PyPI trusted publishing via OIDC + GitHub release), `SECURITY.md`, `CONTRIBUTING.md`, actionlint workflow, OpenSSF Scorecard (weekly), stale-bot, mypy-strict (**gating** since v1.3.5 — see "Code quality" below), Gitleaks (secret scanning), Bandit (Python security linter), pip-licenses (license compliance), actions/labeler v5 (auto-label PRs by files touched). CI workflow hardened with concurrency groups, permissions hardening, and a smoke test that catches `package_pbip` regressions. |
 | **PyPI published releases** | Tag-push driven release workflow. `v1.1.0`, `v1.1.1`, `v1.1.2`, `v1.2.0`, `v1.2.1`, `v1.2.2`, `v1.3.0`, `v1.3.1`, `v1.3.2`, `v1.3.3`, `v1.3.4`, and `v1.3.5` are live at https://pypi.org/project/nl2pbip/. Trusted publishing via OIDC — no API token stored in the repo. |
-| **Pre-LLM prompt polish layer** | `nl2pbip.prompt_polisher.DefaultPromptPolisher` runs six deterministic scrub passes (encoding normalise, whitespace collapse, PII redact, secret redact, prompt-injection scrub, length budget) before every LLM call. Redact-and-warn by default — redactions are recorded in `ReflectiveTrace.attempts[i].polish_steps` so callers can audit what was changed without failing the call. Bounded regex quantifiers keep adversarial input linear-time. |
 
 Beyond model generation, `nl2pbip` ships an **LLM context layer** that profiles your data, validates your relationships against Power BI Desktop's actual constraints, anchors column names to a curated `schema.org`/`PROV-O` subset, and asks the LLM for column roles / measures / visuals with concrete numbers rather than guesses. The system prompt that guides the LLM is **tuned for report generation** — 39 rules (rules 1–35 + sub-rules 21a / 23a / 23b / 23c) covering narrative flow, visual selection by data shape, layout, measure–visual pairing, pre-flight scrubbing, and anti-patterns (don't propose dangling relationships, don't skip ahead of dependencies, don't duplicate measures) — so plans produce layouts a senior Power BI designer would approve of rather than a pile of charts.
 
@@ -94,7 +100,7 @@ Every block is **optional** (set the corresponding context flag to `False` to op
 
 ## Planner prompts
 
-Every string the orchestrator sends to the LLM lives in `nl2pbip.prompts`. Current version is **v5** (incremented in v1.1.0 with the power-query, OLS, field-param, fabric, and agentic-reflection rules):
+Every string the orchestrator sends to the LLM lives in `nl2pbip.prompts`. Current version is **v7** (incremented across v1.1.0 → v1.3.5 with power-query, OLS, field-param, fabric, agentic-reflection, pre-flight-scrubbing, and anti-patterns rules):
 
 | Symbol | Purpose |
 |---|---|
@@ -392,9 +398,24 @@ Common failures and how to recover:
 
 Inspecting the orchestrator's intermediate state is straightforward — `results` is a list of `ToolResult` objects with the full input/output for each tool call, and the planner payload carries the `prompt_meta` block so you can pin the prompt version.
 
+## Code quality
+
+The codebase runs through five deterministic quality gates on every PR + push to `main`. Four are blocking; two are advisory today but will become blocking as the long-tail cleanups land.
+
+| Gate | Status | What it enforces |
+|---|---|---|
+| **mypy --strict** | **Gating** since v1.3.5 | Type-checks `nl2pbip/` with `disallow_untyped_defs`, `disallow_any_generics`, `warn_unused_ignores`, `warn_redundant_casts`, and `no_implicit_optional` all on. Excludes `nl2pbip.finetune.*` + `nl2pbip.providers.*` (heavy ML deps without `py.typed` markers) + `openai` + `anthropic` (optional extras) via `[tool.mypy.overrides]`. Currently **0 errors**. |
+| **Bandit** | **Gating** since v1.3.2 | Python SAST (B101 assert-for-auth, B311 random-for-crypto, B404 subprocess, B603 subprocess with untrusted input, B615 HF Hub without `revision` pin, etc.). 6 known-justified findings carry `# nosec <id> — <reason>` comments. SARIF uploads to the Security tab. |
+| **Vulture** | **Gating** since v1.3.2 | Dead-code detection at confidence ≥80% (catches obvious unused imports / functions / variables without flagging reflection / dynamic-dispatch noise). |
+| **License compliance** | Soft-fail (warning) → **Gating** once the codebase is UNKNOWN-free | `pip-licenses --fail-on='GPL,LGPL,AGPL,SSPL,Commons-Clause,UNKNOWN'` runs on every change to `pyproject.toml`. The `--fail-on` list mirrors the `CONTRIBUTING.md` rule "no GPL / AGPL / SSPL / Commons-Clause deps". Promote to gating once no transitive UNKNOWNs remain. |
+| **CodeQL** | **Gating** | Weekly + per-PR Python security scanning. SARIF uploads to the Security tab. |
+| **actionlint** | **Gating** | YAML lint of `.github/workflows/*.yml` (catches the class of syntax errors that broke CodeQL `paths-ignore` in PR #28). |
+
+Local equivalents: `pip install ".[dev]"` then `black --check .`, `ruff check .`, `vulture nl2pbip --min-confidence 80`, `bandit --ini .bandit -r nl2pbip`, `mypy --strict nl2pbip`, `piplicenses --fail-on='GPL,LGPL,AGPL,SSPL,Commons-Clause,UNKNOWN'`.
+
 ## Limitations
 
-What `nl2pbip` doesn't do well, as of v1.2.0:
+What `nl2pbip` doesn't do well, as of v1.3.5:
 
 | Limitation | Why | Workaround |
 |---|---|---|
@@ -615,7 +636,7 @@ jobs:
 
 For PyPI publishing via OIDC trusted publishing, configure the project at https://pypi.org/manage/account/publishing/ pointing at the `rollroyces/nl2pbip` repo, the `release.yml` workflow, and the `pypi` environment — no API token is stored in the repo.
 
-> **Tip:** To cut a release locally without OIDC: tag a version (`git tag -a v1.1.1 -m "..." && git push --follow-tags`), or run `python -m build && twine upload dist/*` from a clone that has your PyPI token configured.
+> **Tip:** To cut a release locally without OIDC: tag a version (`git tag -a v1.3.5 -m "..." && git push --follow-tags`), or run `python -m build && twine upload dist/*` from a clone that has your PyPI token configured.
 
 ## Project layout
 
