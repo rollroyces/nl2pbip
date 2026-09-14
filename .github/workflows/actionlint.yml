@@ -1,0 +1,48 @@
+name: "Lint GitHub Actions workflows"
+
+# Validate the syntax of the workflow files in .github/workflows/.
+# Catches the class of YAML parse errors we hit with CodeQL
+# ``paths-ignore`` (PR #28) — actionlint understands the GitHub
+# Actions context (``${{ github.event.* }}``, matrix includes,
+# shell quoting) in a way stock ``yamllint`` doesn't.
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - "actionlint.yaml"
+      - ".github/actionlint.yaml"
+  push:
+    branches: [main, master]
+    paths:
+      - ".github/workflows/**"
+      - ".github/actions/**"
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download actionlint
+        id: get_actionlint
+        run: bash .github/scripts/get-actionlint.sh
+        env:
+          # Pin a specific version for reproducibility. Bump the
+          # comment + the URL together when upstream releases a fix.
+          ACTIONLINT_VERSION: 1.7.7
+      - name: Run actionlint
+        id: run_actionlint
+        # We exclude the vendored third-party actionlint binary from
+        # the repo (it's downloaded each run); the workflow itself
+        # must stay free of any non-YAML files for actionlint to be
+        # useful. The whole command is quoted via ``$()`` so the
+        # YAML parser doesn't split ``-color`` into a separate token.
+        run: >-
+          "${{ steps.get_actionlint.outputs.exe }}" -color

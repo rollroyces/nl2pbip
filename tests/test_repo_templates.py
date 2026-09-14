@@ -1,9 +1,9 @@
 """Sanity tests for the GitHub template files.
 
 These tests verify the repo has a complete GitHub template
-package — issue templates, PR template, codeowners, dependabot,
-security policy, contribution guide, release template, and the
-extended CI workflow.
+package — issue templates, PR template, codeowners, Renovate
+config, security policy, contribution guide, release template,
+and the extended CI workflow.
 
 Each test is intentionally cheap (no network, no parsing of
 GitHub's own form schema) so the suite stays fast. The tests
@@ -12,7 +12,7 @@ guard against the silent breakage of:
   .github/ISSUE_TEMPLATE/bug_report.yml``).
 * Renaming a workflow so the ``on:`` trigger changes shape.
 * Forgetting to bump the workflow name in the title.
-* Breaking the dependabot config schema.
+* Breaking the Renovate config schema.
 """
 
 from __future__ import annotations
@@ -44,12 +44,17 @@ class TestFilePresence:
             ".github/ISSUE_TEMPLATE/documentation.yml",
             ".github/PULL_REQUEST_TEMPLATE.md",
             ".github/CODEOWNERS",
-            ".github/dependabot.yml",
+            ".github/renovate.json",
             ".github/SECURITY.md",
             ".github/RELEASE_TEMPLATE.md",
             ".github/workflows/ci.yml",
             ".github/workflows/release.yml",
             ".github/workflows/codeql.yml",
+            ".github/workflows/actionlint.yml",
+            ".github/workflows/scorecard.yml",
+            ".github/workflows/stale.yml",
+            ".github/workflows/mypy.yml",
+            ".github/scripts/get-actionlint.sh",
             "CONTRIBUTING.md",
         ],
     )
@@ -86,10 +91,14 @@ class TestYAMLShape:
             ".github/ISSUE_TEMPLATE/feature_request.yml",
             ".github/ISSUE_TEMPLATE/documentation.yml",
             ".github/DISCUSSION_TEMPLATE/q-a.yml",
-            ".github/dependabot.yml",
+            ".github/renovate.json",
             ".github/workflows/ci.yml",
             ".github/workflows/release.yml",
             ".github/workflows/codeql.yml",
+            ".github/workflows/actionlint.yml",
+            ".github/workflows/scorecard.yml",
+            ".github/workflows/stale.yml",
+            ".github/workflows/mypy.yml",
         ],
     )
     def test_yaml_parses(self, path: str) -> None:
@@ -217,31 +226,61 @@ class TestCodeowners:
 
 
 # ---------------------------------------------------------------------------
-# Dependabot
+# Renovate (replaces the old Dependabot config)
 # ---------------------------------------------------------------------------
 
 
-class TestDependabot:
-    def test_dependabot_version(self) -> None:
-        data = yaml.safe_load((REPO_ROOT / ".github/dependabot.yml").read_text())
-        assert data.get("version") == 2
+class TestRenovate:
+    def test_renovate_config_is_valid_json(self) -> None:
+        import json
 
-    def test_dependabot_has_pip_updates(self) -> None:
-        data = yaml.safe_load((REPO_ROOT / ".github/dependabot.yml").read_text())
-        ecosystems = {u.get("package-ecosystem") for u in data.get("updates", [])}
-        assert "pip" in ecosystems
-        assert "github-actions" in ecosystems
+        text = (REPO_ROOT / ".github/renovate.json").read_text()
+        data = json.loads(text)
+        # Top-level keys we rely on.
+        assert data["platform"] == "github"
+        assert "packageRules" in data
+        assert "schedule" in data
 
-    def test_dependabot_ignores_heavy_ml_deps(self) -> None:
-        data = yaml.safe_load((REPO_ROOT / ".github/dependabot.yml").read_text())
-        pip_update = next(
-            u for u in data["updates"] if u.get("package-ecosystem") == "pip"
-        )
-        ignored = {
-            entry.get("dependency-name") for entry in pip_update.get("ignore", [])
-        }
+    def test_renovate_ignores_heavy_ml_deps(self) -> None:
+        import json
+
+        data = json.loads((REPO_ROOT / ".github/renovate.json").read_text())
+        ignored_rules = [
+            rule
+            for rule in data.get("packageRules", [])
+            if rule.get("enabled") is False
+        ]
+        # Find the rule that disables heavy ML deps. At least one
+        # rule must mention each of the four packages.
+        all_ignored_names = set()
+        for rule in ignored_rules:
+            for name in rule.get("matchPackageNames", []):
+                all_ignored_names.add(name)
         for heavy in ("unsloth", "trl", "transformers", "datasets"):
-            assert heavy in ignored, f"Dependabot must ignore {heavy} (heavy ML dep)."
+            assert (
+                heavy in all_ignored_names
+            ), f"Renovate must ignore {heavy} (heavy ML dep)."
+
+    def test_renovate_has_auto_merge_patch_rule(self) -> None:
+        """Patch + digest updates should auto-merge so we don't
+        drown in a PR per dep."""
+        import json
+
+        data = json.loads((REPO_ROOT / ".github/renovate.json").read_text())
+        auto_merge_rules = [
+            rule
+            for rule in data.get("packageRules", [])
+            if rule.get("automerge") is True
+        ]
+        assert auto_merge_rules, "Renovate must have at least one automerge rule"
+        # Find one that targets patch/digest.
+        has_patch_rule = any(
+            set(rule.get("matchUpdateTypes", [])) & {"patch", "digest"}
+            for rule in auto_merge_rules
+        )
+        assert (
+            has_patch_rule
+        ), "Renovate should auto-merge at least patch + digest updates."
 
 
 # ---------------------------------------------------------------------------
@@ -703,7 +742,7 @@ class TestReadmeConsistency:
 class TestCrossTemplateConsistency:
     def test_repo_root_constant_in_templates(self) -> None:
         """If a template references a file path, that file should
-        exist. Catches typos in CODEOWNERS, dependabot config,
+        exist. Catches typos in CODEOWNERS, Renovate config,
         etc."""
         # CODEOWNERS paths should resolve.
         text = (REPO_ROOT / ".github/CODEOWNERS").read_text()

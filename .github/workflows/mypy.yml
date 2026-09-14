@@ -1,0 +1,87 @@
+name: "mypy --strict (report-only)"
+
+# Type-check the nl2pbip package with mypy --strict.
+#
+# This is a REPORT-ONLY workflow (not a CI gate) because the
+# codebase has accumulated ~77 mypy-strict errors since the
+# v1.0.0 audit (mostly bare ``set`` / ``dict`` generics + a few
+# missing return-type annotations). The plan is:
+#
+#   1. Land this workflow now so we see the trend every PR.
+#   2. Fix the strict errors in batches over the next few
+#      releases (track in CHANGELOG).
+#   3. Promote this to ``permissions: read`` + a separate
+#      ``gating`` job that fails the PR once the count is 0.
+#
+# Runs only against nl2pbip/ (not nl2pbip/finetune — that subpackage
+# has heavy ML dependencies and is type-excluded by design).
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "nl2pbip/**/*.py"
+      - ".github/workflows/mypy.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "nl2pbip/**/*.py"
+
+permissions:
+  contents: read
+
+jobs:
+  mypy:
+    name: mypy (report-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Don't fail the build. The job exits 0 even when mypy reports
+    # errors. Promote to a real gate once nl2pbip/ is strict-clean.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install nl2pbip + mypy + type stubs
+        # Mypy strict mode requires type stubs for untyped third-party
+        # libs. We install the ones nl2pbip actually imports.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          python -m pip install \
+              mypy \
+              types-jsonschema \
+              types-PyYAML \
+              types-requests \
+              types-tabulate
+
+      - name: Run mypy --strict
+        # The error count is the headline metric. We surface it via
+        # ``$GITHUB_STEP_SUMMARY`` so the workflow run page shows
+        # the trend without needing to scroll through logs.
+        run: |
+          set +e
+          OUTPUT=$(mypy --strict --no-incremental --show-error-count nl2pbip \
+                     --exclude '(^|/)nl2pbip/finetune/' 2>&1)
+          EXIT=$?
+          echo "$OUTPUT" | tee mypy.log
+          COUNT=$(echo "$OUTPUT" | grep -oE '[0-9]+ errors?' | head -1 | grep -oE '[0-9]+' || echo "?")
+          echo "## mypy --strict" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Errors:** $COUNT" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Full output: see \`mypy.log\` artifact." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Upload mypy log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mypy-strict-log
+          path: mypy.log
+          retention-days: 14

@@ -1,0 +1,61 @@
+name: "Stale issues & PRs"
+
+# Close issues and PRs that have been inactive for a long time.
+# Doesn't auto-close security reports or anything pinned by
+# maintainers. Operates on a daily schedule so abandoned threads
+# don't pile up between Dependabot runs.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    name: Mark + close stale items
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/stale@v9
+        with:
+          # Operate on issues only — PRs are usually closed by the
+          # author after merge; stale PRs almost always mean the
+          # contributor lost interest, in which case we'd rather
+          # close them ourselves than ping them.
+          only: issues
+          # 30 days of inactivity -> "stale" warning.
+          # 7 days more without activity -> close.
+          days-before-stale: 30
+          days-before-close: 7
+          # Don't close high-signal issue types. Issues with these
+          # labels (set by maintainers) stay open until manually
+          # triaged.
+          exempt-issue-labels: |
+            pinned
+            security
+            enhancement-requested
+            in-progress
+          # Keep up to 50 stale items per run to keep the API
+          # rate-limit budget healthy on larger repos.
+          operations-per-run: 50
+          # Don't close "documentation" issues — they're often
+          # long-running and revisited on every release.
+          exempt-all-milestones: true
+          # Stale-pr message
+          stale-issue-message: |
+            This issue has been inactive for 30 days. If it's still
+            relevant, please add a comment so we know to keep it
+            open — otherwise it will be auto-closed in 7 days.
+            Issues marked with the ``security``, ``pinned``,
+            ``in-progress``, or ``enhancement-requested`` labels
+            are exempt from this policy.
+          close-issue-message: |
+            Closing this issue after 37 days of inactivity. If
+            you'd like to reopen, please add a comment explaining
+            the use case and we'll triage.
+          # Limit noisy comments.
+          only-pr-labels: "stale-exempt"

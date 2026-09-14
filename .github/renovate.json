@@ -1,0 +1,47 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+
+  "platform": "github",
+  "repository": "rollroyces/nl2pbip",
+
+  "schedule": ["before 10am on monday"],
+  "timezone": "Asia/Hong_Kong",
+
+  "labels": ["dependencies", "automated"],
+
+  "pinDigests": true,
+
+  "packageRules": [
+    {
+      "description": "Auto-merge patch updates for runtime deps if CI is green",
+      "matchUpdateTypes": ["patch", "digest"],
+      "matchConfidence": "high",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Group all patch + minor + digest updates into a single weekly PR",
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "all-non-major"
+    },
+    {
+      "description": "Major-version bumps for pip deps are not auto-merged and not grouped",
+      "matchUpdateTypes": ["major"],
+      "matchManagers": ["pip"],
+      "groupName": null,
+      "automerge": false
+    },
+    {
+      "description": "GitHub Actions: keep workflow templates current",
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Don't churn the heavy ML extras — finetune stack is installed manually",
+      "matchPackageNames": ["unsloth", "trl", "transformers", "datasets"],
+      "enabled": false
+    }
+  ]
+}

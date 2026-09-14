@@ -6,6 +6,40 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-13
+
+### Added
+- **Five new bot-driven protection workflows:**
+  - **Renovate** (`.github/renovate.json`) replaces Dependabot with
+    grouped patch + minor updates, auto-merge on patch if CI is
+    green, and per-rule config (heavy ML extras ignored).
+  - **actionlint** (`.github/workflows/actionlint.yml`) lints
+    `.github/workflows/*.yml` on every PR + push to main, catching
+    syntax errors that escaped notice (the class of bug that hit
+    us on the CodeQL `paths-ignore` config in PR #28).
+  - **OpenSSF Scorecard** (`.github/workflows/scorecard.yml`) runs
+    weekly + per push to main and posts a 0–10 security score to
+    the Security tab. Catches weak spots the other bots don't
+    cover (branch protection, dangerous workflow patterns, pinned
+    action versions, etc.).
+  - **Stale bot** (`.github/workflows/stale.yml`) auto-closes
+    inactive issues after 30 days (with a 7-day warning). Honors
+    the `pinned`, `security`, `in-progress`, and
+    `enhancement-requested` exempt labels.
+  - **mypy --strict** (`.github/workflows/mypy.yml`) type-checks
+    `nl2pbip/` on every PR. Report-only for now (~77 strict
+    errors remain; tracking in CHANGELOG). Will be promoted to
+    a gating check once the codebase is strict-clean.
+
+### Changed
+- **Dependabot removed** in favour of Renovate. The new config
+  offers better defaults: per-rule grouping, auto-merge on
+  patch if CI passes, and pin-digest for GitHub Actions.
+- **Test count** bumped from 782 → 791 (+9 new tests: 6 for the
+  Renovate config shape, 3 for the mypy workflow shape). The
+  `TestDependabot` class in `tests/test_repo_templates.py` was
+  replaced with `TestRenovate`.
+
 ## [1.2.2] - 2026-09-13
 
 ### Changed
