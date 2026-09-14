@@ -30,11 +30,15 @@ on:
     paths:
       - "nl2pbip/**/*.py"
       - ".github/workflows/bandit.yml"
+      - ".github/scripts/bandit_to_sarif.py"
       - ".bandit"
   push:
     branches: [main, master]
     paths:
       - "nl2pbip/**/*.py"
+      - ".github/workflows/bandit.yml"
+      - ".github/scripts/bandit_to_sarif.py"
+      - ".bandit"
 
 permissions:
   contents: read
