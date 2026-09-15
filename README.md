@@ -11,7 +11,7 @@
 [![PyPI](https://img.shields.io/pypi/v/nl2pbip.svg)](https://pypi.org/project/nl2pbip/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#installation)
 [![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
-[![Tests](https://img.shields.io/badge/tests-816%20collected%2C%20803%20passing-brightgreen.svg)](#test-counts)
+[![Tests](https://img.shields.io/badge/tests-817%20collected%2C%20804%20passing-brightgreen.svg)](#test-counts)
 [![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
 [![mypy --strict](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml)
 [![Bandit](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml)
@@ -525,7 +525,7 @@ nl2pbip/
 │   └── finetune/
 │       ├── dataset_generator.py  # instructor + OpenAI synthetic data
 │       └── train.py            # Unsloth + trl SFT + GGUF export
-├── tests/                      # 816 pytest cases across 22 test files
+├── tests/                      # 817 pytest cases across 22 test files
 ├── artifacts/                  # example Run output (SalesInsights.pbipdir)
 ├── .github/                    # workflows, issue templates, CODEOWNERS,
 │                               # renovate.json, labeler.yml, SECURITY.md, etc.
@@ -539,7 +539,7 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **816 test cases across 22 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **803 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **817 test cases across 22 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **804 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Cases |
 |---|---:|

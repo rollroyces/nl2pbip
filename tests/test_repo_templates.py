@@ -538,6 +538,51 @@ class TestCIWorkflow:
         assert isinstance(data["changed-files-labels-limit"], int)
         assert 1 <= data["changed-files-labels-limit"] <= 20
 
+    def test_labeler_config_has_no_dead_globs(self) -> None:
+        """``.github/labeler.yml`` must not reference
+        directories that don't exist in the repo. If
+        someone adds ``docs/**`` or ``website/**`` to a
+        LABEL_* rule but never creates the directory,
+        the glob silently matches nothing and the label
+        never fires. Pin the rule: every glob must point
+        at a real on-disk path."""
+        import yaml
+
+        data = yaml.safe_load((REPO_ROOT / ".github/labeler.yml").read_text())
+        # Collect every glob from every LABEL_* rule.
+        all_globs: list[str] = []
+        for key, value in data.items():
+            if not key.startswith("LABEL_"):
+                continue
+            # value is a list of one or more rule dicts
+            for rule in value:
+                for clause in rule.get("changed-files", []):
+                    for glob in clause.get("any-glob-to-any-file", []):
+                        all_globs.append(glob)
+        # Each glob must resolve to at least one file or
+        # directory in the repo. Resolve ``**`` to a single
+        # level so pathlib doesn't have to support the
+        # full glob syntax.
+        from pathlib import Path
+
+        dead: list[str] = []
+        for glob in all_globs:
+            # Strip ``**`` (recursive) — we just want to
+            # check the parent directory exists.
+            if "**" in glob:
+                parent = glob.split("**", 1)[0].rstrip("/")
+            else:
+                parent = str(Path(glob).parent)
+            if parent in ("", "."):
+                continue  # root-level files (README.md etc.)
+            if not (REPO_ROOT / parent).exists():
+                dead.append(glob)
+        assert not dead, (
+            f"labeler.yml references directories that don't exist "
+            f"in the repo: {dead}. Either create the directory or "
+            f"remove the glob from .github/labeler.yml."
+        )
+
     def test_labeler_config_references_existing_labels(self) -> None:
         """Every label referenced in ``.github/labeler.yml``
         must exist as a GH label in the repo. This catches

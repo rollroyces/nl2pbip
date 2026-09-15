@@ -40,15 +40,12 @@ LABEL_DOCS:
           - README.md
           - CHANGELOG.md
           - CONTRIBUTING.md
-          - docs/**
-          - website/**
           - SECURITY.md
           - LICENSE*
 LABEL_EXAMPLES:
   - changed-files:
       - any-glob-to-any-file:
           - artifacts/**
-          - examples/**
           - "*.pbip"
           - "*.pbipdir"
 LABEL_PROMPTS:
