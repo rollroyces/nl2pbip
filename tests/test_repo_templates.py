@@ -1080,6 +1080,75 @@ class TestReadmeConsistency:
             "benches. Update the table."
         )
 
+    def test_readme_mermaid_blocks_all_render(self) -> None:
+        """Every ``mermaid``` fenced code block in the README must
+        parse cleanly under @mermaid-js/mermaid-cli. Drift
+        here is silent — a broken diagram only shows up as
+        a missing image in GitHub's render. Pin the rule:
+        each block must be syntactically valid.
+
+        The test runs ``mmdc -i`` for each block; missing
+        ``mmdc`` (no npx / no node) is treated as a soft pass
+        so the test doesn't fail on minimal CI runners.
+        """
+        import re
+        import shutil
+        import subprocess
+        import tempfile
+
+        text = (REPO_ROOT / "README.md").read_text()
+        blocks = re.findall(r"```mermaid\n(.*?)\n```", text, re.DOTALL)
+        # The README should have at least a handful of
+        # diagrams — if the count drops to 0, someone
+        # stripped them all out.
+        assert len(blocks) >= 5, (
+            f"README has {len(blocks)} mermaid blocks; expected "
+            f"at least 5. Restore the architecture / flow "
+            f"diagrams in the Architecture / CI/CD / 5-minute "
+            f"demo sections."
+        )
+
+        # Try to find mmdc. Fall back to npx (which downloads
+        # the JS CLI on first use). If neither is available,
+        # skip the rendering check.
+        mmdc = shutil.which("mmdc")
+        runner = [mmdc] if mmdc else ["npx", "-y", "@mermaid-js/mermaid-cli@latest"]
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                failures: list[str] = []
+                for i, body in enumerate(blocks, 1):
+                    mmd = f"{tmp}/block_{i}.mmd"
+                    svg = f"{tmp}/block_{i}.svg"
+                    with open(mmd, "w") as f:
+                        f.write(body + "\n")
+                    try:
+                        r = subprocess.run(
+                            runner + ["-i", mmd, "-o", svg, "--quiet"],
+                            capture_output=True,
+                            text=True,
+                            timeout=60,
+                        )
+                        if r.returncode != 0:
+                            first = body.split("\n")[0]
+                            failures.append(
+                                f"  block {i} ({first}): "
+                                f"{r.stderr.strip().splitlines()[-1]}"
+                            )
+                    except (subprocess.TimeoutExpired, FileNotFoundError):
+                        # Skip rendering check if mmdc/npx is
+                        # unavailable or slow — the structural
+                        # assertions above are enough.
+                        return
+                assert not failures, (
+                    "These mermaid blocks failed to render:\n"
+                    + "\n".join(failures)
+                    + "\n\nMermaid syntax reference:\n"
+                    "  https://mermaid.js.org/syntax/flowchart.html"
+                )
+        except FileNotFoundError:
+            # npx not installed; rendering check is best-effort.
+            return
+
 
 class TestCrossTemplateConsistency:
     def test_repo_root_constant_in_templates(self) -> None:

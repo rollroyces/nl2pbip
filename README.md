@@ -11,7 +11,7 @@
 [![PyPI](https://img.shields.io/pypi/v/nl2pbip.svg)](https://pypi.org/project/nl2pbip/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#installation)
 [![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
-[![Tests](https://img.shields.io/badge/tests-817%20collected%2C%20804%20passing-brightgreen.svg)](#test-counts)
+[![Tests](https://img.shields.io/badge/tests-818%20collected%2C%20805%20passing-brightgreen.svg)](#test-counts)
 [![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
 [![mypy --strict](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml)
 [![Bandit](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml)
@@ -69,6 +69,26 @@ python -m nl2pbip.example_run
 ```
 
 A deterministic 7-step pipeline that uses a built-in mock LLM, runs the full TMDL + PBIR + package flow, and writes to `artifacts/SalesInsights.pbipdir`. No API key, no network, ~1 second:
+
+```mermaid
+flowchart LR
+    classDef step fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
+    classDef measure fill:#fff3e0,stroke:#f57c00,color:#e65100
+    classDef final fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+
+    a["1 · add_report_page<br/>Main"]:::step
+    b["2 · create_table<br/>Date"]:::step
+    c["3 · create_table<br/>Sales"]:::step
+    d["4 · add_measure<br/>Total Revenue"]:::measure
+    e["5 · define_relationship<br/>Sales_Date"]:::step
+    f["6 · add_visual<br/>clusteredColumnChart"]:::step
+    g["7 · package_pbip<br/>SalesInsights.pbipdir"]:::final
+
+    a --> b --> c --> d --> e --> f --> g
+
+    output(["📁 artifacts/SalesInsights.pbipdir/"])
+    g --> output
+```
 
 ```text
 Executed plan containing 7 steps.
@@ -218,51 +238,101 @@ add_visual_handler(page="Main", visual_type="pie",    ...)  # → pieChart
 
 ## Architecture
 
-```
-                         ┌─────────────────────────────────┐
-                         │       Orchestrator (run /       │
-                         │  run_with_reflection + retry)   │
-                         └────────────────┬────────────────┘
-              ┌───────────────────────────┼────────────────────────────┐
-              │                           │                            │
-   ┌──────────▼─────────┐    ┌─────────────▼──────────┐    ┌────────────▼───────────┐
-   │  PromptPolisher    │    │   StructuredLLMClient  │    │    nl2pbip.prompts     │
-   │ (encoding / PII /  │    │ (OpenAI / Anthropic /  │    │  (system + user +      │
-   │  secrets / inj.)   │    │  Azure / custom)       │    │  critic, versioned)    │
-   └──────────┬─────────┘    └─────────────┬──────────┘    └─────────────────────────┘
-              │                           │
-              └─────────────┬─────────────┘
-                            │
-                ┌───────────▼───────────┐
-                │  Six orthogonal       │
-                │  context blocks:      │
-                │  model_state          │
-                │  data_profile         │
-                │  data_understanding   │
-                │  ontology_hints       │
-                │  ai_schema_hints      │
-                │  dax_catalog          │
-                └───────────┬───────────┘
-                            │
-            ┌───────────────┼────────────────────┐
-            │               │                    │
-   ┌────────▼──────┐ ┌──────▼──────┐ ┌────────────▼────────┐
-   │ TMDL engine   │ │ PBIR engine │ │  M-expression       │
-   │ (13 handlers, │ │ (layout +   │ │  builder            │
-   │  calc-group,  │ │  OPC .pbit) │ │  (6 sources +       │
-   │  OLS, FP, PQ) │ │             │ │   4 transforms)     │
-   └───────┬───────┘ └──────┬──────┘ └─────────┬──────────┘
-           │                │                  │
-           └────────────────┼──────────────────┘
-                            │
-                ┌───────────▼───────────┐
-                │     packager          │
-                │  (PBIP + Fabric       │
-                │   metadata)           │
-                └───────────────────────┘
-```
+```mermaid
+flowchart TB
+    subgraph Planner[Planner stage]
+        orch["Orchestrator<br/>run / run_with_reflection<br/>+ retry loop"]
+        polish["PromptPolisher<br/>PII / secrets / injection"]
+        llm["StructuredLLMClient<br/>OpenAI / Anthropic /<br/>Azure / custom"]
+        prompts[/"nl2pbip.prompts<br/>system + user + critic<br/>versioned"/]
+    end
 
-The 13 TMDL handlers are `add_report_page`, `add_visual`, `create_table`, `define_relationship`, `package_pbip`, `add_measure`, `add_pattern_measure` (catalog-driven), `add_calculation_group` (with `formatStringDefinition`), `add_ols_role` (Sept 2025 grammar), `add_field_parameter`, `add_power_query_partition`, `add_rls_role`, `set_page_layout`.
+    subgraph Context[Six orthogonal context blocks]
+        ctx{{"model_state · data_profile<br/>data_understanding · ontology_hints<br/>ai_schema_hints · dax_catalog"}}
+    end
+
+    subgraph Engines[Execution engines]
+        tmdl["TMDL engine<br/>13 handlers"]
+        pbir["PBIR engine<br/>layout + OPC .pbit"]
+        m["M-expression builder<br/>6 sources + 4 transforms"]
+    end
+
+    pkg["packager<br/>PBIP + Fabric metadata"]
+
+    orch --> polish
+    orch --> llm
+    orch --> prompts
+    orch --> ctx
+    llm --> ctx
+    ctx --> tmdl
+    ctx --> pbir
+    ctx --> m
+    tmdl --> pkg
+    pbir --> pkg
+    m --> pkg
+
+    classDef plan fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
+    classDef ctx_ fill:#fff3e0,stroke:#f57c00,color:#e65100
+    classDef engine fill:#e8f5e9,stroke:#388e3c,color:#1b5e20
+    classDef pkg_ fill:#fce4ec,stroke:#c2185b,color:#880e4f
+    class orch,polish,llm,prompts plan
+    class ctx ctx_
+    class tmdl,pbir,m engine
+    class pkg pkg_
+```
+The 13 TMDL handlers, grouped by responsibility:
+
+```mermaid
+graph LR
+    subgraph Schema[Schema]
+        create_table["create_table"]
+        add_field_parameter["add_field_parameter"]
+        add_power_query_partition["add_power_query_partition"]
+    end
+
+    subgraph Measures[Measures]
+        add_measure["add_measure"]
+        add_pattern_measure["add_pattern_measure<br/>(catalog-driven)"]
+        add_calculation_group["add_calculation_group<br/>(formatStringDefinition)"]
+    end
+
+    subgraph Security[Security]
+        add_ols_role["add_ols_role<br/>(Sept 2025 grammar)"]
+        add_rls_role["add_rls_role"]
+        define_relationship["define_relationship"]
+    end
+
+    subgraph Surface[Report surface]
+        add_report_page["add_report_page"]
+        add_visual["add_visual"]
+        set_page_layout["set_page_layout"]
+    end
+
+    package_pbip["package_pbip"]
+
+    create_table --> define_relationship
+    add_field_parameter --> add_visual
+    add_power_query_partition --> create_table
+    add_measure --> add_visual
+    add_pattern_measure --> add_visual
+    add_calculation_group --> add_visual
+    add_visual --> package_pbip
+    add_report_page --> package_pbip
+    add_ols_role --> package_pbip
+    add_rls_role --> package_pbip
+    set_page_layout --> package_pbip
+
+    classDef schema fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
+    classDef measures fill:#fff3e0,stroke:#f57c00,color:#e65100
+    classDef security fill:#fce4ec,stroke:#c2185b,color:#880e4f
+    classDef surface fill:#e8f5e9,stroke:#388e3c,color:#1b5e20
+    classDef pkg fill:#f3e5f5,stroke:#7b1fa2,color:#4a148c
+    class create_table,add_field_parameter,add_power_query_partition schema
+    class add_measure,add_pattern_measure,add_calculation_group measures
+    class add_ols_role,add_rls_role,define_relationship security
+    class add_report_page,add_visual,set_page_layout surface
+    class package_pbip pkg
+```
 
 The ontology ships 41 schema.org Types + 72 Properties + 71 alias entries + 9 PROV-O terms (<100 KB, no external deps). The data_inspector + data_understanding pair gives the LLM primary-key detection, FK coverage with orphan counts, cardinality hints, numeric quantiles, and time ranges.
 
@@ -271,6 +341,19 @@ The ontology ships 41 schema.org Types + 72 Properties + 71 alias entries + 9 PR
 ## Planner prompts
 
 Every string the orchestrator sends to the LLM lives in `nl2pbip.prompts`. Current version is **v7** (incremented across v1.1.0 → v1.3.5 with power-query, OLS, field-param, fabric, agentic-reflection, pre-flight-scrubbing, and anti-patterns rules).
+
+```mermaid
+%%{init: { "themeVariables": { "gitBranchLabel0": "#1976d2", "gitBranchLabel1": "#f57c00", "gitBranchLabel2": "#7b1fa2", "gitBranchLabel3": "#c2185b", "gitBranchLabel4": "#388e3c", "gitBranchLabel5": "#00796b", "gitBranchLabel6": "#5d4037", "gitBranchLabel7": "#512da8" } } }%%
+gitGraph LR
+    commit
+    commit tag: "v1<br/>initial 39 rules"
+    commit tag: "v2<br/>calc-group"
+    commit tag: "v3<br/>field-param"
+    commit tag: "v4<br/>power-query M (23a/b/c)"
+    commit tag: "v5<br/>fabric Git integration"
+    commit tag: "v6<br/>rule 31 pre-flight scrubbing"
+    commit tag: "v7<br/>rules 32-35 anti-patterns"
+```
 
 | Symbol | Purpose |
 |---|---|
@@ -303,6 +386,48 @@ Visual-selection rules (a sample of what's in the prompt):
 ## LLM context layer
 
 The orchestrator assembles a planner payload that gives the LLM enough structure to design relationships and visuals with concrete numbers rather than guessing. Six orthogonal blocks:
+
+```mermaid
+flowchart LR
+    payload{{"Planner payload<br/>(JSON sent to LLM)"}}
+    payload --- ms
+    payload --- dp
+    payload --- on
+    payload --- du
+    payload --- ai
+    payload --- dc
+
+    subgraph Det[Deterministic, no LLM]
+        ms["model_state<br/>TMDL engine"]
+        dp["data_profile<br/>data_inspector"]
+        du["data_understanding<br/>data_understanding"]
+        dc["dax_catalog<br/>user-supplied"]
+    end
+
+    subgraph Grounded[Grounded, no LLM]
+        on["ontology_hints<br/>ontology<br/>(41 Types / 72 Properties)"]
+    end
+
+    subgraph LLMDriven[LLM-driven, opt-in]
+        ai["ai_schema_hints<br/>schema_advisor"]
+    end
+
+    ms -.-> payload
+    dp -.-> payload
+    on -.-> payload
+    du -.-> payload
+    ai -.-> payload
+    dc -.-> payload
+
+    classDef det fill:#e8f5e9,stroke:#388e3c,color:#1b5e20
+    classDef gr fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
+    classDef ll fill:#fff3e0,stroke:#f57c00,color:#e65100
+    classDef payload_ fill:#f3e5f5,stroke:#7b1fa2,color:#4a148c
+    class ms,dp,du,dc det
+    class on gr
+    class ai ll
+    class payload,payload_ payload_
+```
 
 | Block | Source | What it tells the LLM |
 |---|---|---|
@@ -402,35 +527,111 @@ The orchestrator wrote 7 step results, 9 JSON / TMDL files (model, relationships
 
 ## What you get (output structure)
 
-```text
-artifacts/SalesInsights.pbipdir/
-├── SalesInsights.pbip                              # entry point manifest
-├── SalesInsights.SemanticModel/
-│   ├── definition.pbism
-│   └── definition/
-│       ├── model.tmdl                              # human-readable TMDL
-│       ├── relationships.tmdl                      # all relationships
-│       └── tables/
-│           ├── Date.tmdl                           # one file per table
-│           └── Sales.tmdl
-└── SalesInsights.Report/
-    ├── definition.pbir
-    └── definition/
-        ├── report.json                             # report metadata
-        └── pages/
-            └── Main/
-                ├── page.json                       # canvas / theme
-                └── visuals/
-                    └── visual_ec932f70.json        # one file per visual
+```mermaid
+graph TD
+    root["artifacts/SalesInsights.pbipdir/"]
+
+    root --> pbip["📄 SalesInsights.pbip<br/>(entry point manifest)"]
+    root --> sm["📁 SalesInsights.SemanticModel"]
+    root --> rep["📁 SalesInsights.Report"]
+
+    sm --> sm_pbism["📄 definition.pbism"]
+    sm --> sm_def["📁 definition/"]
+
+    sm_def --> sm_model["📄 model.tmdl<br/>(human-readable TMDL)"]
+    sm_def --> sm_rels["📄 relationships.tmdl"]
+    sm_def --> sm_tbls["📁 tables/"]
+
+    sm_tbls --> date_tbl["📄 Date.tmdl"]
+    sm_tbls --> sales_tbl["📄 Sales.tmdl"]
+
+    rep --> rep_pbir["📄 definition.pbir"]
+    rep --> rep_def["📁 definition/"]
+
+    rep_def --> rep_meta["📄 report.json"]
+    rep_def --> rep_pages["📁 pages/"]
+
+    rep_pages --> rep_main["📁 Main/"]
+    rep_main --> rep_page_json["📄 page.json"]
+    rep_main --> rep_visuals["📁 visuals/"]
+    rep_visuals --> rep_visual["📄 visual_ec932f70.json"]
+
+    classDef folder fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
+    classDef file fill:#fff3e0,stroke:#f57c00,color:#e65100
+    classDef pbip fill:#f3e5f5,stroke:#7b1fa2,color:#4a148c
+    class root,sm,rep,sm_def,rep_def,sm_tbls,rep_pages,rep_main,rep_visuals folder
+    class sm_pbism,sm_model,sm_rels,date_tbl,sales_tbl,rep_pbir,rep_meta,rep_page_json,rep_visual file
+    class pbip pbip
 ```
 
 Everything is plain text or JSON — diff-friendly in git, reviewable in pull requests, parseable by other tools. To package as a single binary, run `python -m nl2pbip.cli export --input … --format pbix --output …` (requires `pbi-tools`) or `--format pbit` for the in-process fallback.
+
+### Self-reflection loop
+
+When you call `Orchestrator.run_with_reflection(...)`, the orchestrator runs the plan, scores it with a critic LLM, and re-invokes the planner if scores are below threshold. Each attempt is recorded in a `ReflectiveTrace` so you can audit what changed:
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Orch as Orchestrator
+    participant LLM as LLM
+    participant Critic as Critic LLM
+    participant Engine as TMDL/PBIR engine
+
+    User->>Orch: run_with_reflection(prompt, ctx)
+    Orch->>LLM: plan(context)
+    LLM-->>Orch: {plan: [...]}
+    loop Validate each step
+        Orch->>Engine: dispatch(tool, args)
+        Engine-->>Orch: ToolResult(success | error)
+    end
+    alt plan succeeds
+        Orch->>Critic: score(plan, payload)
+        Critic-->>Orch: {correctness, completeness, alignment_with_prompt}
+        alt any score < threshold
+            Orch->>LLM: replan(suggestions)
+            LLM-->>Orch: {plan: [...]}
+        else scores OK
+            Orch-->>User: ReflectiveTrace
+        end
+    else plan fails
+        Orch->>LLM: retry(feedback_message)
+        LLM-->>Orch: {plan: [...]} (with fixes)
+    end
+```
 
 ---
 
 ## Code quality gates
 
 The codebase runs through six deterministic quality gates on every PR + push to `main`. Five are blocking; one is advisory today but will become blocking as the long-tail cleanup lands.
+
+```mermaid
+flowchart LR
+    classDef gating fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+    classDef soft fill:#fff9c4,stroke:#f9a825,color:#e65100
+
+    ci["CI<br/>(pytest + black + ruff)"]
+    mypy["mypy --strict<br/>(0 errors)"]
+    bandit["Bandit<br/>(SAST)"]
+    vulture["Vulture<br/>(dead code)"]
+    codeql["CodeQL"]
+    actionlint["actionlint"]
+    license{{"License compliance<br/>soft-fail"}}
+
+    pr(["📨 Every PR / push to main"])
+
+    pr --> ci
+    pr --> mypy
+    pr --> bandit
+    pr --> vulture
+    pr --> codeql
+    pr --> actionlint
+    pr -.-> license
+
+    class ci,mypy,bandit,vulture,codeql,actionlint gating
+    class license soft
+```
 
 | Gate | Status | What it enforces |
 |---|---|---|
@@ -462,6 +663,49 @@ See [CI/CD integration](#cicd-integration) for the full workflow table.
 ## CI/CD integration
 
 13 GitHub Actions workflows live under `.github/workflows/`:
+
+```mermaid
+flowchart LR
+    classDef gating fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+    classDef soft fill:#fff9c4,stroke:#f9a825,color:#e65100
+    classDef deploy fill:#bbdefb,stroke:#1565c0,color:#0d47a1
+
+    commit(["git push / PR"])
+
+    subgraph EveryPR[On every PR + push]
+        ci["ci.yml"]
+        codeql["codeql.yml"]
+        mypy["mypy.yml"]
+        bandit["bandit.yml"]
+        actionlint["actionlint.yml"]
+        license["license-check.yml"]
+        labeler["pr-labeler.yml"]
+    end
+
+    subgraph Scheduled[Scheduled]
+        scorecard["scorecard.yml<br/>weekly"]
+        stale["stale.yml<br/>daily"]
+        renovate["renovate<br/>weekly monday"]
+        gitleaks["gitleaks.yml<br/>weekly history scan"]
+    end
+
+    subgraph Tags[On tag push]
+        release["release.yml"]
+        pypi(["📦 PyPI"])
+        ghrel(["📢 GitHub release"])
+    end
+
+    commit --> EveryPR
+    commit -.-> Scheduled
+
+    tag(["git tag vX.Y.Z"]) --> release
+    release --> pypi
+    release --> ghrel
+
+    class ci,codeql,mypy,bandit,actionlint gating
+    class license,scorecard soft
+    class release,ghrel,pypi deploy
+```
 
 | Workflow | Trigger | What it does |
 |---|---|---|
@@ -525,7 +769,7 @@ nl2pbip/
 │   └── finetune/
 │       ├── dataset_generator.py  # instructor + OpenAI synthetic data
 │       └── train.py            # Unsloth + trl SFT + GGUF export
-├── tests/                      # 817 pytest cases across 22 test files
+├── tests/                      # 818 pytest cases across 22 test files
 ├── artifacts/                  # example Run output (SalesInsights.pbipdir)
 ├── .github/                    # workflows, issue templates, CODEOWNERS,
 │                               # renovate.json, labeler.yml, SECURITY.md, etc.
@@ -539,7 +783,7 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **817 test cases across 22 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **804 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **818 test cases across 22 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **805 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Cases |
 |---|---:|
@@ -635,6 +879,39 @@ The reflection loop overhead is in the noise vs plain `run` (stub critic call is
 
 Fine-tune open-weight coders such as **Qwen 2.5 Coder 7B** on curated TMDL + PBIR schemas to run `nl2pbip` entirely offline. The module ships two scripts that you run as Python modules — there is no separate CLI:
 
+```mermaid
+flowchart LR
+    classDef api fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
+    classDef local fill:#fff3e0,stroke:#f57c00,color:#e65100
+    classDef serve fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+
+    gpt(["gpt-4o-mini<br/>(validation)"]):::api
+    gen["dataset_generator<br/>instructor + openai"]:::api
+    train["finetune/train<br/>unsloth + trl SFTTrainer"]:::local
+    gguf["gguf export<br/>FastLanguageModel"]:::local
+    ollama(["Ollama"]):::serve
+    vllm(["vLLM"]):::serve
+    pbi(["nl2pbip --provider custom"]):::serve
+
+    prompts["prompts/<br/>nl_requirements.txt"]:::api
+    train_jsonl(["finetune/train.jsonl"]):::local
+    val_jsonl(["finetune/val.jsonl"]):::local
+    adapter(["adapter/ +<br/>gguf/ artifacts"]):::local
+
+    prompts --> gen
+    gpt --> gen
+    gen --> train_jsonl
+    gen --> val_jsonl
+    train_jsonl --> train
+    val_jsonl --> train
+    train --> adapter
+    adapter --> gguf
+    gguf --> ollama
+    gguf --> vllm
+    ollama --> pbi
+    vllm --> pbi
+```
+
 **1. Synthetic dataset generation** — uses `instructor` + `openai` to capture validated ChatML records:
 
 ```bash
@@ -675,6 +952,28 @@ Artifacts in `finetune/output/gguf` can be served through Ollama (`ollama create
 ## Export Engine (`.pbip` → `.pbix` / `.pbit`)
 
 `PBIPExporter` stitches semantic + report directories into binary Power BI files. You can call it directly or via CLI:
+
+```mermaid
+flowchart LR
+    classDef input fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
+    classDef branch fill:#fff9c4,stroke:#f9a825,color:#e65100
+    classDef out fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+
+    pbip(["PBIP folder"]):::input
+    exporter["PBIPExporter"]
+
+    subgraph Branch[Branch on --format]
+        pbix_path(["pbi-tools<br/>on PATH?"]):::branch
+    end
+
+    pbix["pbi-tools compile<br/>(native .pbix)"]:::out
+    pbit["OPC ZIP fallback<br/>(in-process .pbit)"]:::out
+
+    pbip --> exporter
+    exporter --> pbix_path
+    pbix_path -->|yes| pbix
+    pbix_path -->|no| pbit
+```
 
 ### CLI exports
 
