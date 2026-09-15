@@ -1088,9 +1088,11 @@ class TestReadmeConsistency:
         each block must be syntactically valid.
 
         The test runs ``mmdc -i`` for each block; missing
-        ``mmdc`` (no npx / no node) is treated as a soft pass
-        so the test doesn't fail on minimal CI runners.
+        ``mmdc`` / npx / a working headless Chromium (mmdc
+        needs Puppeteer) is treated as a soft pass so the
+        test doesn't fail on minimal CI runners.
         """
+        import os
         import re
         import shutil
         import subprocess
@@ -1115,30 +1117,62 @@ class TestReadmeConsistency:
         runner = [mmdc] if mmdc else ["npx", "-y", "@mermaid-js/mermaid-cli@latest"]
         try:
             with tempfile.TemporaryDirectory() as tmp:
+                # Run a probe on the first block to detect
+                # whether the runner can launch Puppeteer /
+                # headless Chromium. If mmdc fails because
+                # the browser can't launch (rather than a
+                # real parse error), treat the whole suite
+                # as a soft pass.
+                first_block = blocks[0]
+                probe = os.path.join(tmp, "probe.mmd")
+                with open(probe, "w") as f:
+                    f.write(first_block + "\n")
+                try:
+                    probe_proc = subprocess.run(
+                        runner + ["-i", probe, "-o", tmp + "/probe.svg", "--quiet"],
+                        capture_output=True,
+                        text=True,
+                        timeout=90,
+                    )
+                except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                    return  # mmdc / npx / browser not available
+                probe_err = (probe_proc.stderr or "").lower()
+                if probe_proc.returncode != 0 and (
+                    "childprocess" in probe_err
+                    or "puppeteer" in probe_err
+                    or "chrome" in probe_err
+                    or "chromium" in probe_err
+                    or "browser" in probe_err
+                    or "libatk" in probe_err
+                    or "xcb" in probe_err
+                    or "no usable sandbox" in probe_err
+                ):
+                    return  # browser-launch failure — skip
+                # If the probe fails for any OTHER reason,
+                # surface it (real parse error).
                 failures: list[str] = []
-                for i, body in enumerate(blocks, 1):
+                if probe_proc.returncode != 0:
+                    failures.append(
+                        f"  block 1 ({first_block.split(chr(10))[0]}): "
+                        f"{probe_proc.stderr.strip().splitlines()[-1] if probe_proc.stderr.strip() else '(empty stderr)'}"
+                    )
+                for i, body in enumerate(blocks[1:], start=2):
                     mmd = f"{tmp}/block_{i}.mmd"
                     svg = f"{tmp}/block_{i}.svg"
                     with open(mmd, "w") as f:
                         f.write(body + "\n")
-                    try:
-                        r = subprocess.run(
-                            runner + ["-i", mmd, "-o", svg, "--quiet"],
-                            capture_output=True,
-                            text=True,
-                            timeout=60,
+                    r = subprocess.run(
+                        runner + ["-i", mmd, "-o", svg, "--quiet"],
+                        capture_output=True,
+                        text=True,
+                        timeout=90,
+                    )
+                    if r.returncode != 0:
+                        first = body.split("\n")[0]
+                        failures.append(
+                            f"  block {i} ({first}): "
+                            f"{r.stderr.strip().splitlines()[-1] if r.stderr.strip() else '(empty stderr)'}"
                         )
-                        if r.returncode != 0:
-                            first = body.split("\n")[0]
-                            failures.append(
-                                f"  block {i} ({first}): "
-                                f"{r.stderr.strip().splitlines()[-1]}"
-                            )
-                    except (subprocess.TimeoutExpired, FileNotFoundError):
-                        # Skip rendering check if mmdc/npx is
-                        # unavailable or slow — the structural
-                        # assertions above are enough.
-                        return
                 assert not failures, (
                     "These mermaid blocks failed to render:\n"
                     + "\n".join(failures)
@@ -1146,8 +1180,7 @@ class TestReadmeConsistency:
                     "  https://mermaid.js.org/syntax/flowchart.html"
                 )
         except FileNotFoundError:
-            # npx not installed; rendering check is best-effort.
-            return
+            return  # npx not installed
 
 
 class TestCrossTemplateConsistency:
