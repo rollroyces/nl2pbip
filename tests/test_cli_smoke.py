@@ -27,7 +27,6 @@ import sys
 
 import pytest
 
-
 # Flags the ``generate`` subcommand must expose. Order is not
 # significant — argparse prints flags in declaration order, but
 # we don't assert that here.
@@ -80,8 +79,7 @@ def test_cli_generate_help_exits_zero() -> None:
     # stdout, not stderr. Make sure we actually got help text
     # rather than an ImportError or similar traceback.
     assert "usage:" in result.stdout, (
-        f"generate --help stdout is missing the usage banner. "
-        f"Got:\n{result.stdout}"
+        f"generate --help stdout is missing the usage banner. " f"Got:\n{result.stdout}"
     )
     for flag in EXPECTED_GENERATE_FLAGS:
         assert flag in result.stdout, (
@@ -107,16 +105,14 @@ def test_cli_root_help_exits_zero() -> None:
         f"\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
     assert "usage:" in result.stdout, (
-        f"cli --help stdout is missing the usage banner. "
-        f"Got:\n{result.stdout}"
+        f"cli --help stdout is missing the usage banner. " f"Got:\n{result.stdout}"
     )
     # Same flag coverage as the subcommand help — the root
     # parser is just the generate parser with subcommand
     # routing layered on top.
     for flag in EXPECTED_GENERATE_FLAGS:
         assert flag in result.stdout, (
-            f"cli --help is missing the {flag!r} flag. "
-            f"Got:\n{result.stdout}"
+            f"cli --help is missing the {flag!r} flag. " f"Got:\n{result.stdout}"
         )
 
 
@@ -128,9 +124,7 @@ def test_cli_generate_help_lists_each_flag(flag: str) -> None:
     """
     result = _run_cli("generate", "--help")
     assert result.returncode == 0
-    assert flag in result.stdout, (
-        f"generate --help is missing the {flag!r} flag"
-    )
+    assert flag in result.stdout, f"generate --help is missing the {flag!r} flag"
 
 
 def test_cli_export_help_exits_zero() -> None:

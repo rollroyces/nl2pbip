@@ -44,6 +44,19 @@ to [Semantic Versioning](https://semver.org/).
   `BudgetExceededError` semantics, the LLM client
   attachment path, the CLI flag plumbing, and the
   end-to-end orchestrator abort path.
+- **`Makefile` for developer ergonomics.** Six targets:
+  `make test` runs the full CI-equivalent suite (pytest
+  + vulture + black --check + ruff check + mypy --strict
+  + bandit); `make lint` is just black + ruff; `make type`
+  is mypy only; `make bench` runs the opt-in benchmark
+  suite under `NL2PBIP_RUN_BENCHMARKS=1`; `make example`
+  invokes the bundled end-to-end demo
+  (`python -m nl2pbip.example_run`); `make clean` strips
+  `__pycache__/` directories. All recipes use `.venv/bin/`
+  paths so they work with the existing venv without
+  requiring system-wide installs. `SHELL := /bin/bash`
+  is set at the top so `find ... -exec` works on macOS
+  (default /bin/sh is dash).
 - **CLI smoke test** (`tests/test_cli_smoke.py`): 15
   subprocess-based assertions verifying that
   `python -m nl2pbip.cli generate --help` and

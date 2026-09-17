@@ -499,9 +499,9 @@ class TestCIWorkflow:
             )
         # The step must still cover the forbidden licenses.
         for license_id in ("GPL", "LGPL", "AGPL", "SSPL", "Commons-Clause", "UNKNOWN"):
-            assert license_id in licenses_block, (
-                f"license-check workflow missing '{license_id}' from --fail-on list"
-            )
+            assert (
+                license_id in licenses_block
+            ), f"license-check workflow missing '{license_id}' from --fail-on list"
 
     def test_license_check_workflow_includes_hash_pin_audit(self) -> None:
         """The license-check workflow should also enforce a
@@ -515,12 +515,12 @@ class TestCIWorkflow:
             "license-check workflow should call pip-compile to "
             "generate the hashed requirements file"
         )
-        assert "--generate-hashes" in text, (
-            "license-check workflow should request SHA-256 hashes"
-        )
-        assert "requirements-hashed.txt" in text, (
-            "license-check workflow should output requirements-hashed.txt"
-        )
+        assert (
+            "--generate-hashes" in text
+        ), "license-check workflow should request SHA-256 hashes"
+        assert (
+            "requirements-hashed.txt" in text
+        ), "license-check workflow should output requirements-hashed.txt"
 
     def test_mypy_workflow_is_gating(self) -> None:
         """The mypy --strict workflow is a real CI gate (not
