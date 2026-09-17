@@ -447,6 +447,84 @@ class TestSuggestRelationships:
         suggestions = suggest_relationships(profiles, max_suggestions=5)
         assert len(suggestions) <= 5
 
+    def test_tier2_promotion_strong_when_cardinality_skewed(self) -> None:
+        """Tier-2: many distinct values on both sides + clear many-to-one skew.
+
+        The small side (``Orders[customer_id]``) has 25 distinct values;
+        the large side (``Customers[id]``) has 200 — a 8x cardinality
+        ratio, well above :data:`TIER2_CARDINALITY_RATIO`. Both sides
+        exceed :data:`TIER2_MIN_DISTINCT` (20) so the pair is promoted
+        from ``"tentative"`` to ``"strong"``.
+        """
+        # 25 distinct customer_ids on Orders, 200 distinct ids on
+        # Customers — overlap examples live on both sides.
+        order_examples = list(range(1, 26))  # 25 distinct
+        customer_examples = list(range(1, 201))  # 200 distinct
+        orders = self._make_profile_with_examples(
+            "Orders", distinct_count=25, examples=order_examples
+        )
+        customers = self._make_profile_with_examples(
+            "Customers", distinct_count=200, examples=customer_examples
+        )
+        suggestions = suggest_relationships([orders, customers])
+        assert len(suggestions) == 1, suggestions
+        s = suggestions[0]
+        # Both endpoints meet the threshold + 8x cardinality skew
+        # → confidence_label flips to strong.
+        assert s["confidence_label"] == "strong", s
+        assert s["cardinality_ratio"] >= 3.0, s
+        # Existing numeric confidence field is untouched.
+        assert "confidence" in s
+        assert s["overlap_ratio"] >= 0.5
+
+    def test_tier2_stays_tentative_when_too_few_distinct(self) -> None:
+        """When one side has < 20 distinct values, label stays tentative.
+
+        Even with a perfect sample overlap and a 10x cardinality skew,
+        a 5-distinct Customers[id] is not enough signal — the
+        ``distinct_count`` was likely computed against a tiny sample.
+        """
+        orders = self._make_profile_with_examples(
+            "Orders",
+            distinct_count=50,
+            examples=list(range(1, 51)),
+        )
+        # Only 5 distinct ids on Customers — too small.
+        customers = self._make_profile_with_examples(
+            "Customers",
+            distinct_count=5,
+            examples=list(range(1, 6)),
+        )
+        suggestions = suggest_relationships([orders, customers])
+        assert len(suggestions) == 1, suggestions
+        assert suggestions[0]["confidence_label"] == "tentative", suggestions[0]
+
+    def test_tier2_stays_tentative_when_cardinality_balanced(self) -> None:
+        """When both sides are roughly equal in cardinality, stays tentative.
+
+        100 distinct on Orders[customer_id] vs 110 distinct on
+        Customers[id] — the cardinality ratio (1.1) is below the
+        3.0 many-to-one floor. The relationship might still be
+        many-to-one at the row level (each customer has many orders)
+        but the column-distinct profile is too balanced to promote
+        without further evidence.
+        """
+        orders = self._make_profile_with_examples(
+            "Orders",
+            distinct_count=100,
+            examples=list(range(1, 101)),
+        )
+        customers = self._make_profile_with_examples(
+            "Customers",
+            distinct_count=110,
+            examples=list(range(1, 111)),
+        )
+        suggestions = suggest_relationships([orders, customers])
+        assert len(suggestions) == 1, suggestions
+        assert suggestions[0]["confidence_label"] == "tentative", suggestions[0]
+        # Cardinality ratio is exposed for downstream consumers.
+        assert suggestions[0]["cardinality_ratio"] < 3.0
+
     def test_min_overlap_ratio_respected(self) -> None:
         """A 50% overlap is rejected when the threshold is 0.6.
 

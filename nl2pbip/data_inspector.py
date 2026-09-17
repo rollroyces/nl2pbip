@@ -624,6 +624,19 @@ def suggest_relationships(
             # Naming-pattern boost: ``X.fk_id`` ↔ ``Y.id`` style.
             if _naming_pattern_match(small_side, large_side):
                 confidence = min(confidence + 0.1, 1.0)
+            # Tier-2 promotion: when BOTH endpoints carry enough
+            # signal for the LLM to treat the relationship as
+            # confirmed (``distinct_count >= 20`` on each side)
+            # AND the cardinality skew is clearly many-to-one
+            # (the larger side has at least ``TIER2_CARDINALITY_RATIO``
+            # times as many distinct values as the smaller side)
+            # the pair is no longer "tentative" — promote it to
+            # ``confidence_label="strong"``. The numeric
+            # ``confidence`` field stays untouched so existing
+            # consumers (and the rank-by-confidence sort) keep
+            # working without modification.
+            tier2 = _tier2_promotion(small_prof, large_prof)
+            confidence_label = "strong" if tier2 else "tentative"
             # Build the rationale. When the ratio is a lower bound
             # we note that explicitly so the LLM doesn't think every
             # sample value matched (the examples set is capped).
@@ -651,6 +664,11 @@ def suggest_relationships(
                     "to_column": large_side[1],
                     "overlap_ratio": ratio_lower_bound,
                     "confidence": confidence,
+                    "confidence_label": confidence_label,
+                    "cardinality_ratio": round(
+                        large_prof.distinct_count / max(small_prof.distinct_count, 1),
+                        4,
+                    ),
                     "ratio_is_lower_bound": ratio_is_lower_bound,
                     "examples_seen": examples_seen,
                     "total_small_distinct": total_small,
@@ -660,6 +678,50 @@ def suggest_relationships(
     # Sort by confidence desc, then overlap_ratio desc, keep top N.
     suggestions.sort(key=lambda s: (s["confidence"], s["overlap_ratio"]), reverse=True)
     return suggestions[:max_suggestions]
+
+
+# Tier-2 promotion thresholds for relationship-confidence labels.
+#
+# Tier 1 = tentative (default) — any pair whose overlap ratio meets
+# ``min_overlap_ratio``. The label moves to ``strong`` when BOTH
+# columns carry enough signal to be sure of the relationship:
+#
+# * Each side has at least ``TIER2_MIN_DISTINCT`` distinct values
+#   in its profile (so the example-based overlap is meaningful,
+#   not noise from a 3-row table).
+# * The cardinality skew is clearly many-to-one: the larger side
+#   has at least ``TIER2_CARDINALITY_RATIO`` times as many distinct
+#   values as the smaller side. 3.0 is the heuristic floor — a
+#   pair like ``Orders[order_id]`` (1000 distinct) ↔ ``Customers[id]``
+#   (200 distinct) lands at 5.0 and is clearly strong; a pair
+#   with 100 vs 90 distinct is "many-to-many-ish" and stays
+#   tentative even with a perfect sample overlap.
+TIER2_MIN_DISTINCT = 20
+TIER2_CARDINALITY_RATIO = 3.0
+
+
+def _tier2_promotion(
+    small_prof: ColumnProfile, large_prof: ColumnProfile
+) -> bool:
+    """Return True when a pair qualifies for tier-2 ('strong') confidence.
+
+    Both endpoints must carry at least
+    :data:`TIER2_MIN_DISTINCT` distinct values AND the cardinality
+    skew must be at least :data:`TIER2_CARDINALITY_RATIO`. The
+    overlap-set check is left to the caller (the function only
+    inspects the cardinality profile, not the value sets).
+
+    Centralised here so the heuristic stays easy to tune and the
+    tests can exercise it in isolation.
+    """
+    if small_prof.distinct_count < TIER2_MIN_DISTINCT:
+        return False
+    if large_prof.distinct_count < TIER2_MIN_DISTINCT:
+        return False
+    if small_prof.distinct_count <= 0:
+        return False
+    cardinality_ratio = large_prof.distinct_count / small_prof.distinct_count
+    return cardinality_ratio >= TIER2_CARDINALITY_RATIO
 
 
 def _naming_pattern_match(
