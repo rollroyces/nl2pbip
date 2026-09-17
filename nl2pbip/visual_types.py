@@ -267,6 +267,28 @@ def default_size_for_visual_type(visual_type: str) -> Tuple[float, float]:
     return DEFAULT_SIZES.get(canonical, (420, 260))
 
 
+# ----------------------------------------------------------------------
+# Custom-visual merge
+#
+# On import, walk the operator's ``~/.nl2pbip/custom_visuals.toml``
+# registry and merge any registered ``visualType`` strings into
+# :data:`CANONICAL_VISUAL_TYPES`. The merge is best-effort — if the
+# TOML parser or the file is missing, the canonical set stays at
+# its bundled defaults.
+# ----------------------------------------------------------------------
+try:
+    from nl2pbip import custom_visuals as _custom_visuals  # noqa: E402
+
+    _custom_visuals.register_custom_visuals_into_registry()
+except Exception:  # pragma: no cover - merge is best-effort
+    # Never let a malformed TOML break the canonical registry.
+    import logging as _logging
+
+    _logging.getLogger(__name__).exception(
+        "custom visual registry merge failed; canonical set unchanged"
+    )
+
+
 __all__ = [
     "CANONICAL_VISUAL_TYPES",
     "DEFAULT_SIZES",

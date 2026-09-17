@@ -137,6 +137,30 @@ def _build_generate_parser() -> argparse.ArgumentParser:
             "experiments or higher for large batches."
         ),
     )
+    parser.add_argument(
+        "--custom-visual",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help=(
+            "Restrict the planner to a single named custom visual "
+            "(repeatable). Custom visuals are loaded from "
+            "~/.nl2pbip/custom_visuals.toml and merged into the canonical "
+            "visual-type registry on import. Use this flag to scope the "
+            "run to a specific visual — useful when the operator wants "
+            "the LLM to focus on a single chart type and ignore the rest. "
+            "When omitted, all registered visuals remain available."
+        ),
+    )
+    parser.add_argument(
+        "--custom-visuals-file",
+        default=None,
+        help=(
+            "Override the path to custom_visuals.toml. Defaults to "
+            "~/.nl2pbip/custom_visuals.toml. Useful for tests and "
+            "for environment-specific registries."
+        ),
+    )
     return parser
 
 
@@ -183,6 +207,31 @@ def _handle_generate(args: argparse.Namespace) -> None:
 
     catalog = DAXCatalog.from_file(args.dax_library)
     context["dax_catalog_path"] = str(catalog.source_path)
+
+    # Custom-visual registry: when the operator pointed at a
+    # non-default TOML, reload from that path so the registry
+    # reflects this run's config. The default location is
+    # already loaded by ``visual_types`` import-time merge.
+    if args.custom_visuals_file:
+        from nl2pbip import custom_visuals
+
+        custom_visuals.reload(args.custom_visuals_file)
+        custom_visuals.register_custom_visuals_into_registry()
+        context["custom_visuals_file"] = str(args.custom_visuals_file)
+    if args.custom_visual:
+        # Validate the requested names exist in the loaded
+        # registry; raise a helpful error otherwise so the
+        # operator learns about the typo before the LLM runs.
+        from nl2pbip import custom_visuals
+
+        available = {s.name for s in custom_visuals.get_custom_visual_specs()}
+        unknown = [n for n in args.custom_visual if n not in available]
+        if unknown:
+            raise SystemExit(
+                f"--custom-visual {unknown!r} not in registry. "
+                f"Available: {sorted(available)}"
+            )
+        context["custom_visual_filter"] = list(args.custom_visual)
 
     llm = StructuredLLMClient(
         provider=args.provider,
