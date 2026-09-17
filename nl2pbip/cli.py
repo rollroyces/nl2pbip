@@ -161,6 +161,18 @@ def _build_generate_parser() -> argparse.ArgumentParser:
             "for environment-specific registries."
         ),
     )
+    parser.add_argument(
+        "--plan-chunk-size",
+        type=int,
+        default=0,
+        help=(
+            "Slice the generated plan into N-step chunks and emit progress "
+            "between chunks. 0 (default) keeps the legacy single-shot behaviour; "
+            "set to e.g. 3 to flush partial state every 3 tool calls (useful "
+            "for very long plans where you want to log progress or push partial "
+            "results to a queue)."
+        ),
+    )
     return parser
 
 
@@ -247,8 +259,14 @@ def _handle_generate(args: argparse.Namespace) -> None:
     max_cost_usd: Optional[float] = args.max_cost_usd
     if max_cost_usd is not None and max_cost_usd <= 0:
         max_cost_usd = None
+    # ``--plan-chunk-size`` (default 0) opts into streaming plan
+    # execution. ``0`` keeps the legacy single-shot path.
+    plan_chunk_size: int = max(0, int(args.plan_chunk_size or 0))
     orchestrator = Orchestrator(
-        llm_client=llm, dax_catalog=catalog, max_cost_usd=max_cost_usd
+        llm_client=llm,
+        dax_catalog=catalog,
+        max_cost_usd=max_cost_usd,
+        plan_chunk_size=plan_chunk_size,
     )
     register_builtin_tools(orchestrator)
 
