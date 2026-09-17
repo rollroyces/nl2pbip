@@ -45,7 +45,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import tomllib
+import tomllib  # type: ignore[import-not-found]  # Python 3.11+ stdlib; pyproject pins 3.10
 
 logger = logging.getLogger(__name__)
 
