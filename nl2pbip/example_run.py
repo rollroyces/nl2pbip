@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import argparse
 import json
+import logging
+import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from nl2pbip.orchestrator import Orchestrator, register_builtin_tools
 from nl2pbip.pbir_engine import REPORT_PATH_KEY
 from nl2pbip.tmdl_engine import MODEL_PATH_KEY
+
+# Module-level logger — emits at INFO by default; use
+# ``--log-level`` on the CLI to override. Captured by the root
+# handler so the smoke test in
+# ``tests/test_repo_templates.py::TestRepoTemplateIntegration::
+# test_example_run_produces_fabric_metadata`` continues to see
+# output (it asserts on the artifact files, not on stdout).
+logger = logging.getLogger(__name__)
 
 
 class StaticPlanLLM:
@@ -165,7 +176,40 @@ def build_sample_plan(project_dir: Path) -> List[Dict[str, Any]]:
     ]
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
+    """Run the example plan end-to-end.
+
+    Accepts an optional ``argv`` list so the function can be
+    unit-tested without mutating ``sys.argv``. The default
+    ``None`` reads ``sys.argv[1:]`` for parity with the CLI
+    convention used elsewhere in the package.
+
+    Recognised flags:
+
+    * ``--log-level LEVEL`` — one of DEBUG / INFO / WARNING /
+      ERROR / CRITICAL (case-insensitive). Defaults to INFO.
+      The level applies to the ``nl2pbip.example_run``
+      logger; the root logger keeps WARNING so unrelated
+      library noise doesn't leak into the demo output.
+    """
+    parser = argparse.ArgumentParser(
+        prog="python -m nl2pbip.example_run",
+        description="End-to-end demo: builds a PBIP folder from a "
+        "static plan (mock LLM).",
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Logging level for the demo logger (default: INFO).",
+    )
+    parsed = parser.parse_args(argv if argv is not None else sys.argv[1:])
+    logging.basicConfig(
+        level=getattr(logging, parsed.log_level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    logger.setLevel(getattr(logging, parsed.log_level.upper(), logging.INFO))
+
     # Resolve the project root regardless of whether example_run.py is
     # imported as a script or as ``python -m nl2pbip.example_run``.
     # ``Path(__file__).parent`` is the package directory; the example
@@ -205,11 +249,11 @@ def main() -> None:
     prompt = "Create a sales insights dashboard with date intelligence and region breakdowns."
     results = orchestrator.run(prompt, context=context)
 
-    print("Executed plan containing", len(results), "steps.")
+    logger.info("Executed plan containing %d steps.", len(results))
     for result in results:
-        print(f"- {result.tool}: {result.output}")
+        logger.info("- %s: %s", result.tool, result.output)
 
-    print("PBIP output located at:", plan[-1]["args"]["output_path"])
+    logger.info("PBIP output located at: %s", plan[-1]["args"]["output_path"])
 
 
 if __name__ == "__main__":

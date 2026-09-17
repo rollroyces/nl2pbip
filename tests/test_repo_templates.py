@@ -1373,3 +1373,54 @@ class TestRepoTemplateIntegration:
             # Each file should be valid JSON (or in the case of
             # .pbip, also valid JSON).
             json.loads(path.read_text())
+
+    def test_example_run_supports_log_level_flag(self) -> None:
+        """``python -m nl2pbip.example_run`` must accept a
+        ``--log-level`` flag and emit the per-step summary
+        line via the standard ``logging`` machinery (not
+        ``print``). The output should land on stderr because
+        that's ``logging.basicConfig``'s default stream — a
+        regression that switches back to ``print(..., end="\\n")``
+        would land on stdout and the assertion below would
+        catch it.
+
+        The default level is INFO; we accept both the
+        explicit ``--log-level INFO`` form and the implicit
+        default. The point is the CLI flag exists, parses,
+        and routes through ``logging``.
+        """
+        import subprocess
+        import sys
+
+        artifact_dir = REPO_ROOT / "artifacts"
+        if artifact_dir.exists():
+            import shutil
+
+            shutil.rmtree(artifact_dir)
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "nl2pbip.example_run",
+                "--log-level",
+                "INFO",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+            timeout=60,
+        )
+        assert result.returncode == 0, (
+            f"example_run --log-level INFO failed: " f"{result.stderr[-500:]}"
+        )
+        # ``logging.basicConfig`` writes to stderr by default;
+        # verify the per-step summary line is there.
+        assert "Executed plan containing" in result.stderr, (
+            "example_run should emit the per-step summary via "
+            "logging on stderr — got: " + result.stderr[-500:]
+        )
+        assert "PBIP output located at:" in result.stderr, (
+            "example_run should emit the final 'PBIP output "
+            "located at:' line via logging on stderr — got: " + result.stderr[-500:]
+        )

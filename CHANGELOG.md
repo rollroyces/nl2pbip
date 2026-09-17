@@ -71,6 +71,27 @@ to [Semantic Versioning](https://semver.org/).
   works under CI (no `.venv` mounted) and locally.
 
 ### Changed
+- **`example_run.py`: replace ``print(...)`` with the
+  standard ``logging`` machinery.** Three ``print`` calls
+  (the per-step summary, the per-tool result lines, the
+  final "PBIP output located at" line) now route through
+  ``logger = logging.getLogger(__name__)`` + ``logger.info``.
+  Default level INFO. Added a ``--log-level`` CLI flag
+  (``DEBUG / INFO / WARNING / ERROR / CRITICAL``,
+  case-sensitive uppercase) so callers can dial verbosity
+  without editing the source. The signature is now
+  ``main(argv: Optional[List[str]] = None)`` — accepts
+  ``argv`` so the function is unit-testable without
+  mutating ``sys.argv``.
+
+  Regression test:
+  ``tests/test_repo_templates.py::
+  TestRepoTemplateIntegration::test_example_run_supports_log_level_flag``
+  invokes the demo as a subprocess with
+  ``--log-level INFO`` and asserts both summary lines land
+  on stderr (which is where ``logging.basicConfig``
+  writes by default — a regression to ``print`` would
+  route them to stdout and this test would catch it).
 - **mypy: tighten `[tool.mypy]` with `strict_equality` +
   `no_implicit_reexport`.** Both flags were previously
   opt-in; the codebase reached strict-clean (0 errors) so
