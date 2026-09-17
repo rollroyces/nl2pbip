@@ -6,6 +6,20 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **CLI smoke test** (`tests/test_cli_smoke.py`): 15
+  subprocess-based assertions verifying that
+  `python -m nl2pbip.cli generate --help` and
+  `python -m nl2pbip.cli --help` exit 0 and surface every
+  flag from `_build_generate_parser`
+  (`--prompt`, `--provider`, `--model`, `--base-url`,
+  `--api-key`, `--workspace`, `--output`, `--project-name`,
+  `--dax-library`, `--export`, `--export-output`,
+  `--api-version`). Parametrised coverage means a regression
+  that drops a single flag surfaces with a precise
+  "missing flag" message. Uses `sys.executable` so the test
+  works under CI (no `.venv` mounted) and locally.
+
 ### Changed
 - **License compliance promoted from soft-fail to gating.**
   The dep tree was audited with `pip-licenses
