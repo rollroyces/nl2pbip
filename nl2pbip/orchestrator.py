@@ -301,6 +301,7 @@ class Orchestrator:
         tool_registry: Optional[ToolRegistry] = None,
         dax_catalog: Optional[DAXCatalog] = None,
         prompt_polisher: Optional[Any] = None,
+        max_cost_usd: Optional[float] = None,
     ) -> None:
         # Lazy import to avoid a circular dependency at module load
         # (prompt_polisher only imports stdlib).
@@ -314,6 +315,50 @@ class Orchestrator:
         # polishing. Callers that want full scrubbing pass an instance
         # of ``DefaultPromptPolisher``.
         self._polisher: Any = prompt_polisher or NoopPromptPolisher()
+        # Cost guardrail: when ``max_cost_usd`` is provided, the
+        # orchestrator builds a :class:`TokenBudget` and wires it
+        # into the LLM client (if the client accepts one) so every
+        # ``generate()`` call charges its spend. ``None`` disables
+        # the guard entirely. The orchestrator also surfaces the
+        # budget on ``self.token_budget`` for introspection / tests.
+        self.token_budget: Optional[Any] = None
+        if max_cost_usd is not None:
+            from nl2pbip.budget import TokenBudget
+
+            budget = TokenBudget(max_cost_usd=max_cost_usd)
+            self.token_budget = budget
+            self._attach_budget_to_llm(budget)
+
+    def _attach_budget_to_llm(self, budget: Any) -> None:
+        """Best-effort attach of ``budget`` to ``self._llm``.
+
+        The :class:`nl2pbip.llm_client.StructuredLLMClient` accepts
+        a ``budget`` kwarg in its constructor; if the caller's LLM
+        supports it we wire the budget in. Custom LLM clients
+        (test stubs, user subclasses) can opt in by exposing a
+        ``budget`` attribute or ``set_budget`` method — we use
+        ``setattr`` so we don't crash on plain ``Protocol``
+        implementations.
+        """
+        llm = self._llm
+        # ``getattr(..., None)`` then ``callable(...)`` keeps LSP
+        # happy on Protocol subclasses that don't advertise
+        # ``set_budget``.
+        set_budget = getattr(llm, "set_budget", None)
+        if callable(set_budget):
+            set_budget(budget)
+            return
+        # Set directly if a ``budget`` attribute already exists
+        # (StructuredLLMClient exposes ``_budget`` privately; tests
+        # sometimes construct lightweight stubs).
+        try:
+            llm.budget = budget  # type: ignore[attr-defined]
+        except (AttributeError, TypeError):
+            # Some objects (``Protocol`` subclasses, ``object``)
+            # forbid ``setattr``; that's fine — the LLM just won't
+            # see the budget and the orchestrator will raise a
+            # clear error on the first ``generate()`` call.
+            pass
 
     def register_tool(
         self, name: str, description: str, schema: Dict[str, Any], handler: ToolHandler

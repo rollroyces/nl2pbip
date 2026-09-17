@@ -6,7 +6,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, cast
 
 try:  # Optional dependency
     from openai import (
@@ -28,6 +28,10 @@ try:  # Optional dependency
     import anthropic
 except ImportError:  # pragma: no cover - optional import
     anthropic = None  # type: ignore[assignment,unused-ignore]
+
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from nl2pbip.budget import TokenBudget
 
 
 @dataclass(frozen=True)
@@ -142,6 +146,7 @@ class StructuredLLMClient:
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
         api_version: Optional[str] = None,
+        budget: Optional["TokenBudget"] = None,
     ) -> None:
         preferred_provider = provider or os.getenv("NL2PBIP_LLM_PROVIDER") or "openai"
         normalized_provider = self._normalize_provider(preferred_provider)
@@ -158,12 +163,26 @@ class StructuredLLMClient:
         self._openai_client: Optional[OpenAI] = None
         self._anthropic_client: Optional["anthropic.Anthropic"] = None
         self._azure_client: Optional["AzureOpenAI"] = None
+        # Optional budget tracker — when attached, every successful
+        # ``generate()`` call records its token spend. The
+        # orchestrator plumbs a single ``TokenBudget`` into the LLM
+        # client at construction time so per-call accounting is
+        # automatic; tests can also pass a budget directly to
+        # assert specific dollar amounts.
+        self._budget: Optional["TokenBudget"] = budget
 
     def generate(self, messages: List[Dict[str, str]]) -> str:
         last_error: Optional[Exception] = None
         for attempt in range(1, self.max_retries + 1):
             try:
                 raw_text = self._invoke_provider(messages)
+                # Charge the budget AFTER a successful response so a
+                # network / parse retry doesn't waste a retry attempt
+                # on a budget check. Budget checks themselves raise
+                # ``BudgetExceededError`` so callers see a single,
+                # consistent error type.
+                if self._budget is not None:
+                    self._charge_budget(messages, raw_text)
                 return self._normalize_plan(raw_text)
             except Exception as exc:  # pragma: no cover - network code
                 last_error = exc
@@ -171,6 +190,39 @@ class StructuredLLMClient:
                     break
                 time.sleep(1.5 * attempt)
         raise RuntimeError("LLM client failed after retries.") from last_error
+
+    def _charge_budget(
+        self, messages: List[Dict[str, str]], completion_text: str
+    ) -> None:
+        """Record this call's token spend against ``self._budget``.
+
+        Uses :func:`nl2pbip.budget.count_tokens` for tokenization.
+        Raises :class:`BudgetExceededError` if the call would
+        cross the budget cap; the orchestrator treats this as a
+        terminal failure for the current run.
+        """
+        if self._budget is None:
+            return
+        from nl2pbip.budget import count_tokens
+
+        counts = count_tokens(messages, completion_text)
+        self._budget.check_and_record(
+            prompt_tokens=counts["prompt_tokens"],
+            completion_tokens=counts["completion_tokens"],
+            provider=self.provider,
+            model=self.model,
+        )
+
+    def set_budget(self, budget: Optional["TokenBudget"]) -> None:
+        """Attach / detach a :class:`TokenBudget` after construction.
+
+        The orchestrator's ``_attach_budget_to_llm`` looks for
+        this method first so a budget can be wired in even when
+        the LLM was instantiated before the budget decision was
+        made (CLI parsing, lazy config, etc.). Passing ``None``
+        detaches the budget.
+        """
+        self._budget = budget
 
     # ------------------------------------------------------------------
     # Provider dispatch

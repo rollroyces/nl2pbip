@@ -11,14 +11,14 @@
 [![PyPI](https://img.shields.io/pypi/v/nl2pbip.svg)](https://pypi.org/project/nl2pbip/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#installation)
 [![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
-[![Tests](https://img.shields.io/badge/tests-852%20collected%2C%20838%20passing-brightgreen.svg)](#test-counts)
+[![Tests](https://img.shields.io/badge/tests-872%20collected%2C%20857%20passing-brightgreen.svg)](#test-counts)
 [![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
 [![mypy --strict](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml)
 [![Bandit](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml)
 
 ## Contents
 
-- [What ships in v1.3.5](#what-ships-in-v135)
+- [What ships in v1.4.0](#what-ships-in-v140)
 - [5-minute demo](#5-minute-demo-no-llm-required)
 - [Install](#installation)
 - [Quickstart](#quickstart--core-usage)
@@ -46,7 +46,7 @@
 
 ---
 
-## What ships in v1.3.5
+## What ships in v1.4.0
 
 | Capability | What it gives you |
 |---|---|
@@ -54,9 +54,10 @@
 | **Fabric Git integration** | `package_pbip` writes `itemMetadata.json` + `.platform` per Fabric item. Validated against the 21 canonical Fabric item types. |
 | **Agentic self-reflection loop** | `Orchestrator.run_with_reflection` records attempts in a `ReflectiveTrace`, runs a post-success critic pass (`correctness` / `completeness` / `alignment_with_prompt`), re-invokes the planner if scores are below threshold. `PlannerClarification` lets the LLM ask the user clarifying questions. |
 | **Pre-LLM prompt polish layer** | `DefaultPromptPolisher` runs 7 deterministic scrub passes (encoding, whitespace, length budget, PII, secret, prompt-injection, term canonicalisation) before every LLM call. Pluggable via the `PromptPolisher` ABC + `register_polisher()`. |
+| **Multi-provider cost guardrails** | `TokenBudget` + per-provider pricing tables in `nl2pbip.pricing` track cumulative LLM spend; `--max-cost-usd N` (default 10.0) CLI flag and `Orchestrator(max_cost_usd=N)` abort with `BudgetExceededError` once spend crosses the cap. Tiktoken-based token counting with a 4-char heuristic fallback when tiktoken isn't installed. |
 | **Type safety** | **0 errors under `mypy --strict`** (down from 77 baseline). Gated by CI since v1.3.5. Heavy ML deps excluded via `[tool.mypy.overrides]`. |
 | **Security automation** | 13 GitHub Actions workflows cover CI matrix, CodeQL, actionlint, OpenSSF Scorecard, stale bot, mypy --strict, Gitleaks, Bandit (gating), Vulture (gating), `pip-licenses`, PR labeler, Renovate. See [CI/CD integration](#cicd-integration). |
-| **13 PyPI releases** | `v1.1.0` … `v1.3.5` live at https://pypi.org/project/nl2pbip/. Trusted publishing via OIDC — no API token in the repo. |
+| **13 PyPI releases** | `v1.1.0` … `v1.4.0` live at https://pypi.org/project/nl2pbip/. Trusted publishing via OIDC — no API token in the repo. |
 
 The full history of capabilities and the changelog are in [`CHANGELOG.md`](./CHANGELOG.md).
 
@@ -769,7 +770,7 @@ nl2pbip/
 │   └── finetune/
 │       ├── dataset_generator.py  # instructor + OpenAI synthetic data
 │       └── train.py            # Unsloth + trl SFT + GGUF export
-├── tests/                      # 852 pytest cases across 23 test files
+├── tests/                      # 872 pytest cases across 23 test files
 ├── artifacts/                  # example Run output (SalesInsights.pbipdir)
 ├── .github/                    # workflows, issue templates, CODEOWNERS,
 │                               # renovate.json, labeler.yml, SECURITY.md, etc.
@@ -783,7 +784,7 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **867 test cases across 23 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **854 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm lo
+Pytest collects **872 test cases across 23 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **854 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Cases |
 |---|---:|
@@ -819,6 +820,21 @@ The benchmark suite is opt-in to keep the default CI run fast:
 ```bash
 NL2PBIP_RUN_BENCHMARKS=1 pytest tests/test_performance.py -s
 ```
+
+### Developer shortcuts
+
+A `Makefile` wraps the full CI-equivalent suite + the most common dev loops so you don't have to remember the exact command lines:
+
+| Target | What it does |
+|---|---|
+| `make test` | `pytest + vulture + black --check + ruff check + mypy --strict + bandit` |
+| `make lint` | `black --check + ruff check` (fast style-only feedback) |
+| `make type` | `mypy --strict` only |
+| `make bench` | `NL2PBIP_RUN_BENCHMARKS=1 pytest tests/test_performance.py -v -s` |
+| `make example` | `python -m nl2pbip.example_run` (the bundled end-to-end demo) |
+| `make clean` | `find . -type d -name __pycache__ -exec rm -rf {} +` |
+
+All recipes use `.venv/bin/` paths so they work with the project's existing venv without requiring system-wide installs of black / mypy / ruff / bandit.
 
 ---
 

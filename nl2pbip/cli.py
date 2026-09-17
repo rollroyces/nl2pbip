@@ -126,6 +126,17 @@ def _build_generate_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional path for the exported PBIX/PBIT file. Defaults to <pbip_dir>.<format>.",
     )
+    parser.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=10.0,
+        help=(
+            "Hard cap on cumulative LLM spend for this run, in USD. "
+            "The orchestrator aborts with BudgetExceededError once cumulative "
+            "spend crosses this cap. Defaults to $10 — set lower for ad-hoc "
+            "experiments or higher for large batches."
+        ),
+    )
     return parser
 
 
@@ -180,7 +191,16 @@ def _handle_generate(args: argparse.Namespace) -> None:
         api_key=args.api_key,
         api_version=args.api_version,
     )
-    orchestrator = Orchestrator(llm_client=llm, dax_catalog=catalog)
+    # The orchestrator builds the ``TokenBudget`` from
+    # ``--max-cost-usd`` and wires it into the LLM client. A
+    # non-positive value disables the guard entirely (useful for
+    # benchmarks / smoke tests that don't want budget bookkeeping).
+    max_cost_usd: Optional[float] = args.max_cost_usd
+    if max_cost_usd is not None and max_cost_usd <= 0:
+        max_cost_usd = None
+    orchestrator = Orchestrator(
+        llm_client=llm, dax_catalog=catalog, max_cost_usd=max_cost_usd
+    )
     register_builtin_tools(orchestrator)
 
     results = orchestrator.run(args.prompt, context=context)
