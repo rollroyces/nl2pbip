@@ -27,7 +27,6 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from nl2pbip.pricing import price_usd_per_token
 
-
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import tiktoken
 else:
@@ -119,9 +118,7 @@ class TokenBudget:
 
     def __post_init__(self) -> None:
         if self.max_cost_usd < 0:
-            raise ValueError(
-                f"max_cost_usd must be >= 0, got {self.max_cost_usd!r}"
-            )
+            raise ValueError(f"max_cost_usd must be >= 0, got {self.max_cost_usd!r}")
 
     @property
     def total_tokens(self) -> int:
@@ -148,10 +145,7 @@ class TokenBudget:
         """
         input_rate = price_usd_per_token(self.provider, self.model)
         output_rate = input_rate * 4.0
-        return (
-            prompt_tokens * input_rate
-            + completion_tokens * output_rate
-        )
+        return prompt_tokens * input_rate + completion_tokens * output_rate
 
     def record_call(
         self,
@@ -171,16 +165,10 @@ class TokenBudget:
         effective_model = model or self.model
         # Recompute the rate against the per-call provider/model
         # if it differs from the budget defaults.
-        if (
-            effective_provider != self.provider
-            or effective_model != self.model
-        ):
+        if effective_provider != self.provider or effective_model != self.model:
             input_rate = price_usd_per_token(effective_provider, effective_model)
             output_rate = input_rate * 4.0
-            cost = (
-                prompt_tokens * input_rate
-                + completion_tokens * output_rate
-            )
+            cost = prompt_tokens * input_rate + completion_tokens * output_rate
         else:
             cost = self.estimate_cost(prompt_tokens, completion_tokens)
         record = CallRecord(
@@ -215,15 +203,9 @@ class TokenBudget:
         """
         effective_provider = provider or self.provider
         effective_model = model or self.model
-        if (
-            effective_provider != self.provider
-            or effective_model != self.model
-        ):
+        if effective_provider != self.provider or effective_model != self.model:
             input_rate = price_usd_per_token(effective_provider, effective_model)
-            cost = (
-                prompt_tokens * input_rate
-                + completion_tokens * (input_rate * 4.0)
-            )
+            cost = prompt_tokens * input_rate + completion_tokens * (input_rate * 4.0)
         else:
             cost = self.estimate_cost(prompt_tokens, completion_tokens)
         if self.would_exceed(cost):

@@ -99,18 +99,14 @@ class TestTokenBudget:
     def test_estimate_cost_uses_input_and_output_rates(self) -> None:
         # 100 prompt + 100 completion tokens on gpt-4o-mini
         # should be 100*input + 100*output (output is 4x input).
-        budget = TokenBudget(
-            max_cost_usd=1.0, provider="openai", model="gpt-4o-mini"
-        )
+        budget = TokenBudget(max_cost_usd=1.0, provider="openai", model="gpt-4o-mini")
         cost = budget.estimate_cost(prompt_tokens=100, completion_tokens=100)
         # gpt-4o-mini input = $0.00000015, output = $0.0000006.
         expected = 100 * 0.00000015 + 100 * (0.00000015 * 4)
         assert cost == pytest.approx(expected, rel=1e-6)
 
     def test_record_call_updates_cumulative_spend(self) -> None:
-        budget = TokenBudget(
-            max_cost_usd=1.0, provider="openai", model="gpt-4o-mini"
-        )
+        budget = TokenBudget(max_cost_usd=1.0, provider="openai", model="gpt-4o-mini")
         record = budget.record_call(prompt_tokens=500, completion_tokens=500)
         assert isinstance(record, CallRecord)
         assert record.total_tokens == 1000
@@ -201,9 +197,7 @@ class TestThousandTokenCallBudget:
         # = $0.0024; total = $0.0006 + $0.0024 = $0.003.
         # Alternatively we use exactly 200 prompt tokens to
         # match the spec dollar figure.
-        record = budget.check_and_record(
-            prompt_tokens=200, completion_tokens=0
-        )
+        record = budget.check_and_record(prompt_tokens=200, completion_tokens=0)
         assert record.cost_usd == pytest.approx(0.0006, rel=0.05)
 
     def test_thousand_prompt_tokens_costs_about_0_0006_at_gpt4o_mini(
@@ -213,12 +207,8 @@ class TestThousandTokenCallBudget:
         # we need 4000 input tokens. (4000 × $0.00000015 =
         # $0.0006.) Use 4000 input tokens as the test case so
         # the LLM call shape is "1000 tokens" worth of cost.
-        budget = TokenBudget(
-            max_cost_usd=1.0, provider="openai", model="gpt-4o-mini"
-        )
-        record = budget.check_and_record(
-            prompt_tokens=4000, completion_tokens=0
-        )
+        budget = TokenBudget(max_cost_usd=1.0, provider="openai", model="gpt-4o-mini")
+        record = budget.check_and_record(prompt_tokens=4000, completion_tokens=0)
         assert record.cost_usd == pytest.approx(0.0006, rel=0.05)
 
     def test_thousand_tokens_aborts_on_tight_budget(self) -> None:
@@ -257,10 +247,7 @@ class TestCountTokens:
     def test_completion_text_counted_separately(self) -> None:
         only_prompt = count_tokens("hello", completion_text="")
         with_completion = count_tokens("hello", completion_text="world" * 100)
-        assert (
-            with_completion["completion_tokens"]
-            > only_prompt["completion_tokens"]
-        )
+        assert with_completion["completion_tokens"] > only_prompt["completion_tokens"]
 
 
 # ----------------------------------------------------------------------
@@ -280,9 +267,7 @@ class _RecordingLLM:
     def set_budget(self, budget: Any) -> None:
         self._budget = budget
 
-    def generate_with_budget(
-        self, messages: List[Dict[str, str]]
-    ) -> str:
+    def generate_with_budget(self, messages: List[Dict[str, str]]) -> str:
         # Mimic StructuredLLMClient's generate flow when a
         # budget is attached: count tokens, charge, return
         # completion.
@@ -299,9 +284,7 @@ class _RecordingLLM:
 class TestLLMClientBudgetAttachment:
     def test_orchestrator_attaches_budget_via_set_budget(self) -> None:
         llm = _RecordingLLM()
-        orch = Orchestrator(
-            llm_client=llm, max_cost_usd=1.0
-        )
+        orch = Orchestrator(llm_client=llm, max_cost_usd=1.0)
         assert orch.token_budget is not None
         assert orch.token_budget.max_cost_usd == 1.0
         # The LLM stub exposes ``set_budget``; the orchestrator
@@ -326,9 +309,7 @@ class TestMaxCostUsdCLIFlag:
 
     def test_custom_value_propagates(self) -> None:
         parser = _build_generate_parser()
-        args = parser.parse_args(
-            ["--prompt", "x", "--max-cost-usd", "2.5"]
-        )
+        args = parser.parse_args(["--prompt", "x", "--max-cost-usd", "2.5"])
         assert args.max_cost_usd == pytest.approx(2.5)
 
     def test_parse_args_preserves_max_cost_usd(self) -> None:
@@ -492,9 +473,7 @@ class TestOrchestratorBudgetIntegration:
                     MODEL_PATH_KEY: str(tmp_path / "model.tmdl"),
                     REPORT_PATH_KEY: str(tmp_path / "report.json"),
                     "dax_catalog_path": str(
-                        Path(__file__).parent.parent
-                        / "nl2pbip"
-                        / "dax_library.json"
+                        Path(__file__).parent.parent / "nl2pbip" / "dax_library.json"
                     ),
                 },
             )

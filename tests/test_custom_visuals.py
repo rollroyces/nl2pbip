@@ -25,7 +25,6 @@ import pytest
 
 from nl2pbip import custom_visuals, visual_types
 
-
 # ---------------------------------------------------------------------------
 # Fixtures + helpers
 # ---------------------------------------------------------------------------
@@ -54,8 +53,7 @@ def custom_toml(tmp_path: Path) -> Path:
     """Write a minimal two-entry custom_visuals.toml."""
     toml = tmp_path / "custom_visuals.toml"
     toml.write_text(
-        textwrap.dedent(
-            """
+        textwrap.dedent("""
             [[visual]]
             name = "KPI Tile"
             visualType = "kpiTile"
@@ -65,8 +63,7 @@ def custom_toml(tmp_path: Path) -> Path:
             name = "Revenue Waterfall"
             visualType = "revenueWaterfall"
             description = "Finance waterfall with variance annotations."
-            """
-        ).strip(),
+            """).strip(),
         encoding="utf-8",
     )
     return toml
@@ -111,13 +108,11 @@ class TestCustomVisualLoading:
     def test_missing_name_skipped(self, tmp_path: Path) -> None:
         toml = tmp_path / "custom_visuals.toml"
         toml.write_text(
-            textwrap.dedent(
-                """
+            textwrap.dedent("""
                 [[visual]]
                 visualType = "noNameVisual"
                 description = "row without name"
-                """
-            ).strip(),
+                """).strip(),
             encoding="utf-8",
         )
         specs = custom_visuals.load_custom_visual_specs(toml)
@@ -126,13 +121,11 @@ class TestCustomVisualLoading:
     def test_missing_visual_type_skipped(self, tmp_path: Path) -> None:
         toml = tmp_path / "custom_visuals.toml"
         toml.write_text(
-            textwrap.dedent(
-                """
+            textwrap.dedent("""
                 [[visual]]
                 name = "Anonymous"
                 description = "row without visualType"
-                """
-            ).strip(),
+                """).strip(),
             encoding="utf-8",
         )
         specs = custom_visuals.load_custom_visual_specs(toml)
@@ -144,13 +137,11 @@ class TestCustomVisualLoading:
         # with a warning rather than crashing.
         toml = tmp_path / "custom_visuals.toml"
         toml.write_text(
-            textwrap.dedent(
-                """
+            textwrap.dedent("""
                 [visual]
                 name = "x"
                 visualType = "xVisual"
-                """
-            ).strip(),
+                """).strip(),
             encoding="utf-8",
         )
         specs = custom_visuals.load_custom_visual_specs(toml)
@@ -163,9 +154,7 @@ class TestCustomVisualLoading:
 
 
 class TestRegistryMerge:
-    def test_register_merges_into_canonical_set(
-        self, custom_toml: Path
-    ) -> None:
+    def test_register_merges_into_canonical_set(self, custom_toml: Path) -> None:
         custom_visuals.reload(custom_toml)
         new_types = custom_visuals.register_custom_visuals_into_registry()
         assert set(new_types) == {"kpiTile", "revenueWaterfall"}
@@ -183,9 +172,7 @@ class TestRegistryMerge:
         assert first == ["kpiTile", "revenueWaterfall"]
         assert second == []
 
-    def test_normalize_accepts_custom_visual_type(
-        self, custom_toml: Path
-    ) -> None:
+    def test_normalize_accepts_custom_visual_type(self, custom_toml: Path) -> None:
         """The existing normalizer must recognise the merged types."""
         custom_visuals.reload(custom_toml)
         custom_visuals.register_custom_visuals_into_registry()
@@ -194,9 +181,7 @@ class TestRegistryMerge:
         # Case-insensitive lookup also works (existing path).
         assert visual_types.normalize_visual_type("KPITILE") == "kpiTile"
 
-    def test_validate_accepts_custom_visual_type(
-        self, custom_toml: Path
-    ) -> None:
+    def test_validate_accepts_custom_visual_type(self, custom_toml: Path) -> None:
         custom_visuals.reload(custom_toml)
         custom_visuals.register_custom_visuals_into_registry()
         # Strict validator should not raise on a merged type.

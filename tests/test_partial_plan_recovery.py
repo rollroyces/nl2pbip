@@ -28,7 +28,6 @@ from nl2pbip.orchestrator import (
     try_partial_plan_recovery,
 )
 
-
 # ---------------------------------------------------------------------------
 # Pure-function tests for the recovery algorithm
 # ---------------------------------------------------------------------------
@@ -36,10 +35,7 @@ from nl2pbip.orchestrator import (
 
 class TestTryPartialPlanRecovery:
     def test_recovers_truncated_array(self) -> None:
-        truncated = (
-            '[{"tool":"a","args":{"x":1}},'
-            '{"tool":"b","args":{"y":2}},'
-        )
+        truncated = '[{"tool":"a","args":{"x":1}},' '{"tool":"b","args":{"y":2}},'
         recovery = try_partial_plan_recovery(truncated)
         assert recovery is not None
         assert len(recovery.plan) == 2
@@ -51,9 +47,7 @@ class TestTryPartialPlanRecovery:
         # When the LLM wraps the array in ``{"plan": [...]}``, the
         # recovery must close both the array AND the outer object.
         truncated = (
-            '{"plan":['
-            '{"tool":"a","args":{"x":1}},'
-            '{"tool":"b","args":{"y":2}},'
+            '{"plan":[' '{"tool":"a","args":{"x":1}},' '{"tool":"b","args":{"y":2}},'
         )
         recovery = try_partial_plan_recovery(truncated)
         assert recovery is not None
@@ -92,10 +86,7 @@ class TestTryPartialPlanRecovery:
         assert recovery.last_step.startswith("only(")
 
     def test_consumed_prefix_records_what_was_parsed(self) -> None:
-        truncated = (
-            '[{"tool":"a","args":{"x":1}},'
-            '{"tool":"b","args":{"y":2}},'
-        )
+        truncated = '[{"tool":"a","args":{"x":1}},' '{"tool":"b","args":{"y":2}},'
         recovery = try_partial_plan_recovery(truncated)
         assert recovery is not None
         # The prefix is the substring we actually parsed, useful
@@ -111,10 +102,7 @@ class TestTryPartialPlanRecovery:
         # Default threshold is 1 — passes.
         assert try_partial_plan_recovery(truncated) is not None
         # Threshold of 2 rejects the prefix (only 1 step present).
-        assert (
-            try_partial_plan_recovery(truncated, min_recovered_steps=2)
-            is None
-        )
+        assert try_partial_plan_recovery(truncated, min_recovered_steps=2) is None
 
 
 # ---------------------------------------------------------------------------
@@ -133,9 +121,7 @@ class TestStepSummary:
     def test_truncates_long_args(self) -> None:
         # A long arg gets clipped at 60 chars with an ellipsis.
         long_value = "x" * 200
-        summary = _summarise_plan_step(
-            ToolCall(tool="t", args={"payload": long_value})
-        )
+        summary = _summarise_plan_step(ToolCall(tool="t", args={"payload": long_value}))
         # The repr is bounded so the feedback message stays short.
         assert "..." in summary
         assert len(summary) < 200
@@ -174,10 +160,7 @@ class _ScriptedLLM:
 
 class TestOrchestratorPartialRecovery:
     def test_parse_plan_accepts_truncated_response(self) -> None:
-        truncated = (
-            '[{"tool":"a","args":{"x":1}},'
-            '{"tool":"b","args":{"y":2}},'
-        )
+        truncated = '[{"tool":"a","args":{"x":1}},' '{"tool":"b","args":{"y":2}},'
 
         class _LLM:
             def generate(self, _: List[Dict[str, str]]) -> str:
@@ -204,9 +187,7 @@ class TestOrchestratorPartialRecovery:
             orch._parse_plan("not json")
 
     def test_augment_prompt_emits_continuation_note(self) -> None:
-        orch = Orchestrator(
-            llm_client=_ScriptedLLM(['[{"tool":"a","args":{"x":1}},'])
-        )
+        orch = Orchestrator(llm_client=_ScriptedLLM(['[{"tool":"a","args":{"x":1}},']))
         orch._last_partial_recovery = PartialPlanRecovery(
             plan=[ToolCall(tool="a", args={"x": 1})],
             last_step="a(x=1)",
@@ -233,10 +214,7 @@ class TestOrchestratorPartialRecovery:
         3. Re-prompt the LLM with a continuation note.
         4. Execute the continuation (step c).
         """
-        truncated_first = (
-            '[{"tool":"alpha","args":{}},'
-            '{"tool":"beta","args":{}},'
-        )
+        truncated_first = '[{"tool":"alpha","args":{}},' '{"tool":"beta","args":{}},'
         continuation = '[{"tool":"gamma","args":{}}]'
         llm = _ScriptedLLM([truncated_first, continuation])
         orch = Orchestrator(llm_client=llm)

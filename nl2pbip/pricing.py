@@ -22,7 +22,6 @@ from __future__ import annotations
 
 from typing import Dict
 
-
 # Hardcoded fallback for any provider/model we don't have an
 # explicit entry for. 3 micro-USD / token ≈ $3 / 1M tokens — a
 # conservative middle of the gpt-4o-mini band.

@@ -372,9 +372,7 @@ class Orchestrator:
         # so callers can log progress / snapshot state / push
         # to a queue.
         if plan_chunk_size < 0:
-            raise ValueError(
-                f"plan_chunk_size must be >= 0, got {plan_chunk_size!r}"
-            )
+            raise ValueError(f"plan_chunk_size must be >= 0, got {plan_chunk_size!r}")
         self.plan_chunk_size = plan_chunk_size
         self.on_plan_chunk_complete = on_plan_chunk_complete
         # ``_last_partial_recovery`` holds the most recent
@@ -598,9 +596,7 @@ class Orchestrator:
                 if attempt == max_total:
                     trace.attempts.append(record)
                     record.plan = list(recovery.plan)
-                    record.results = self._execute_plan(
-                        recovery.plan, context
-                    )
+                    record.results = self._execute_plan(recovery.plan, context)
                     successful_results = record.results
                     break
                 try:
@@ -2209,4 +2205,3 @@ def try_partial_plan_recovery(
             consumed_prefix=candidate_prefix,
         )
     return None
-

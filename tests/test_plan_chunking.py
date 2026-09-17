@@ -147,9 +147,7 @@ class TestPlanChunking:
         """
         batches: List[List[str]] = []
 
-        def _on_complete(
-            results: List[Any], _context: Dict[str, Any]
-        ) -> None:
+        def _on_complete(results: List[Any], _context: Dict[str, Any]) -> None:
             # Capture just the tool names of the cumulative
             # results-so-far so we can verify the batches.
             batches.append([r.tool for r in results])
@@ -221,9 +219,7 @@ class TestPlanChunking:
         baseline_dir.mkdir()
         orch_no_chunk = Orchestrator(llm_client=_StaticLLM(plan_factory(baseline_dir)))
         register_builtin_tools(orch_no_chunk)
-        baseline = orch_no_chunk.run(
-            "anything", context=_ctx(baseline_dir)
-        )
+        baseline = orch_no_chunk.run("anything", context=_ctx(baseline_dir))
 
         # Chunked variant — fresh workspace, same plan shape.
         chunked_dir = tmp_path / "chunked"
@@ -266,9 +262,7 @@ class TestPlanChunking:
         """chunk_size=1 = max granularity; hook fires after every tool."""
         hook_calls = 0
 
-        def _on_complete(
-            _results: List[Any], _context: Dict[str, Any]
-        ) -> None:
+        def _on_complete(_results: List[Any], _context: Dict[str, Any]) -> None:
             nonlocal hook_calls
             hook_calls += 1
 
@@ -285,9 +279,7 @@ class TestPlanChunking:
         """A chunk size >= plan length fires the hook exactly once."""
         hook_calls = 0
 
-        def _on_complete(
-            _results: List[Any], _context: Dict[str, Any]
-        ) -> None:
+        def _on_complete(_results: List[Any], _context: Dict[str, Any]) -> None:
             nonlocal hook_calls
             hook_calls += 1
 
@@ -300,15 +292,11 @@ class TestPlanChunking:
         orchestrator.run("anything", context=_ctx(tmp_path))
         assert hook_calls == 1
 
-    def test_chunk_size_zero_keeps_legacy_single_shot(
-        self, tmp_path: Path
-    ) -> None:
+    def test_chunk_size_zero_keeps_legacy_single_shot(self, tmp_path: Path) -> None:
         """chunk_size=0 (default) does NOT invoke the hook."""
         hook_calls = 0
 
-        def _on_complete(
-            _results: List[Any], _context: Dict[str, Any]
-        ) -> None:
+        def _on_complete(_results: List[Any], _context: Dict[str, Any]) -> None:
             nonlocal hook_calls
             hook_calls += 1
 
@@ -346,9 +334,7 @@ class TestPlanChunkSizeCLIFlag:
 
     def test_custom_value_propagates(self) -> None:
         parser = _build_generate_parser()
-        args = parser.parse_args(
-            ["--prompt", "x", "--plan-chunk-size", "5"]
-        )
+        args = parser.parse_args(["--prompt", "x", "--plan-chunk-size", "5"])
         assert args.plan_chunk_size == 5
 
     def test_parse_args_preserves_plan_chunk_size(self) -> None:
@@ -363,9 +349,7 @@ class TestPlanChunkSizeCLIFlag:
 class TestChunkedRunBudgetInteraction:
     """Streaming + cost guardrail compose without surprises."""
 
-    def test_budget_still_records_calls_for_chunked_runs(
-        self, tmp_path: Path
-    ) -> None:
+    def test_budget_still_records_calls_for_chunked_runs(self, tmp_path: Path) -> None:
         from nl2pbip.budget import TokenBudget
 
         llm = _StaticLLM(_seven_step_plan(tmp_path))

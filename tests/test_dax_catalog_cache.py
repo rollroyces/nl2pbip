@@ -32,7 +32,6 @@ from nl2pbip.dax_catalog import (
     invalidate_cache,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -68,6 +67,7 @@ def _mutate_library(path: Path, extra_pattern_key: str) -> None:
     # explicitly so the watcher's stat() sees the change.
     future = time.time() + 1.0
     import os
+
     os.utime(path, (future, future))
 
 
@@ -90,9 +90,7 @@ class TestDAXCatalogCache:
         second = get_default_catalog(str(bundled_library_copy))
         assert first is second  # cache hit, same object
 
-    def test_explicit_invalidate_reloads(
-        self, bundled_library_copy: Path
-    ) -> None:
+    def test_explicit_invalidate_reloads(self, bundled_library_copy: Path) -> None:
         first = get_default_catalog(str(bundled_library_copy))
         assert invalidate_cache(str(bundled_library_copy)) is True
         second = get_default_catalog(str(bundled_library_copy))
@@ -115,9 +113,7 @@ class TestDAXCatalogCache:
         assert invalidate_cache() is True
         assert _CATALOG_CACHE == {}
 
-    def test_mtime_change_forces_reload(
-        self, bundled_library_copy: Path
-    ) -> None:
+    def test_mtime_change_forces_reload(self, bundled_library_copy: Path) -> None:
         first = get_default_catalog(str(bundled_library_copy))
         assert first.patterns == first.patterns  # sanity
         # Mutate the file and bump mtime explicitly.
@@ -128,9 +124,7 @@ class TestDAXCatalogCache:
         assert first is not second
         assert "sentinel_one" in second.patterns
 
-    def test_cache_key_normalises_paths(
-        self, bundled_library_copy: Path
-    ) -> None:
+    def test_cache_key_normalises_paths(self, bundled_library_copy: Path) -> None:
         # Same file via two different relative spellings → same key.
         assert _cache_key(bundled_library_copy) == _cache_key(
             bundled_library_copy.resolve()
@@ -165,9 +159,7 @@ class TestDAXCatalogFileWatcher:
         get_default_catalog(str(bundled_library_copy))
         assert _cache_key(bundled_library_copy) in _CATALOG_CACHE
 
-        watcher = DAXCatalogFileWatcher(
-            str(bundled_library_copy), interval_s=0.5
-        )
+        watcher = DAXCatalogFileWatcher(str(bundled_library_copy), interval_s=0.5)
         callback_seen: Dict[str, Any] = {}
         event = threading.Event()
 
@@ -197,9 +189,7 @@ class TestDAXCatalogFileWatcher:
                 )
 
             # The user-supplied on_change callback also fires.
-            assert event.wait(timeout=1.0), (
-                "watcher on_change callback did not fire"
-            )
+            assert event.wait(timeout=1.0), "watcher on_change callback did not fire"
             assert callback_seen["path"] == bundled_library_copy
         finally:
             watcher.stop(wait=True)
@@ -213,13 +203,12 @@ class TestDAXCatalogFileWatcher:
         consumer reloads with the new pattern visible.
         """
         get_default_catalog(str(bundled_library_copy))
-        assert "sentinel_reload" not in get_default_catalog(
-            str(bundled_library_copy)
-        ).patterns
-
-        watcher = DAXCatalogFileWatcher(
-            str(bundled_library_copy), interval_s=0.5
+        assert (
+            "sentinel_reload"
+            not in get_default_catalog(str(bundled_library_copy)).patterns
         )
+
+        watcher = DAXCatalogFileWatcher(str(bundled_library_copy), interval_s=0.5)
         watcher.start()
         try:
             _mutate_library(bundled_library_copy, "sentinel_reload")
@@ -237,23 +226,15 @@ class TestDAXCatalogFileWatcher:
         finally:
             watcher.stop(wait=True)
 
-    def test_watcher_stop_is_idempotent(
-        self, bundled_library_copy: Path
-    ) -> None:
-        watcher = DAXCatalogFileWatcher(
-            str(bundled_library_copy), interval_s=10.0
-        )
+    def test_watcher_stop_is_idempotent(self, bundled_library_copy: Path) -> None:
+        watcher = DAXCatalogFileWatcher(str(bundled_library_copy), interval_s=10.0)
         watcher.start()
         watcher.stop()
         watcher.stop()  # must not raise
         watcher.stop(wait=True)
 
-    def test_watcher_start_is_idempotent(
-        self, bundled_library_copy: Path
-    ) -> None:
-        watcher = DAXCatalogFileWatcher(
-            str(bundled_library_copy), interval_s=10.0
-        )
+    def test_watcher_start_is_idempotent(self, bundled_library_copy: Path) -> None:
+        watcher = DAXCatalogFileWatcher(str(bundled_library_copy), interval_s=10.0)
         watcher.start()
         first_timer = watcher._timer
         watcher.start()  # must not schedule a second timer

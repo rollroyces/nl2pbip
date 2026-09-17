@@ -301,9 +301,7 @@ class DAXCatalogFileWatcher:
     ) -> None:
         if interval_s <= 0:
             raise ValueError(f"interval_s must be > 0, got {interval_s!r}")
-        self.path = (
-            Path(path).expanduser() if path else DEFAULT_DAX_LIBRARY_PATH
-        )
+        self.path = Path(path).expanduser() if path else DEFAULT_DAX_LIBRARY_PATH
         self.interval_s = interval_s
         self.on_change = on_change
         self._timer: Optional[threading.Timer] = None
@@ -337,9 +335,7 @@ class DAXCatalogFileWatcher:
                 try:
                     self.on_change(self.path)
                 except Exception:  # pragma: no cover - user callback
-                    logger.exception(
-                        "DAX library watcher on_change callback raised"
-                    )
+                    logger.exception("DAX library watcher on_change callback raised")
         self._schedule_next()
 
     def _schedule_next(self) -> None:
@@ -373,9 +369,7 @@ class DAXCatalogFileWatcher:
             if wait:
                 timer.join(timeout=self.interval_s + 1.0)
 
-    def wait_for_change(
-        self, timeout_s: float, *, poll_s: float = 0.05
-    ) -> bool:
+    def wait_for_change(self, timeout_s: float, *, poll_s: float = 0.05) -> bool:
         """Block until the watcher observes a mtime change or times out.
 
         Test helper. Returns ``True`` once a change was observed,

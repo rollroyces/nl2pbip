@@ -700,9 +700,7 @@ TIER2_MIN_DISTINCT = 20
 TIER2_CARDINALITY_RATIO = 3.0
 
 
-def _tier2_promotion(
-    small_prof: ColumnProfile, large_prof: ColumnProfile
-) -> bool:
+def _tier2_promotion(small_prof: ColumnProfile, large_prof: ColumnProfile) -> bool:
     """Return True when a pair qualifies for tier-2 ('strong') confidence.
 
     Both endpoints must carry at least

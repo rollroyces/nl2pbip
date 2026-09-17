@@ -94,9 +94,7 @@ def _parse_visual_table(table: Dict[str, Any]) -> Optional[CustomVisualSpec]:
     name = table.get("name")
     visual_type = table.get("visualType")
     if not isinstance(name, str) or not name.strip():
-        logger.warning(
-            "custom_visuals.toml entry missing 'name'; skipping: %r", table
-        )
+        logger.warning("custom_visuals.toml entry missing 'name'; skipping: %r", table)
         return None
     if not isinstance(visual_type, str) or not visual_type.strip():
         logger.warning(
@@ -126,7 +124,9 @@ def load_custom_visual_specs(path: Optional[Path] = None) -> List[CustomVisualSp
     treated as no visuals registered (with a warning so the
     operator knows the file was read but ignored).
     """
-    target = Path(path).expanduser() if path is not None else DEFAULT_CUSTOM_VISUALS_PATH
+    target = (
+        Path(path).expanduser() if path is not None else DEFAULT_CUSTOM_VISUALS_PATH
+    )
     if not target.exists():
         return []
     try:
