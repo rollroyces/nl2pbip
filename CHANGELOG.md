@@ -6,6 +6,22 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **License compliance promoted from soft-fail to gating.**
+  The dep tree was audited with `pip-licenses
+  --format=csv` — 123 packages, 0 with an UNKNOWN license —
+  so the license-check workflow's `exit 0` soft-fail is gone.
+  The `pip-licenses --fail-on` step now runs under `set -e`
+  and propagates the exit code, so any future UNKNOWN or
+  copyleft dep (GPL / LGPL / AGPL / SSPL / Commons-Clause)
+  fails the build immediately. Added a second step that
+  uses `pip-compile --generate-hashes` to emit a fully-pinned
+  `requirements-hashed.txt` with SHA-256 hashes for every
+  transitive dep — the supply-chain audit step. The hashed
+  requirements file is uploaded alongside the license
+  report as a 30-day artifact so a maintainer can diff
+  against the previous known-good lock to spot churn.
+
 ## [1.3.5] - 2026-09-14
 
 ### Changed

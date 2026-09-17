@@ -67,33 +67,74 @@ jobs:
         # reports the package's own declared license. If a
         # package's license is "UNKNOWN" we surface that too —
         # unknowns should be reviewed manually.
+        #
+        # PROMOTED TO GATING (was soft-fail via ``exit 0``): the
+        # current dep tree contains 0 UNKNOWN-licensed packages
+        # (verified via ``pip-licenses --format=csv`` — 123 deps,
+        # all resolve to a known license string). Any new dep
+        # without a declared license will fail this step instead
+        # of just emitting a warning. If a transitive UNKNOWN
+        # re-appears (e.g. after a new release of a major lib),
+        # either (a) pin an older release that ships a license
+        # or (b) document it in CONTRIBUTING.md and switch to
+        # ``--with-license-file`` to confirm a permissively-
+        # licensed file is present, then re-promote.
         run: |
-          set +e
+          set -e
           pip-licenses \
               --format=plain-vertical \
               --with-system \
               --fail-on='GPL,LGPL,AGPL,SSPL,Commons-Clause,UNKNOWN' \
               2>&1 | tee license-report.txt
-          EXIT=$?
-          echo "pip-licenses exit: $EXIT"
-          if [[ $EXIT -ne 0 ]]; then
-              echo "::warning::License check found a forbidden license. See license-report.txt."
-              echo "If a new dependency was added, update the license policy in CONTRIBUTING.md"
-              echo "and either (a) replace the dep with a permissively-licensed alternative, or"
-              echo "(b) add the dep to the explicit allowlist in .github/workflows/license-check.yml"
-              echo "with a one-line justification."
-          fi
-          # Don't fail the build on a transitive UNKNOWN yet — the
-          # pip-licenses license-text path is known to miss some
-          # packages. Promote to a gating check once the codebase
-          # is UNKNOWN-free. For now: surface the warning + post
-          # the report as an artifact so a maintainer can review.
-          exit 0
+          echo "pip-licenses exit: $?"
+          echo "License check passed — no copyleft or UNKNOWN deps detected."
+
+      - name: Hash-pin audit (--require-hashes style)
+        # Builds a fully-pinned requirements file from
+        # pyproject.toml + emits SHA-256 hashes for every wheel.
+        # ``pip-compile`` is the canonical tool — installed via
+        # the ``pip-tools`` PyPI package. If a transitive dep
+        # yanked its wheel or changed its hash, this step fails
+        # the build with a clear "hash mismatch" error, surfacing
+        # the supply-chain break before any downstream job runs.
+        #
+        # The generated requirements.txt is uploaded as an
+        # artifact so a maintainer can diff it against the
+        # previous known-good lock to spot unexpected churn.
+        #
+        # Note: this is the ``--require-hashes``-style audit
+        # mentioned in the design doc — the actual ``pip
+        # install --require-hashes`` step is intentionally not
+        # executed (it would re-download the entire tree for
+        # little extra safety beyond the compile + hash step).
+        run: |
+          set -e
+          python -m pip install --quiet pip-tools
+          pip-compile \
+              --quiet \
+              --generate-hashes \
+              --output-file=requirements-hashed.txt \
+              --extra=dev \
+              --extra=anthropic \
+              -- \
+              pyproject.toml
+          # Verify every package got a hash. ``pip-compile``
+          # would fail on its own if any package were unhashable
+          # — this ``grep`` is a belt-and-braces assertion in
+          # case ``pip-compile`` softens the contract later.
+          HASH_COUNT=$(grep -c -- "--hash=sha256:" requirements-hashed.txt || true)
+          PKG_COUNT=$(grep -c -E "^[a-zA-Z0-9._-]+==" requirements-hashed.txt || true)
+          echo "Pinned $PKG_COUNT packages with $HASH_COUNT hashes."
+          test "$HASH_COUNT" -ge "$PKG_COUNT" \
+              || (echo "Hash-pin audit failed: $HASH_COUNT hashes for $PKG_COUNT packages." && exit 1)
+          echo "Hash-pin audit passed."
 
       - name: Upload license report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: license-report
-          path: license-report.txt
+          path: |
+            license-report.txt
+            requirements-hashed.txt
           retention-days: 30

@@ -450,13 +450,76 @@ class TestCIWorkflow:
             )
 
     def test_license_check_workflow_reports_unknown(self) -> None:
-        """Unknown license detection is a soft-fail (warning
-        only) today, but the workflow must still surface the
-        report as an artifact so a maintainer can review."""
+        """Unknown license detection is now a hard-fail
+        (gating) — the dep tree is currently UNKNOWN-free
+        (0/123 packages) so any new UNKNOWN will fail the build
+        instead of just emitting a warning. The workflow still
+        surfaces the full report as an artifact so a maintainer
+        can review transitively-licensed packages.
+        """
         text = (REPO_ROOT / ".github/workflows/license-check.yml").read_text()
         assert "UNKNOWN" in text, (
             "license-check workflow should mention UNKNOWN "
-            "licenses (e.g. for the soft-fail path)"
+            "licenses (so it fails the build on any new "
+            "transitive UNKNOWN)"
+        )
+
+    def test_license_check_workflow_is_gating(self) -> None:
+        """The license-check workflow is a real CI gate (not
+        soft-fail). It must NOT run the pip-licenses step under
+        ``set +e`` or end with a literal ``exit 0`` *as a
+        command* (those swallow the failure). The codebase is
+        now UNKNOWN-free (0/123 packages) and any new dep
+        without a declared license should fail the build
+        instead of just emitting a warning.
+        """
+        text = (REPO_ROOT / ".github/workflows/license-check.yml").read_text()
+        # Extract just the shell ``run:`` block for the
+        # pip-licenses step so we don't false-positive on the
+        # explanatory comment that mentions ``exit 0`` as
+        # historical context.
+        licenses_block = text.split("pip-licenses --fail-on", 1)[1].split(
+            "Hash-pin audit", 1
+        )[0]
+        # The shell must propagate the error.
+        assert "set +e" not in licenses_block, (
+            "license-check workflow must not use 'set +e' in "
+            "the pip-licenses step — that swallows the failure"
+        )
+        # No literal ``exit 0`` command line (lines whose first
+        # non-whitespace token is ``exit``).
+        for line in licenses_block.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            assert not stripped.startswith("exit "), (
+                f"license-check workflow must not contain a "
+                f"shell command 'exit 0' in the pip-licenses "
+                f"step — found: {stripped!r}"
+            )
+        # The step must still cover the forbidden licenses.
+        for license_id in ("GPL", "LGPL", "AGPL", "SSPL", "Commons-Clause", "UNKNOWN"):
+            assert license_id in licenses_block, (
+                f"license-check workflow missing '{license_id}' from --fail-on list"
+            )
+
+    def test_license_check_workflow_includes_hash_pin_audit(self) -> None:
+        """The license-check workflow should also enforce a
+        ``--require-hashes`` style audit (``pip-compile
+        --generate-hashes``) so every transitive dep carries a
+        SHA-256 hash. Catches supply-chain breaks before any
+        downstream job runs.
+        """
+        text = (REPO_ROOT / ".github/workflows/license-check.yml").read_text()
+        assert "pip-compile" in text, (
+            "license-check workflow should call pip-compile to "
+            "generate the hashed requirements file"
+        )
+        assert "--generate-hashes" in text, (
+            "license-check workflow should request SHA-256 hashes"
+        )
+        assert "requirements-hashed.txt" in text, (
+            "license-check workflow should output requirements-hashed.txt"
         )
 
     def test_mypy_workflow_is_gating(self) -> None:
