@@ -159,3 +159,152 @@ def test_orchestrator_validates_required_payload_fields(tmp_path: Path) -> None:
                 "report_path": str(tmp_path / "r.json"),
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# Lightweight RAG for model_state (v1.3.6)
+# ---------------------------------------------------------------------------
+from nl2pbip.tmdl_engine import (  # noqa: E402  -- grouped below for clarity
+    TMDLColumn,
+    TMDLModel,
+    TMDLRelationship,
+    TMDLTable,
+    _render_model_body,
+)
+
+
+def _build_multi_table_model(tmp_path: Path) -> Path:
+    """Build a TMDL model file with several unrelated tables + one shared dim.
+
+    The orchestrator's RAG filter must keep only the table(s) the
+    caller is focusing on (via ``data_sources`` keys / lint hints)
+    and drop the rest, plus emit a content-hash so the LLM can
+    verify the unseen tail hasn't drifted.
+    """
+    model_path = tmp_path / "model.tmdl"
+    model = TMDLModel()
+    dim = TMDLTable(name="Date")
+    for col_name, dt in [("Date", "date"), ("Year", "wholeNumber")]:
+        dim.add_column(TMDLColumn(name=col_name, data_type=dt))
+    model.add_table(dim)
+    for table_name, columns in [
+        ("Sales", ["SaleId", "Amount", "Region"]),
+        ("Inventory", ["Sku", "OnHand"]),
+        ("Returns", ["ReturnId", "Reason"]),
+        ("Customers", ["CustomerId", "Email"]),
+        ("Suppliers", ["SupplierId", "Country"]),
+        ("AuditLog", ["EventId", "Actor"]),
+    ]:
+        t = TMDLTable(name=table_name)
+        for col_name in columns:
+            t.add_column(TMDLColumn(name=col_name, data_type="string"))
+        model.add_table(t)
+    model.add_relationship(
+        TMDLRelationship(
+            name="Sales_Date",
+            from_table="Sales",
+            from_column="Date",
+            to_table="Date",
+            to_column="Date",
+            cardinality="manyToOne",
+        )
+    )
+    model_path.write_text(_render_model_body(model), encoding="utf-8")
+    return model_path
+
+
+class TestModelStateRAG:
+    """Regression tests for the model_state RAG filter (Phase 2 / Item 1)."""
+
+    def test_full_model_state_emitted_when_no_hints(self, tmp_path: Path) -> None:
+        """No focus hints → emit the full summary (back-compat)."""
+        model_path = _build_multi_table_model(tmp_path)
+        orch = Orchestrator(llm_client=_StaticLLM([]))
+        summary = orch._summarise_model({MODEL_PATH_KEY: str(model_path)})
+        assert summary is not None
+        assert summary["table_count"] == 7  # Date + 6 facts
+        assert set(summary["tables"].keys()) == {
+            "Date",
+            "Sales",
+            "Inventory",
+            "Returns",
+            "Customers",
+            "Suppliers",
+            "AuditLog",
+        }
+        # No RAG metadata when un-filtered.
+        assert "content_hash" not in summary
+        assert summary.get("rag_filtered") is not True
+
+    def test_filtered_summary_shrinks_with_data_source_hints(
+        self, tmp_path: Path
+    ) -> None:
+        """Tiny data_source focus → summary only contains that slice + hash."""
+        model_path = _build_multi_table_model(tmp_path)
+        full_size = len(
+            json.dumps(
+                Orchestrator(llm_client=_StaticLLM([]))._summarise_model(
+                    {MODEL_PATH_KEY: str(model_path)}
+                )
+            )
+        )
+        ctx = {
+            MODEL_PATH_KEY: str(model_path),
+            "data_sources": {
+                # Only one focus table — RAG should drop the other 5
+                # + the Date dimension (since it's not in the hint).
+                "Sales": [{"SaleId": "S1", "Amount": 10.0}],
+            },
+        }
+        orch = Orchestrator(llm_client=_StaticLLM([]))
+        summary = orch._summarise_model(ctx)
+        assert summary is not None
+        # The RAG slice must be smaller than the full payload.
+        filtered_size = len(json.dumps(summary))
+        assert filtered_size < full_size, (
+            f"RAG filter didn't shrink payload: full={full_size} "
+            f"filtered={filtered_size}"
+        )
+        # Hash + filter markers must be present.
+        assert summary.get("rag_filtered") is True
+        assert isinstance(summary.get("content_hash"), str)
+        assert len(summary["content_hash"]) >= 8
+        # The focus table is included.
+        assert "Sales" in summary["tables"]
+        # Unrelated tables are dropped.
+        assert "Inventory" not in summary["tables"]
+        assert "Returns" not in summary["tables"]
+        assert "Suppliers" not in summary["tables"]
+        # Total table_count reflects the full model (so the LLM
+        # knows there's more than it's seeing).
+        assert summary["table_count"] == 7
+
+    def test_lint_error_hints_keep_referenced_tables(self, tmp_path: Path) -> None:
+        """Recent lint errors mentioning Table[Col] keep those tables."""
+        model_path = _build_multi_table_model(tmp_path)
+        ctx = {
+            MODEL_PATH_KEY: str(model_path),
+            "recent_lint_errors": [
+                "Undefined column Customers[Email] referenced by measure",
+            ],
+        }
+        orch = Orchestrator(llm_client=_StaticLLM([]))
+        summary = orch._summarise_model(ctx)
+        assert summary is not None
+        assert summary.get("rag_filtered") is True
+        assert "Customers" in summary["tables"]
+
+    def test_rag_disabled_via_context(self, tmp_path: Path) -> None:
+        """``model_state_rag_enabled = False`` skips the filter."""
+        model_path = _build_multi_table_model(tmp_path)
+        ctx = {
+            MODEL_PATH_KEY: str(model_path),
+            "data_sources": {"Sales": [{"SaleId": "S1"}]},
+            "model_state_rag_enabled": False,
+        }
+        orch = Orchestrator(llm_client=_StaticLLM([]))
+        summary = orch._summarise_model(ctx)
+        assert summary is not None
+        assert "content_hash" not in summary
+        assert summary.get("rag_filtered") is not True
+        assert summary["table_count"] == 7

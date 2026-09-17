@@ -8,9 +8,11 @@ with the ``LLMClient`` protocol below.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Protocol, cast
+from typing import Any, Callable, Dict, List, Optional, Protocol, Set, cast
 
 from nl2pbip.dax_catalog import DAXCatalog
 from nl2pbip.packager import package_pbip_handler
@@ -302,6 +304,8 @@ class Orchestrator:
         dax_catalog: Optional[DAXCatalog] = None,
         prompt_polisher: Optional[Any] = None,
         max_cost_usd: Optional[float] = None,
+        plan_chunk_size: int = 0,
+        on_plan_chunk_complete: Optional[Any] = None,
     ) -> None:
         # Lazy import to avoid a circular dependency at module load
         # (prompt_polisher only imports stdlib).
@@ -328,6 +332,20 @@ class Orchestrator:
             budget = TokenBudget(max_cost_usd=max_cost_usd)
             self.token_budget = budget
             self._attach_budget_to_llm(budget)
+        # Streaming plan execution: when ``plan_chunk_size`` is
+        # > 0, the orchestrator splits the plan into N-step
+        # chunks and calls ``on_plan_chunk_complete`` after
+        # each one. The default ``0`` keeps the legacy
+        # single-shot behaviour. ``on_plan_chunk_complete`` is a
+        # ``Callable[[List[ToolResult], Dict[str, Any]], None]``
+        # so callers can log progress / snapshot state / push
+        # to a queue.
+        if plan_chunk_size < 0:
+            raise ValueError(
+                f"plan_chunk_size must be >= 0, got {plan_chunk_size!r}"
+            )
+        self.plan_chunk_size = plan_chunk_size
+        self.on_plan_chunk_complete = on_plan_chunk_complete
 
     def _attach_budget_to_llm(self, budget: Any) -> None:
         """Best-effort attach of ``budget`` to ``self._llm``.
@@ -775,6 +793,14 @@ class Orchestrator:
     def _execute_plan(
         self, plan: List[ToolCall], context: Dict[str, Any]
     ) -> List[ToolResult]:
+        # Streaming path: slice the plan into N-step chunks and
+        # call the chunk-complete hook between each one so the
+        # caller can snapshot state / log progress / push to a
+        # queue. ``plan_chunk_size == 0`` (default) preserves
+        # the legacy single-shot behaviour — no hook is
+        # invoked and the chunk math is skipped.
+        if self.plan_chunk_size > 0:
+            return self._execute_plan_chunked(plan, context)
         results: List[ToolResult] = []
         for call in plan:
             spec = self._tools.get(call.tool)
@@ -783,6 +809,38 @@ class Orchestrator:
             payload = {**call.args, "context": context}
             output = spec.handler(**payload)
             results.append(ToolResult(tool=call.tool, args=call.args, output=output))
+        return results
+
+    def _execute_plan_chunked(
+        self, plan: List[ToolCall], context: Dict[str, Any]
+    ) -> List[ToolResult]:
+        """Run ``plan`` in ``plan_chunk_size``-step chunks.
+
+        Between chunks, ``on_plan_chunk_complete`` (if set) is
+        called with ``(chunk_results, context)`` so the caller
+        can persist / log / push-to-queue the partial state.
+        Tools already write to disk (model / report files) on
+        every call, so "persist the partial result" is
+        automatic — the hook just gives observers a chance to
+        see progress.
+        """
+        chunk_size = self.plan_chunk_size
+        results: List[ToolResult] = []
+        for start in range(0, len(plan), chunk_size):
+            chunk = plan[start : start + chunk_size]
+            for call in chunk:
+                spec = self._tools.get(call.tool)
+                spec.validate_payload(call.args)
+                payload = {**call.args, "context": context}
+                output = spec.handler(**payload)
+                results.append(
+                    ToolResult(tool=call.tool, args=call.args, output=output)
+                )
+            if self.on_plan_chunk_complete is not None:
+                # Hand the caller the cumulative results-so-far
+                # (so they can snapshot progress without
+                # re-aggregating) plus the live context.
+                self.on_plan_chunk_complete(list(results), context)
         return results
 
     def _tool_stub(self, spec: ToolSpec) -> Dict[str, Any]:
@@ -1084,6 +1142,15 @@ class Orchestrator:
         enough to detect foreign-key column conventions like
         ``<table>_id`` / ``<table>Id`` and pick the right endpoint
         for a relationship.
+
+        When the existing model is non-empty AND the caller has
+        registered focus hints (data_sources keys, recent lint
+        errors, or an explicit ``user_prompt_focus_tables`` /
+        ``..._columns`` list), this method applies a lightweight
+        RAG filter that emits only the relevant subset of tables
+        plus a stable content-hash so the LLM can verify the
+        unseen tail of the model hasn't drifted. Opt out with
+        ``context["model_state_rag_enabled"] = False``.
         """
         from pathlib import Path as _Path
 
@@ -1117,12 +1184,78 @@ class Orchestrator:
             }
             for rel in model.relationships
         ]
-        return {
+        full = {
             "tables": tables_summary,
             "relationships": relationships_summary,
             "table_count": len(model.tables),
             "relationship_count": len(model.relationships),
         }
+        # RAG filter: when the model already has tables AND the
+        # caller provided focus hints, return only the relevant
+        # subset plus a content-hash so the LLM can verify the
+        # unseen tail without seeing every column.
+        if context.get("model_state_rag_enabled", True) is False:
+            return full
+        if not tables_summary:
+            return full
+        hints = self._collect_model_focus_hints(context)
+        # ``hints`` is always a dict, even when empty — so we have
+        # to check the contents explicitly. An empty hint set means
+        # the caller didn't give us any focus signal, so we fall
+        # back to the full summary (no RAG filter applied).
+        if not hints.get("tables") and not hints.get("columns"):
+            return full
+        filtered = _filter_model_state_for_rag(full, hints)
+        filtered["content_hash"] = _model_state_hash(full)
+        filtered["rag_filtered"] = True
+        filtered["hint_source_count"] = len(hints.get("tables", set()))
+        return filtered
+
+    def _collect_model_focus_hints(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Collect the table/column names the LLM is likely to touch.
+
+        Sources, in priority order:
+
+        1. ``context["data_sources"]`` keys — registered data
+           sources almost always become new or updated tables.
+        2. ``context["recent_lint_errors"]`` — the orchestrator's
+           reflective loop records TMDL validation failures here;
+           a lint error mentioning ``Sales[Amount]`` clearly
+           hints that the LLM should be told about that table.
+        3. ``context["user_prompt_focus_tables"]`` /
+           ``context["user_prompt_focus_columns"]`` — explicit
+           override for callers that already know which subset
+           of the model matters (e.g. a UI that pre-selected
+           tables in a sidebar).
+        """
+        tables: Set[str] = set()
+        columns: Set[str] = set()
+
+        data_sources = context.get("data_sources")
+        if isinstance(data_sources, dict):
+            for key in data_sources.keys():
+                if isinstance(key, str):
+                    tables.add(key)
+
+        for err in context.get("recent_lint_errors") or []:
+            if not isinstance(err, str):
+                continue
+            refs = _extract_table_column_refs(err)
+            tables.update(refs)
+            columns.update(refs)
+
+        focus_tables = context.get("user_prompt_focus_tables") or []
+        if isinstance(focus_tables, list):
+            for t in focus_tables:
+                if isinstance(t, str):
+                    tables.add(t)
+        focus_columns = context.get("user_prompt_focus_columns") or []
+        if isinstance(focus_columns, list):
+            for c in focus_columns:
+                if isinstance(c, str):
+                    columns.add(c)
+
+        return {"tables": tables, "columns": columns}
 
     def _augment_prompt(self, base_prompt: str, feedback: List[str]) -> str:
         if not feedback:
@@ -1677,3 +1810,104 @@ def _matches_type(expected: Any, value: Any) -> bool:
         return False
 
     return isinstance(value, cast(Any, py_type))
+
+
+# ---------------------------------------------------------------------------
+# Lightweight RAG for model_state
+# ---------------------------------------------------------------------------
+# When the model already has tables, sending every column to the LLM
+# on every prompt bloats the planner payload without adding value:
+# the LLM is only going to act on a small subset (the tables mentioned
+# in ``data_sources``, the columns named in recent lint errors, etc.).
+# These helpers emit only the relevant slice + a content hash so the
+# LLM can verify the un-sent tail hasn't drifted.
+
+# ``Table[Column]`` reference used by lint error messages and the
+# relationship validator. ``Column`` alone is matched for cases where
+# the lint message only names one side (rare but cheap to support).
+# Note: ``\b`` before ``[`` is unreliable because Python's ``\b``
+# anchors on word/non-word transitions and ``[`` is non-word, but
+# a preceding underscore-or-letter is already guaranteed by the
+# character class above.
+_TABLE_REFERENCE_RE = re.compile(
+    r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\[([A-Za-z_][A-Za-z0-9_]*)\]"
+)
+
+
+def _extract_table_column_refs(text: str) -> Set[str]:
+    """Extract ``Table[Column]`` style references from a lint message.
+
+    Returns the set of distinct names mentioned — both table and
+    column names — so the caller can use either set as a focus hint.
+    """
+    found: Set[str] = set()
+    for table, column in _TABLE_REFERENCE_RE.findall(text):
+        found.add(table)
+        found.add(column)
+    return found
+
+
+def _filter_model_state_for_rag(
+    full: Dict[str, Any], hints: Dict[str, Set[str]]
+) -> Dict[str, Any]:
+    """Return a copy of ``full`` restricted to the tables/columns in ``hints``.
+
+    Relationships are kept only when both endpoints are in the
+    filtered table set (otherwise the LLM would see dangling
+    references). ``table_count`` and ``relationship_count`` keep
+    their full-model values so the LLM knows the model has more
+    tables than are shown.
+    """
+    focus_tables: Set[str] = set(hints.get("tables") or set())
+    focus_columns: Set[str] = set(hints.get("columns") or set())
+
+    all_tables: Dict[str, Dict[str, Any]] = dict(full.get("tables") or {})
+
+    # Always include a focus table, plus any other table whose name
+    # appears as a column in a focus table's references (typical
+    # "FK name = parent table name" convention).
+    kept_tables: Dict[str, Dict[str, Any]] = {}
+    for table_name, table_payload in all_tables.items():
+        if table_name in focus_tables:
+            kept_tables[table_name] = table_payload
+            continue
+        # If a column hint matches a table name (e.g. hint says
+        # ``customer_id`` and there's a ``Customer`` table), keep it.
+        columns = set((table_payload.get("columns") or {}).keys())
+        if focus_columns & columns:
+            kept_tables[table_name] = table_payload
+
+    # Fallback: if filtering produced an empty slice (no overlap
+    # between hints and model), keep the first 3 tables so the
+    # LLM still sees something concrete rather than an empty
+    # ``tables`` block that triggers schema-invention failures.
+    if not kept_tables and all_tables:
+        for table_name in list(all_tables.keys())[:3]:
+            kept_tables[table_name] = all_tables[table_name]
+
+    kept_table_set = set(kept_tables.keys())
+    kept_relationships = [
+        rel
+        for rel in (full.get("relationships") or [])
+        if rel.get("from", "").split("[", 1)[0] in kept_table_set
+        and rel.get("to", "").split("[", 1)[0] in kept_table_set
+    ]
+
+    return {
+        "tables": kept_tables,
+        "relationships": kept_relationships,
+        "table_count": int(full.get("table_count") or 0),
+        "relationship_count": int(full.get("relationship_count") or 0),
+    }
+
+
+def _model_state_hash(full: Dict[str, Any]) -> str:
+    """Stable content-hash of a model_state summary.
+
+    Uses SHA-256 over a JSON dump with sorted keys so the hash is
+    stable across Python runs and across platforms. The LLM can
+    use this hash to reason about "did the model change since my
+    last view" without seeing every column.
+    """
+    payload = json.dumps(full, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]

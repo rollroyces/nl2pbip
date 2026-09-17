@@ -4,6 +4,11 @@ All notable changes to `nl2pbip` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-09-17
+
+### Added
+- **Lightweight RAG for `model_state`** (closes the 'No built-in RAG' limitation): when the model has tables AND focus hints (data_sources keys, recent lint errors) are registered, the orchestrator emits only the relevant table subset + a stable content-hash instead of dumping the full state.
+
 ## [Unreleased]
 
 ### Added
