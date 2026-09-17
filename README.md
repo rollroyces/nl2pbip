@@ -1073,6 +1073,8 @@ These are honest engineering limits, not aspirational gaps. Filing issues for an
 
 ---
 
+> **Roadmap:** Active phases are tracked in [CHANGELOG.md](./CHANGELOG.md). Deferred items + rationale are in [docs/ROADMAP_DEFERRED.md](./docs/ROADMAP_DEFERRED.md).
+
 ## License
 
 `nl2pbip` is **commercial proprietary software**, © 2026 Royce. All rights reserved.
