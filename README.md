@@ -55,6 +55,8 @@
 | **Agentic self-reflection loop** | `Orchestrator.run_with_reflection` records attempts in a `ReflectiveTrace`, runs a post-success critic pass (`correctness` / `completeness` / `alignment_with_prompt`), re-invokes the planner if scores are below threshold. `PlannerClarification` lets the LLM ask the user clarifying questions. |
 | **Pre-LLM prompt polish layer** | `DefaultPromptPolisher` runs 7 deterministic scrub passes (encoding, whitespace, length budget, PII, secret, prompt-injection, term canonicalisation) before every LLM call. Pluggable via the `PromptPolisher` ABC + `register_polisher()`. |
 | **Multi-provider cost guardrails** | `TokenBudget` + per-provider pricing tables in `nl2pbip.pricing` track cumulative LLM spend; `--max-cost-usd N` (default 10.0) CLI flag and `Orchestrator(max_cost_usd=N)` abort with `BudgetExceededError` once spend crosses the cap. Tiktoken-based token counting with a 4-char heuristic fallback when tiktoken isn't installed. |
+| **Streaming plan execution** | `Orchestrator(plan_chunk_size=N)` slices the generated plan into N-step chunks; the optional `on_plan_chunk_complete` callback fires between chunks so callers can log progress, snapshot state, or push partial results to a queue. CLI surface via `--plan-chunk-size N` (default 0 keeps the legacy single-shot flow). |
+| **Lightweight RAG for `model_state`** | When the model already has tables AND the caller has registered focus hints (data-source keys, recent lint errors), the orchestrator emits only the relevant subset plus a stable `content_hash` instead of dumping the full state. Opt-out via `context["model_state_rag_enabled"]=False`. |
 | **Type safety** | **0 errors under `mypy --strict`** (down from 77 baseline). Gated by CI since v1.3.5. Heavy ML deps excluded via `[tool.mypy.overrides]`. |
 | **Security automation** | 13 GitHub Actions workflows cover CI matrix, CodeQL, actionlint, OpenSSF Scorecard, stale bot, mypy --strict, Gitleaks, Bandit (gating), Vulture (gating), `pip-licenses`, PR labeler, Renovate. See [CI/CD integration](#cicd-integration). |
 | **13 PyPI releases** | `v1.1.0` … `v1.4.0` live at https://pypi.org/project/nl2pbip/. Trusted publishing via OIDC — no API token in the repo. |
@@ -784,7 +786,7 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **884 test cases across 24 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **871 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **930 test cases across 28 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **916 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Cases |
 |---|---:|
@@ -797,17 +799,22 @@ Pytest collects **884 test cases across 24 test files** in CI (Python 3.10 / 3.1
 | `tests/test_prompts.py` | 48 |
 | `tests/test_ontology.py` | 42 |
 | `tests/test_object_level_security.py` | 32 |
-| `tests/test_data_inspector.py` | 31 |
+| `tests/test_data_inspector.py` | 34 |
 | `tests/test_fabric_metadata.py` | 30 |
 | `tests/test_agentic_reflection.py` | 29 |
+| `tests/test_budget.py` | 32 |
 | `tests/test_calculation_groups.py` | 27 |
 | `tests/test_field_parameters.py` | 27 |
 | `tests/test_data_understanding.py` | 24 |
 | `tests/test_relationship_validation.py` | 23 |
 | `tests/test_schema_advisor.py` | 16 |
+| `tests/test_custom_visuals.py` | 16 |
+| `tests/test_partial_plan_recovery.py` | 15 |
 | `tests/test_performance.py` | 13 (opt-in via `NL2PBIP_RUN_BENCHMARKS=1`) |
+| `tests/test_dax_catalog_cache.py` | 12 |
 | `tests/test_polisher_integration.py` | 11 |
-| `tests/test_orchestrator.py` | 4 |
+| `tests/test_plan_chunking.py` | 11 |
+| `tests/test_orchestrator.py` | 8 |
 | `tests/test_exporter.py` | 3 |
 | `tests/test_llm_client.py` | 2 |
 | `tests/test_cli_smoke.py` | 15 (subprocess-based CLI help smoke) |
@@ -1066,7 +1073,7 @@ What `nl2pbip` doesn't do well, as of v1.3.5:
 | **`dax_library.json` is loaded once per CLI run.** | The catalog is a static file; no hot reload. | Re-run the CLI / orchestrator with the updated library |
 | **`.pbix` export requires `pbi-tools`.** The in-process fallback emits `.pbit`. | `pbi-tools` ships its own C# compiler we don't want to fork. | Use `--format pbit` when `pbi-tools` is unavailable |
 | **Custom visuals not in the LLM context.** Power BI custom visuals need their `visualType` registered manually. | The visual-type list is curated, not exhaustive. | Extend `nl2pbip.pbir_validator._SUPPORTED_VISUALS` and `nl2pbip.visual_types.CANONICAL_VISUAL_TYPES` |
-| **No streaming plan execution.** The orchestrator waits for the entire plan before executing. | Streaming requires partial model writes that complicate rollback. | For very large models, batch prompts and call the orchestrator per batch |
+| **Streaming plan execution is best-effort, not strict transactional.** Mid-chunk failures leave the model in a partial state — the per-chunk `on_plan_chunk_complete` callback is one-way, no rollback hook. | Implementation keeps partial writes simple. | For very large plans, snapshot the model state before each chunk and roll back manually if a later chunk fails |
 
 These are honest engineering limits, not aspirational gaps. Filing issues for any of them is welcome.
 

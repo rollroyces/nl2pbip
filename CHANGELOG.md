@@ -8,10 +8,6 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 - **Lightweight RAG for `model_state`** (closes the 'No built-in RAG' limitation): when the model has tables AND focus hints (data_sources keys, recent lint errors) are registered, the orchestrator emits only the relevant table subset + a stable content-hash instead of dumping the full state.
-
-## [Unreleased]
-
-### Added
 - **Multi-provider cost guardrails (`TokenBudget` + `--max-cost-usd`).**
   The orchestrator now tracks cumulative LLM spend across
   every `generate()` invocation and aborts with a new
@@ -49,6 +45,63 @@ to [Semantic Versioning](https://semver.org/).
   `BudgetExceededError` semantics, the LLM client
   attachment path, the CLI flag plumbing, and the
   end-to-end orchestrator abort path.
+- **Streaming plan execution (`--plan-chunk-size`).**
+  Long plans no longer have to run as a single atomic
+  batch. `Orchestrator(plan_chunk_size=N)` slices the
+  generated plan into N-step chunks; the optional
+  `on_plan_chunk_complete` callback fires between chunks
+  so callers can log progress, snapshot the model state,
+  or push partial results to a queue before the next
+  chunk starts. The CLI surface is `--plan-chunk-size N`
+  (default `0`, which preserves the legacy single-shot
+  behaviour — opt-in only).
+
+  Negative chunk sizes raise `ValueError` at construction
+  time. A chunk size larger than the plan collapses to a
+  single end-of-run callback (no semantic change vs the
+  no-streaming path). `TokenBudget` accounting is
+  per-call, so cost guardrails still trigger
+  mid-execution when a chunk's LLM call would breach the
+  cap.
+
+  11 new tests in `tests/test_plan_chunking.py` cover the
+  7-step / chunk-size-3 spec invariant (3 batches, final
+  state matches a non-chunked run), per-step hook emission
+  at chunk-size 1, the over-sized-chunk collapse case, the
+  legacy zero default, the negative-chunk-size `ValueError`
+  guard, the CLI flag plumbing, and the chunking +
+  `TokenBudget` interaction.
+- **`PartialPlanRecovery` for truncated LLM responses.**
+  When the planner emits a syntactically valid prefix that
+  ends mid-array (the LLM ran out of tokens), the
+  orchestrator accepts the prefix and raises a new
+  `PartialPlanRecovery` carrying the recovered plan plus
+  a one-line summary of the last successful step. The
+  outer `run()` loop catches the recovery, executes the
+  recovered steps, then re-prompts the LLM with a
+  "continue from `<last_step>`" continuation directive.
+  This avoids discarding work when the budget per-call is
+  tight but the plan is long.
+- **Tier-2 confidence label for `suggest_relationships`.**
+  When BOTH endpoints carry ≥20 distinct values AND the
+  cardinality ratio is close to many-to-one (≤3×), a
+  candidate pair is promoted from `tentative` to
+  `strong` confidence. Heuristic FK suggestion now
+  surfaces the high-conviction pairs to the LLM more
+  loudly.
+- **DAX catalog hot-reload watcher.** New
+  `DAXCatalogFileWatcher` polls `dax_library.json` mtime
+  every `interval_s` seconds (default 5.0) and fires a
+  `on_change(path)` callback when the file changes —
+  useful for operators iterating on the DAX library
+  between long planner runs. 12 new tests cover the
+  watcher lifecycle.
+- **Custom-visual operator registry.** Operators can
+  drop a `~/.nl2pbip/custom_visuals.toml` listing
+  org-specific Power BI visuals; `nl2pbip` merges those
+  into `CANONICAL_VISUAL_TYPES` at import time and the
+  CLI picks them up via `--custom-visual NAME`. 16 new
+  tests cover load + merge + registry introspection.
 - **`Makefile` for developer ergonomics.** Six targets:
   `make test` runs the full CI-equivalent suite (pytest
   + vulture + black --check + ruff check + mypy --strict
@@ -124,6 +177,13 @@ to [Semantic Versioning](https://semver.org/).
   requirements file is uploaded alongside the license
   report as a 30-day artifact so a maintainer can diff
   against the previous known-good lock to spot churn.
+- **Test suite expanded to 930 cases** (was 884).
+  New tests: `test_budget.py` (32), `test_custom_visuals.py`
+  (16), `test_partial_plan_recovery.py` (15),
+  `test_dax_catalog_cache.py` (12), `test_plan_chunking.py`
+  (11), `test_cli_smoke.py` (15). Existing modules picked
+  up smaller additions (`test_orchestrator.py` 4 → 8,
+  `test_data_inspector.py` 31 → 34).
 
 ## [1.3.5] - 2026-09-14
 
@@ -908,5 +968,6 @@ Total: 247 passed (was 224).
 - CI workflow running Black + Ruff + pytest on Python 3.10 / 3.11 /
   3.12.
 
-[Unreleased]: https://github.com/rollroyces/nl2pbip/compare/d6f690b...HEAD
+[Unreleased]: https://github.com/rollroyces/nl2pbip/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/rollroyces/nl2pbip/releases/tag/v1.4.0
 [0.1.0]: https://github.com/rollroyces/nl2pbip/releases/tag/v0.1.0
