@@ -41,10 +41,11 @@ style admin operation.
 from __future__ import annotations
 
 import logging
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+import tomllib
 
 logger = logging.getLogger(__name__)
 

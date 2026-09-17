@@ -23,10 +23,10 @@ from typing import Any, Dict
 import pytest
 
 from nl2pbip.dax_catalog import (
+    _CATALOG_CACHE,
     DEFAULT_DAX_LIBRARY_PATH,
     DAXCatalog,
     DAXCatalogFileWatcher,
-    _CATALOG_CACHE,
     _cache_key,
     get_default_catalog,
     invalidate_cache,

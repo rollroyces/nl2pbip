@@ -23,7 +23,7 @@ of ``$0.000003 USD / token`` for anything unknown.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from nl2pbip.pricing import price_usd_per_token
 
@@ -277,10 +277,8 @@ def _count_tokens_with_encoder(
     OpenAI's billing meter reports.
     """
     if isinstance(messages, str):
-        prompt_text = messages
         tokens_per_message = 0
     else:
-        prompt_text = ""
         tokens_per_message = 3
     prompt_tokens = 0
     if isinstance(messages, str):
