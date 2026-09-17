@@ -564,6 +564,35 @@ class TestCIWorkflow:
             "nl2pbip.providers.*" in excluded_modules
         ), "mypy overrides must exclude nl2pbip.providers.*"
 
+    def test_mypy_config_enables_extra_strict_flags(self) -> None:
+        """``[tool.mypy]`` must enable ``strict_equality`` and
+        ``no_implicit_reexport`` so new code can't sneak in
+        ``==`` comparisons between incompatible types or
+        silently re-export a sub-module's name through an
+        unrelated module's ``__init__``.
+
+        Both flags were promoted from opt-in to required once
+        the codebase reached strict-clean (0 errors). If
+        someone disables either one the gate would silently
+        accept a class of regressions that the strict baseline
+        would otherwise surface.
+        """
+        try:
+            import tomllib  # type: ignore[import-not-found]
+        except ImportError:  # pragma: no cover - 3.10 fallback
+            import tomli as tomllib  # type: ignore[no-redef]
+        with open(REPO_ROOT / "pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+        mypy_config = data["tool"]["mypy"]
+        assert mypy_config.get("strict_equality") is True, (
+            "[tool.mypy] must enable strict_equality=true to "
+            "prevent comparing incompatible types with =="
+        )
+        assert mypy_config.get("no_implicit_reexport") is True, (
+            "[tool.mypy] must enable no_implicit_reexport=true "
+            "to make sub-module re-exports explicit"
+        )
+
     def test_pr_labeler_workflow_runs_on_pull_request_target(self) -> None:
         """PR labeler must run on `pull_request_target` so it
         has write access to apply labels. The pull_request

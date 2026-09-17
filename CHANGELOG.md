@@ -7,6 +7,43 @@ to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Multi-provider cost guardrails (`TokenBudget` + `--max-cost-usd`).**
+  The orchestrator now tracks cumulative LLM spend across
+  every `generate()` invocation and aborts with a new
+  `BudgetExceededError` once cumulative spend crosses a
+  caller-supplied cap. Plumbed three ways:
+
+  * `Orchestrator(max_cost_usd=N)` constructor parameter
+    (Python API).
+  * `nl2pbip.cli --max-cost-usd N` (default 10.0; pass
+    `0` or a negative value to disable).
+  * `StructuredLLMClient(budget=...)` and a `set_budget`
+    method for callers that want to attach a pre-built
+    budget after construction.
+
+  Cost math lives in the new `nl2pbip.pricing` module —
+  a hardcoded `dict` of USD-per-token rates for OpenAI /
+  Anthropic / DeepSeek / Qwen / Zhipu / Moonshot / Azure
+  / custom providers, with a `$0.000003 / token` fallback
+  for anything unknown. Token counting uses `tiktoken`
+  (`cl100k_base` encoder) when installed and falls back
+  to a 4-char heuristic when it isn't, so slim installs
+  don't crash on import. Output tokens are charged at 4×
+  input rate (the typical OpenAI / Anthropic ratio for
+  mid-tier models).
+
+  Spec compliance: a mocked single LLM call returning
+  1000 tokens records ~$0.0006 of spend against the
+  budget tracker; setting `max_cost_usd=0.0001` with
+  the same call aborts with `BudgetExceededError` and
+  leaves `spent_usd` unchanged (failed checks don't
+  consume headroom).
+
+  32 new tests in `tests/test_budget.py` cover the
+  pricing tables, the token counter, the
+  `BudgetExceededError` semantics, the LLM client
+  attachment path, the CLI flag plumbing, and the
+  end-to-end orchestrator abort path.
 - **CLI smoke test** (`tests/test_cli_smoke.py`): 15
   subprocess-based assertions verifying that
   `python -m nl2pbip.cli generate --help` and
@@ -21,6 +58,19 @@ to [Semantic Versioning](https://semver.org/).
   works under CI (no `.venv` mounted) and locally.
 
 ### Changed
+- **mypy: tighten `[tool.mypy]` with `strict_equality` +
+  `no_implicit_reexport`.** Both flags were previously
+  opt-in; the codebase reached strict-clean (0 errors) so
+  we can now require them. `strict_equality` prevents
+  silently-true `==` comparisons between incompatible
+  types, `no_implicit_reexport` forces explicit
+  `__all__`/`from X import Y` for every name that flows
+  from a sub-module into an unrelated `__init__`. New
+  regression test
+  `test_mypy_config_enables_extra_strict_flags` locks the
+  settings. Verified locally with
+  `mypy --strict --no-incremental --python-version 3.12 nl2pbip`
+  → `Success: no issues found in 29 source files`.
 - **License compliance promoted from soft-fail to gating.**
   The dep tree was audited with `pip-licenses
   --format=csv` — 123 packages, 0 with an UNKNOWN license —

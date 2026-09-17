@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nl2pbip"
-version = "1.3.5"
+version = "1.4.0"
 description = "Natural Language to Power BI Project generator"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -90,6 +90,8 @@ exclude = ["tests*"]
 # gating PRs until the long-tail error count is zero.
 python_version = "3.10"
 strict = true
+strict_equality = true
+no_implicit_reexport = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 warn_return_any = true
