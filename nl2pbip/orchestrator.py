@@ -142,6 +142,37 @@ class PlannerClarification(Exception):
 
 
 @dataclass
+class PartialPlanRecovery(Exception):
+    """Raised when the parser salvages a truncated JSON plan.
+
+    The LLM may produce a syntactically valid prefix that ends
+    mid-array (e.g. ``[{"tool":"a"}, {"tool":"b"},`` — the LLM
+    ran out of tokens). Rather than throw away the work and
+    force a full re-plan, the orchestrator accepts the prefix
+    and re-prompts the LLM to continue from the last successful
+    step. The exception carries the recovered plan + a summary
+    of the last step so the next prompt can reference it.
+
+    Attributes
+    ----------
+    plan:
+        The list of :class:`ToolCall` recovered from the prefix.
+    last_step:
+        Human-readable summary of the last step in ``plan``
+        (typically ``f"{tool}({args_truncated})"``). Surfaced
+        to the LLM in the continuation prompt so it can pick
+        up where it left off.
+    consumed_prefix:
+        The raw substring that was actually parsed (useful for
+        tests + logging).
+    """
+
+    plan: List[ToolCall]
+    last_step: str
+    consumed_prefix: str
+
+
+@dataclass
 class AttemptRecord:
     """One attempt at generating + executing a plan.
 
@@ -346,6 +377,12 @@ class Orchestrator:
             )
         self.plan_chunk_size = plan_chunk_size
         self.on_plan_chunk_complete = on_plan_chunk_complete
+        # ``_last_partial_recovery`` holds the most recent
+        # :class:`PartialPlanRecovery` so the retry loop can
+        # build a "continue from here" feedback message on the
+        # next iteration. Reset on each new ``run()`` call so
+        # stale state from a previous prompt doesn't leak.
+        self._last_partial_recovery: Optional[PartialPlanRecovery] = None
 
     def _attach_budget_to_llm(self, budget: Any) -> None:
         """Best-effort attach of ``budget`` to ``self._llm``.
@@ -393,6 +430,11 @@ class Orchestrator:
         """Full cycle with validation-aware self correction."""
 
         context = context or {}
+        # Reset the partial-recovery carry-over from any previous
+        # ``run()`` call on this orchestrator instance. Without
+        # this, an old recovery note could leak into the new
+        # prompt and confuse the LLM.
+        self._last_partial_recovery = None
         feedback: List[str] = []
         max_attempts = 3
         last_error: Optional[Exception] = None
@@ -401,7 +443,40 @@ class Orchestrator:
             plan_response, _polish_report = self._request_plan(
                 effective_prompt, context
             )
-            plan = self._parse_plan(plan_response)
+            try:
+                plan = self._parse_plan(plan_response)
+            except PartialPlanRecovery as recovery:
+                # The LLM response was truncated mid-array; we
+                # salvaged the prefix and recorded the recovery on
+                # ``self`` so the next ``_augment_prompt`` call
+                # tells the LLM where to resume. Issue ONE more
+                # LLM call for the continuation, then merge the
+                # two halves and execute the whole thing. If the
+                # continuation is itself truncated we fall
+                # through to the regular retry path on the next
+                # attempt.
+                if attempt == max_attempts:
+                    # No budget left for a continuation call —
+                    # execute the salvaged prefix as the best
+                    # effort we can deliver.
+                    return self._execute_plan(recovery.plan, context)
+                try:
+                    cont_response, _ = self._request_plan(
+                        self._augment_prompt(user_prompt, feedback),
+                        context,
+                    )
+                    cont_plan = self._parse_plan(cont_response)
+                except PartialPlanRecovery as inner:
+                    # Continuation also truncated — execute the
+                    # longer of the two prefixes and bail.
+                    longer = (
+                        recovery.plan
+                        if len(recovery.plan) >= len(inner.plan)
+                        else inner.plan
+                    )
+                    return self._execute_plan(longer, context)
+                full_plan = recovery.plan + cont_plan
+                return self._execute_plan(full_plan, context)
             try:
                 return self._execute_plan(plan, context)
             except (
@@ -483,6 +558,8 @@ class Orchestrator:
         """
         context = context or {}
         trace = ReflectiveTrace(user_prompt=user_prompt)
+        # Reset partial-recovery carry-over (same reason as ``run``).
+        self._last_partial_recovery = None
         feedback: List[str] = []
         critic_client = critic or self._llm
         last_error: Optional[Exception] = None
@@ -509,6 +586,40 @@ class Orchestrator:
                     + (f" (rationale: {exc.rationale})" if exc.rationale else "")
                 )
                 return trace
+            except PartialPlanRecovery as recovery:
+                # Truncated mid-array. Record the recovery on the
+                # attempt, then ask the LLM for the continuation
+                # unless we're out of attempts. The merged plan
+                # is what we execute — never the prefix alone.
+                record.error = (
+                    f"partial recovery: salvaged {len(recovery.plan)} step(s) "
+                    f"after '{recovery.last_step}'"
+                )
+                if attempt == max_total:
+                    trace.attempts.append(record)
+                    record.plan = list(recovery.plan)
+                    record.results = self._execute_plan(
+                        recovery.plan, context
+                    )
+                    successful_results = record.results
+                    break
+                try:
+                    cont_response, _ = self._request_plan(
+                        self._augment_prompt(user_prompt, feedback),
+                        context,
+                    )
+                    cont_plan = self._parse_plan(cont_response)
+                except PartialPlanRecovery as inner:
+                    record.error += (
+                        f"; continuation also truncated at {len(inner.plan)} step(s)"
+                    )
+                    trace.attempts.append(record)
+                    record.plan = list(recovery.plan) + list(inner.plan)
+                    record.results = self._execute_plan(record.plan, context)
+                    successful_results = record.results
+                    break
+                plan = recovery.plan + cont_plan
+                record.plan = list(plan)
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 # Plan parsing / JSON-shape errors should consume a
                 # retry the same way execution errors do, so the
@@ -593,6 +704,16 @@ class Orchestrator:
                 record.error = f"clarification: {exc.question}"
                 trace.attempts.append(record)
                 break
+            except PartialPlanRecovery as recovery:
+                # Reflection pass truncated — record and bail; the
+                # next reflection round (if any) will start fresh
+                # via ``_augment_prompt``'s continuation note path.
+                record.error = (
+                    f"partial recovery: salvaged {len(recovery.plan)} step(s) "
+                    f"after '{recovery.last_step}'"
+                )
+                trace.attempts.append(record)
+                plan = recovery.plan
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 record.error = self._feedback_for_exception(exc)
                 trace.attempts.append(record)
@@ -756,7 +877,30 @@ class Orchestrator:
         try:
             raw_plan = json.loads(plan_text)
         except json.JSONDecodeError as exc:
+            # Plan truncation recovery: an LLM that ran out of tokens
+            # mid-array still produces a syntactically valid prefix.
+            # Rather than discard the work, raise PartialPlanRecovery
+            # so the caller's retry loop can re-prompt the LLM to
+            # continue from the last salvaged step. ``try_partial_plan_recovery``
+            # returns ``None`` when the prefix isn't salvageable, in
+            # which case we fall through to the normal error.
+            recovery = try_partial_plan_recovery(plan_text)
+            if recovery is not None and len(recovery.plan) >= 1:
+                # Record on the orchestrator so ``_augment_prompt``
+                # can build the continuation note. The orchestrator
+                # resets this on every new ``run()`` / ``run_with_reflection()``
+                # so stale state doesn't leak.
+                self._last_partial_recovery = recovery
+                raise PartialPlanRecovery(
+                    plan=recovery.plan,
+                    last_step=recovery.last_step,
+                    consumed_prefix=recovery.consumed_prefix,
+                ) from exc
             raise ValueError("Planner must return valid JSON.") from exc
+
+        # Successful parse — make sure any prior recovery state
+        # doesn't leak into the next iteration.
+        self._last_partial_recovery = None
 
         if isinstance(raw_plan, dict) and "plan" in raw_plan:
             raw_plan = raw_plan["plan"]
@@ -1258,9 +1402,27 @@ class Orchestrator:
         return {"tables": tables, "columns": columns}
 
     def _augment_prompt(self, base_prompt: str, feedback: List[str]) -> str:
-        if not feedback:
-            return base_prompt
-        return f"{base_prompt}\n\n{feedback[-1]}"
+        continuation_note: Optional[str] = None
+        recovery = self._last_partial_recovery
+        if recovery is not None:
+            continuation_note = (
+                "Your previous response ended mid-array and was truncated. "
+                f"The first {len(recovery.plan)} step(s) were salvaged; "
+                f"the last salvaged step was: {recovery.last_step}. "
+                "Continue the plan from that step onward — emit ONLY the "
+                "remaining steps as a JSON array (no prose), do not "
+                "repeat the salvaged steps, and keep the same tool names "
+                "and arg shapes."
+            )
+            # Clear so a second retry without another truncation
+            # doesn't re-emit the same note.
+            self._last_partial_recovery = None
+        parts: List[str] = [base_prompt]
+        if continuation_note is not None:
+            parts.append(continuation_note)
+        if feedback:
+            parts.append(feedback[-1])
+        return "\n\n".join(parts)
 
     def _feedback_for_exception(self, error: Exception) -> str:
         from nl2pbip.prompts import build_feedback_message
@@ -1911,3 +2073,140 @@ def _model_state_hash(full: Dict[str, Any]) -> str:
     """
     payload = json.dumps(full, sort_keys=True, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+# ---------------------------------------------------------------------------
+# Partial plan recovery
+# ---------------------------------------------------------------------------
+
+
+def _summarise_plan_step(call: ToolCall) -> str:
+    """Compact ``"tool(arg=value, ...)"`` summary of a single step.
+
+    Used in continuation prompts so the LLM can see exactly
+    which step it produced last before the response was cut off.
+    The args are stringified with a hard cap on length so a fat
+    schema doesn't blow up the feedback message.
+    """
+    parts: List[str] = []
+    for key, value in call.args.items():
+        text = repr(value)
+        if len(text) > 60:
+            text = text[:57] + "..."
+        parts.append(f"{key}={text}")
+    return f"{call.tool}({', '.join(parts)})"
+
+
+def try_partial_plan_recovery(
+    plan_text: str,
+    *,
+    min_recovered_steps: int = 1,
+) -> Optional[PartialPlanRecovery]:
+    """Salvage a syntactically valid prefix from a truncated plan.
+
+    Walks ``plan_text`` looking for the last fully-closed ``}`` that
+    is immediately followed by a ``,`` or whitespace (i.e. the end
+    of a complete step in the array). The substring up to and
+    including that ``}`` is wrapped into a valid array and parsed.
+    If at least ``min_recovered_steps`` complete steps survived, a
+    :class:`PartialPlanRecovery` is returned; otherwise the function
+    gives up and returns ``None`` so the caller can fall back to
+    the normal error path.
+
+    The algorithm is deliberately conservative — it only claims a
+    recovery when there's strong evidence the prefix was a real
+    plan (balanced braces inside each step, at least one fully
+    closed step). A garbage prefix won't trigger a false recovery.
+
+    Designed to be called after :func:`json.loads` raises
+    :class:`json.JSONDecodeError`. Not a general-purpose JSON
+    repair tool — only the specific "array of step objects,
+    truncated after a complete step" shape is supported.
+    """
+    if not isinstance(plan_text, str) or not plan_text:
+        return None
+    text = plan_text.strip()
+    if not text.startswith(("[", "{")):
+        # Not a JSON-shaped response; nothing to recover.
+        return None
+
+    # Scan backwards for the last ``}`` followed by ``,`` or EOL.
+    # We look for ``},\s*`` and ``}\s*$`` patterns to find a clean
+    # step boundary — anything past that boundary is by definition
+    # incomplete (otherwise the LLM wouldn't have been truncated).
+    candidates: List[int] = []
+    cursor = len(text)
+    while cursor > 0:
+        idx = text.rfind("}", 0, cursor)
+        if idx == -1:
+            break
+        # Check what comes after the brace.
+        tail = text[idx + 1 :]
+        stripped_tail = tail.lstrip()
+        if stripped_tail.startswith(",") or stripped_tail == "":
+            # Only accept the match if it's inside an array that
+            # itself starts at the beginning. The opening ``[`` may
+            # also have been preceded by ``{"plan": ``.
+            prefix = text[:idx]
+            # The prefix must contain a balanced array opener.
+            if "[" in prefix and prefix.count("[") > prefix.count("]"):
+                candidates.append(idx)
+                if len(candidates) >= 8:
+                    # Bound the search — eight candidates is more
+                    # than enough to test, and the cost of trying
+                    # every ``}`` in the string grows linearly.
+                    break
+        cursor = idx
+    if not candidates:
+        return None
+
+    # Try each candidate (longest first) until one parses as a
+    # valid array of step dicts with the minimum step count.
+    candidates.sort(reverse=True)
+    for end_idx in candidates:
+        candidate_prefix = text[: end_idx + 1]
+        # The prefix likely starts with ``[`` (or ``{"plan":[``);
+        # close the array (and outer object if needed).
+        wrapped = candidate_prefix
+        open_brackets = wrapped.count("[") - wrapped.count("]")
+        wrapped += "]" * max(open_brackets, 0)
+        open_braces = wrapped.count("{") - wrapped.count("}")
+        wrapped += "}" * max(open_braces, 0)
+        try:
+            raw = json.loads(wrapped)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(raw, dict) and "plan" in raw:
+            raw = raw["plan"]
+        if not isinstance(raw, list):
+            continue
+        if len(raw) < min_recovered_steps:
+            continue
+        # Validate each step shape; reject the whole prefix if any
+        # step is malformed so we don't recover partial garbage.
+        try:
+            plan: List[ToolCall] = []
+            for step in raw:
+                if not isinstance(step, dict):
+                    raise ValueError("step not a dict")
+                tool = step.get("tool")
+                args = step.get("args", {})
+                if not tool or not isinstance(args, dict):
+                    raise ValueError("step missing tool/args")
+                plan.append(
+                    ToolCall(
+                        tool=tool,
+                        args=args,
+                        rationale=step.get("reason"),
+                    )
+                )
+        except (ValueError, TypeError):
+            continue
+        last_step = _summarise_plan_step(plan[-1])
+        return PartialPlanRecovery(
+            plan=plan,
+            last_step=last_step,
+            consumed_prefix=candidate_prefix,
+        )
+    return None
+
