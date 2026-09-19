@@ -624,9 +624,7 @@ class TestCIWorkflow:
         )
         steps = data["jobs"]["labeler"]["steps"]
         checkout_steps = [s for s in steps if "checkout" in s.get("uses", "")]
-        assert checkout_steps, (
-            "pr-labeler workflow must call actions/checkout"
-        )
+        assert checkout_steps, "pr-labeler workflow must call actions/checkout"
         for step in checkout_steps:
             ref = step.get("with", {}).get("ref", "")
             assert "pull_request.head.sha" in ref, (

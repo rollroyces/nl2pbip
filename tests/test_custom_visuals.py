@@ -100,7 +100,11 @@ class TestCustomVisualLoading:
     def test_malformed_toml_raises(self, tmp_path: Path) -> None:
         bad = tmp_path / "bad.toml"
         bad.write_text("[[visual]\nthis is not valid toml", encoding="utf-8")
-        import tomllib
+        # Python 3.10 needs tomli; 3.11+ has tomllib in stdlib.
+        try:
+            import tomllib  # type: ignore[import-not-found]
+        except ImportError:  # pragma: no cover - 3.10 fallback
+            import tomli as tomllib  # type: ignore[no-redef]
 
         with pytest.raises(tomllib.TOMLDecodeError):
             custom_visuals.load_custom_visual_specs(bad)
