@@ -149,3 +149,12 @@ ignore_missing_imports = true
 # whether the extra is installed in the current env.
 module = ["mcp", "mcp.server", "mcp.server.fastmcp", "mcp.server.stdio"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# ``tiktoken`` ships with the ``openai`` runtime dep but
+# doesn't always expose a discoverable ``py.typed`` marker
+# (depends on install path / pip resolver behaviour). Guard
+# against CI's import-not-found noise so a missing stub on
+# one machine doesn't gate the whole mypy run.
+module = ["tiktoken"]
+ignore_missing_imports = true

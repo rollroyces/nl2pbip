@@ -18,9 +18,6 @@
 # enforce that every label referenced here exists in the
 # labels manifest below and that the YAML parses cleanly.
 
-changed-files-labels-limit: 5
-max-files-changed: 200
-
 LABEL_CI:
   - changed-files:
       - any-glob-to-any-file:

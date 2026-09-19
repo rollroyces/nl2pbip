@@ -10,6 +10,12 @@ parsing, but the underlying functions in
 exercised directly. We test the handlers (not the JSON-RPC
 framing) because the framework is upstream and its own test suite
 covers the wire format.
+
+The whole module is gated on the optional ``[mcp]`` extra via
+:func:`pytest.importorskip` so CI's default ``.[dev]`` install
+(which doesn't pull the MCP SDK) skips this file cleanly
+instead of erroring at collection time. Run locally with
+``pip install -e ".[dev,mcp]"`` to exercise the full suite.
 """
 
 from __future__ import annotations
@@ -20,6 +26,8 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import pytest
+
+pytest.importorskip("mcp", reason="MCP server tests require the [mcp] extra")
 
 from nl2pbip.mcp_server import build_server
 from nl2pbip.mcp_server.server import (

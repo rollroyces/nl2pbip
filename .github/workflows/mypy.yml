@@ -57,7 +57,9 @@ jobs:
         # libs. We install the ones nl2pbip actually imports.
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          # Install [mcp] so mypy can resolve the FastMCP symbol
+          # behind TYPE_CHECKING in nl2pbip/mcp_server/server.py.
+          pip install -e ".[dev,mcp]"
           # ``mypy`` and the type stubs are pinned in the
           # ``[dev]`` extra (pyproject.toml); install them
           # again here so the CI install is explicit.
