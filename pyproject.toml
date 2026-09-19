@@ -69,6 +69,11 @@ dev = [
   "types-PyYAML",
   "types-requests",
   "types-tabulate",
+  # ``tomli`` is the backport for Python 3.10's missing stdlib
+  # ``tomllib``. The ``[dev]`` extra needs it so the test
+  # suite + smoke tests can read TOML on Python 3.10 without
+  # an extra install step. Python 3.11+ ignores this dep.
+  'tomli>=2.0; python_version < "3.11"',
 ]
 
 [project.scripts]
@@ -148,6 +153,15 @@ ignore_missing_imports = true
 # untyped so ``mypy --strict`` stays green regardless of
 # whether the extra is installed in the current env.
 module = ["mcp", "mcp.server", "mcp.server.fastmcp", "mcp.server.stdio"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# ``jsonschema`` doesn't ship a py.typed marker in all release
+# channels. ``types-jsonschema`` provides a stub but the runtime
+# dep is enough for our narrow usage (Draft7Validator + the
+# ValidationError exception). Skip import resolution so mypy
+# doesn't gate on whether the stub is installed.
+module = ["jsonschema"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
