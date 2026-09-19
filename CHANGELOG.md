@@ -4,6 +4,33 @@ All notable changes to `nl2pbip` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [1.5.0] - 2026-09-18
+
+### Added
+- **MCP server (`nl2pbip.mcp_server`).** Exposes the NL → PBIP
+  pipeline as a Model Context Protocol server so any MCP-compatible
+  client (Claude Code, Cursor, GitHub Copilot CLI, custom agents)
+  can drive the same generator the CLI uses. New optional
+  `[mcp]` extra installs the `mcp[cli]>=1.0,<2` SDK (pinned to
+  v1 because mcp 2.x renamed `FastMCP` to `MCPServer` and rewrote
+  the API). New console script `nl2pbip-mcp` and module entry
+  point `python -m nl2pbip.mcp_server`. Four tools:
+
+  | Tool | LLM call? | Purpose |
+  |---|---|---|
+  | `generate_report` | yes | Full NL → `.pbipdir` pipeline, mirrors `nl2pbip generate --prompt ...` |
+  | `validate_pbip`   | no  | Walk an existing `.pbip` folder, run `PBIRValidator` over every page + visual (safe for CI) |
+  | `inspect_dataset` | no  | Profile a CSV / JSON / JSONL / Parquet source for planner context |
+  | `version`         | no  | Library + prompt version handshake |
+
+  Transport: stdio only (every modern MCP client supports it).
+  Credentials: same env-var strategy as the CLI
+  (`NL2PBIP_LLM_PROVIDER`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+  etc.) — no new config surface. The two no-LLM tools work in CI
+  with zero credentials.
+
 ## [1.4.0] - 2026-09-17
 
 ### Added
