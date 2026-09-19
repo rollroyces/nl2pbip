@@ -140,7 +140,14 @@ def build_server(name: str = "nl2pbip") -> FastMCP:
             "the documented behaviour."
         ),
     )(_tool_version)
-    return server
+    # ``_require_mcp()`` returns ``Any`` because the SDK is
+    # lazy-imported for the optional-extra case. The runtime
+    # value IS the FastMCP class — mypy can't follow the
+    # dynamic import, so annotate the ignore inline rather
+    # than casting (which also requires the FastMCP symbol
+    # under TYPE_CHECKING) or leaking the optional-dep
+    # abstraction out of the public signature.
+    return server  # type: ignore[no-any-return]
 
 
 _SERVER_INSTRUCTIONS = (

@@ -46,8 +46,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import sys
-
 if sys.version_info >= (3, 11):
     import tomllib
 else:  # pragma: no cover - 3.10 fallback
