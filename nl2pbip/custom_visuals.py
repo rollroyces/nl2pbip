@@ -45,7 +45,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import tomllib  # type: ignore[import-not-found]  # Python 3.11+ stdlib; pyproject pins 3.10
+import sys
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover - 3.10 fallback
+    import tomli as tomllib  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
