@@ -35,9 +35,10 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Sequence
 
-from mcp.server.fastmcp import FastMCP
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from mcp.server.fastmcp import FastMCP
 
 from nl2pbip import __version__ as _NL2PBIP_VERSION
 from nl2pbip.data_inspector import inspect_data_source
@@ -48,6 +49,30 @@ from nl2pbip.pbir_engine import REPORT_PATH_KEY
 from nl2pbip.pbir_validator import PBIRValidator
 from nl2pbip.prompts import REPORT_GENERATION_PROMPT_VERSION
 from nl2pbip.tmdl_engine import MODEL_PATH_KEY
+
+
+def _require_mcp() -> "Any":
+    """Lazy import of :class:`FastMCP` with a clear install hint.
+
+    The MCP SDK ships as the optional ``[mcp]`` extra so the rest
+    of the package stays slim for users who don't need the server.
+    Importing :mod:`nl2pbip.mcp_server` must NOT require the SDK
+    installed — only :func:`build_server` (and the derived
+    :class:`Nl2PbipMcpServer`) should raise when the extra is
+    missing. CI's ``.[dev]`` install therefore keeps working
+    while the ``[mcp]``-gated tests skip cleanly via
+    :func:`pytest.importorskip`.
+    """
+
+    try:
+        from mcp.server.fastmcp import FastMCP
+    except ImportError as exc:  # pragma: no cover - environment-dependent
+        raise ImportError(
+            "The MCP server requires the optional 'mcp' extra: "
+            'install with `pip install "nl2pbip[mcp]"`.'
+        ) from exc
+    return FastMCP
+
 
 # ---------------------------------------------------------------------
 # MCP server factory
@@ -62,8 +87,13 @@ def build_server(name: str = "nl2pbip") -> FastMCP:
     instance with its own tool registry, so a test can introspect
     registered tools via ``await server.list_tools()`` without
     touching the real default server.
+
+    Requires the optional ``[mcp]`` extra; raises :class:`ImportError`
+    with an install hint when the SDK is missing. Importing
+    :mod:`nl2pbip.mcp_server` itself stays cheap.
     """
 
+    FastMCP = _require_mcp()
     server = FastMCP(name=name, instructions=_SERVER_INSTRUCTIONS)
     server.tool(
         name="generate_report",

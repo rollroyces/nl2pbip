@@ -24,6 +24,11 @@ Design constraints
   :class:`Orchestrator`, :class:`PBIRValidator`, and
   :func:`inspect_data_source` the rest of the project already
   exercises. No regression risk to the existing 803-test suite.
+* **Lazy ``mcp`` SDK import.** The package is importable without
+  ``mcp`` installed; only :func:`build_server` raises an informative
+  ``ImportError`` when the optional ``[mcp]`` extra isn't present.
+  This keeps ``import nl2pbip.mcp_server`` cheap and lets CI test
+  the non-MCP modules without pulling in the optional SDK.
 
 Public API
 ----------
