@@ -75,6 +75,11 @@ LABEL_CORE:
           - nl2pbip/visual_types.py
           - nl2pbip/example_run.py
           - nl2pbip/cli.py
+LABEL_MCP:
+  - changed-files:
+      - any-glob-to-any-file:
+          - nl2pbip/mcp_server/**
+          - tests/test_mcp_server.py
 LABEL_FINETUNE:
   - changed-files:
       - any-glob-to-any-file:

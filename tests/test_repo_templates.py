@@ -786,6 +786,7 @@ class TestCIWorkflow:
             "examples",
             "prompts",
             "core",
+            "mcp",
             "finetune",
             "tests",
         }
