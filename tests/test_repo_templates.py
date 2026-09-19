@@ -568,7 +568,7 @@ class TestCIWorkflow:
         # the optional [mcp] extra; tiktoken comes from the
         # ``openai`` runtime dep but doesn't always expose a
         # discoverable py.typed marker.
-        for optional in ("mcp", "tiktoken"):
+        for optional in ("mcp", "tiktoken", "tomli"):
             assert optional in excluded_modules, (
                 f"mypy overrides must include {optional!r} so the "
                 "gate doesn't fail when the stub isn't discoverable"

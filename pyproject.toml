@@ -156,19 +156,10 @@ module = ["mcp", "mcp.server", "mcp.server.fastmcp", "mcp.server.stdio"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# ``jsonschema`` doesn't ship a py.typed marker in all release
-# channels. ``types-jsonschema`` provides a stub but the runtime
-# dep is enough for our narrow usage (Draft7Validator + the
-# ValidationError exception). Skip import resolution so mypy
-# doesn't gate on whether the stub is installed.
-module = ["jsonschema"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-# ``tiktoken`` ships with the ``openai`` runtime dep but
-# doesn't always expose a discoverable ``py.typed`` marker
-# (depends on install path / pip resolver behaviour). Guard
-# against CI's import-not-found noise so a missing stub on
-# one machine doesn't gate the whole mypy run.
-module = ["tiktoken"]
+# ``tomli`` is the Python 3.10 backport for ``tomllib``.
+# It's only installed via the conditional dev extra on
+# 3.10; 3.11+ have stdlib ``tomllib`` and don't need it.
+# Skip import resolution so mypy doesn't gate on whether
+# the backport is installed.
+module = ["tomli"]
 ignore_missing_imports = true
