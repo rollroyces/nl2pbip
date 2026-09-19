@@ -26,7 +26,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
+      # pull_request_target gives us write access to the
+      # repo's PR labels, but it checks out the BASE branch
+      # by default — so the labeler would read main's
+      # .github/labeler.yml instead of the PR head's.
+      # Explicitly check out the head SHA so a labeler.yml
+      # change on the PR can land without a separate fix to
+      # main first.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - uses: actions/labeler@v5
         with:

@@ -608,6 +608,33 @@ class TestCIWorkflow:
             "permission to apply labels"
         )
 
+    def test_pr_labeler_checks_out_pr_head(self) -> None:
+        """``pull_request_target`` checks out the BASE branch
+        by default. Without an explicit ``ref:`` override
+        the labeler would read main's ``.github/labeler.yml``
+        instead of the PR head's — so any labeler config
+        change on a PR can't land without first landing on
+        main. Pin the fix: every checkout step must set
+        ``ref: ${{ github.event.pull_request.head.sha }}``."""
+
+        import yaml
+
+        data = yaml.safe_load(
+            (REPO_ROOT / ".github/workflows/pr-labeler.yml").read_text()
+        )
+        steps = data["jobs"]["labeler"]["steps"]
+        checkout_steps = [s for s in steps if "checkout" in s.get("uses", "")]
+        assert checkout_steps, (
+            "pr-labeler workflow must call actions/checkout"
+        )
+        for step in checkout_steps:
+            ref = step.get("with", {}).get("ref", "")
+            assert "pull_request.head.sha" in ref, (
+                f"checkout step must check out the PR head "
+                f"so labeler.yml edits on the PR take effect "
+                f"before merge; got ref={ref!r}"
+            )
+
     def test_pr_labeler_uses_actions_labeler_v5(self) -> None:
         """Use the v5 major version of actions/labeler to make
         sure we keep getting the fixes."""
