@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nl2pbip"
-version = "1.4.0"
+version = "1.5.0"
 description = "Natural Language to Power BI Project generator"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -41,6 +41,11 @@ dependencies = [
 anthropic = [
   "anthropic>=0.26"
 ]
+mcp = [
+  # Pin to the v1 line — mcp 2.x renamed FastMCP -> MCPServer and
+  # rewrote the API, breaking every client/server written against v1.
+  "mcp[cli]>=1.0,<2"
+]
 finetune = [
   "datasets>=2.19",
   "transformers>=4.38",
@@ -64,10 +69,16 @@ dev = [
   "types-PyYAML",
   "types-requests",
   "types-tabulate",
+  # ``tomli`` is the backport for Python 3.10's missing stdlib
+  # ``tomllib``. The ``[dev]`` extra needs it so the test
+  # suite + smoke tests can read TOML on Python 3.10 without
+  # an extra install step. Python 3.11+ ignores this dep.
+  'tomli>=2.0; python_version < "3.11"',
 ]
 
 [project.scripts]
 nl2pbip = "nl2pbip.cli:main"
+nl2pbip-mcp = "nl2pbip.mcp_server.server:main"
 
 [tool.setuptools]
 include-package-data = true
@@ -134,4 +145,21 @@ ignore_missing_imports = true
 # against CI's import-not-found noise so a missing stub on
 # one machine doesn't gate the whole mypy run.
 module = ["tiktoken"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# The MCP SDK ships no py.typed marker; the optional
+# ``mcp`` extra installs it. Treat all mcp.* modules as
+# untyped so ``mypy --strict`` stays green regardless of
+# whether the extra is installed in the current env.
+module = ["mcp", "mcp.server", "mcp.server.fastmcp", "mcp.server.stdio"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# ``tomli`` is the Python 3.10 backport for ``tomllib``.
+# It's only installed via the conditional dev extra on
+# 3.10; 3.11+ have stdlib ``tomllib`` and don't need it.
+# Skip import resolution so mypy doesn't gate on whether
+# the backport is installed.
+module = ["tomli"]
 ignore_missing_imports = true

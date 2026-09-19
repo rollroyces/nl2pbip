@@ -18,9 +18,6 @@
 # enforce that every label referenced here exists in the
 # labels manifest below and that the YAML parses cleanly.
 
-changed-files-labels-limit: 5
-max-files-changed: 200
-
 LABEL_CI:
   - changed-files:
       - any-glob-to-any-file:
@@ -75,6 +72,11 @@ LABEL_CORE:
           - nl2pbip/visual_types.py
           - nl2pbip/example_run.py
           - nl2pbip/cli.py
+LABEL_MCP:
+  - changed-files:
+      - any-glob-to-any-file:
+          - nl2pbip/mcp_server/**
+          - tests/test_mcp_server.py
 LABEL_FINETUNE:
   - changed-files:
       - any-glob-to-any-file:

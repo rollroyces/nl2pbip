@@ -49,7 +49,7 @@ from typing import Any, Dict, List, Optional
 if sys.version_info >= (3, 11):
     import tomllib
 else:  # pragma: no cover - 3.10 fallback
-    import tomli as tomllib  # type: ignore[import-not-found]
+    import tomli as tomllib
 
 logger = logging.getLogger(__name__)
 
