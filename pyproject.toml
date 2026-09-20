@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nl2pbip"
-version = "1.5.0"
+version = "1.5.1"
 description = "Natural Language to Power BI Project generator"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -163,3 +163,15 @@ ignore_missing_imports = true
 # the backport is installed.
 module = ["tomli"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# OpenTelemetry SDK is an *opt-in* dependency installed via the
+# ``telemetry`` extra. The slim CI runner doesn't install it,
+# so ``mypy --strict`` would otherwise fail on missing-import
+# errors. Mark all ``opentelemetry.*`` modules as
+# untyped-resolvable (and ignore any errors that surface when
+# the SDK IS installed) so the telemetry module stays clean
+# regardless of which environment the type checker runs in.
+module = ["opentelemetry", "opentelemetry.*"]
+ignore_missing_imports = true
+ignore_errors = true

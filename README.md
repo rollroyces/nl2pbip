@@ -11,7 +11,7 @@
 [![PyPI](https://img.shields.io/pypi/v/nl2pbip.svg)](https://pypi.org/project/nl2pbip/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#installation)
 [![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
-[![Tests](https://img.shields.io/badge/tests-943%20collected%2C%20930%20passing-brightgreen.svg)](#test-counts)
+[![Tests](https://img.shields.io/badge/tests-957%20collected%2C%20943%20passing-brightgreen.svg)](#test-counts)
 [![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
 [![mypy --strict](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml)
 [![Bandit](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml)
@@ -826,11 +826,11 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **944 test cases across 30 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **931 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **957 test cases across 31 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **944 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Cases |
 |---|---:|
-| `tests/test_repo_templates.py` | 107 |
+| `tests/test_repo_templates.py` | 109 |
 | `tests/test_data_types.py` | 90 |
 | `tests/test_prompt_polisher.py` | 76 |
 | `tests/test_visual_types.py` | 73 |
@@ -852,6 +852,7 @@ Pytest collects **944 test cases across 30 test files** in CI (Python 3.10 / 3.1
 | `tests/test_cli_smoke.py` | 15 (subprocess-based CLI help smoke) |
 | `tests/test_partial_plan_recovery.py` | 15 |
 | `tests/test_mcp_server.py` | 13 (MCP tool surface + round-trip validation) |
+| `tests/test_mcp_server_e2e.py` | 13 (MCP round-trip via real FastMCP wire format) |
 | `tests/test_performance.py` | 13 (opt-in via `NL2PBIP_RUN_BENCHMARKS=1`) |
 | `tests/test_dax_catalog_cache.py` | 12 |
 | `tests/test_polisher_integration.py` | 11 |
