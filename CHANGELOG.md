@@ -6,6 +6,20 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-09-19
+
+### Fixed
+- **End-to-end MCP wire tests** (`tests/test_mcp_server_e2e.py`,
+  13 cases). Added a regression suite that drives every MCP tool
+  through the actual `FastMCP.call_tool()` JSON-RPC entry point
+  rather than the underlying Python handlers. Catches the class of
+  regressions the existing unit tests can't see: FastMCP API drift,
+  tool-description drift (which clients render in their tool picker),
+  and round-trip behaviour that only manifests through the
+  serialise -> dispatch -> call -> serialise -> return path. Gated
+  on the optional `[mcp]` extra via `pytest.importorskip`, same as
+  the existing `tests/test_mcp_server.py`.
+
 ## [1.5.0] - 2026-09-18
 
 ### Added
