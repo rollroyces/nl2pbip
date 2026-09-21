@@ -427,6 +427,46 @@ class Orchestrator:
     ) -> List[ToolResult]:
         """Full cycle with validation-aware self correction."""
 
+        # Local import to keep telemetry opt-in: a slim
+        # install (no OTEL SDK, no console exporter) never
+        # even resolves the module-level name on the hot path.
+        from nl2pbip.telemetry import get_tracer
+        from nl2pbip.prompts import prompt_metadata
+
+        tracer = get_tracer(__name__)
+        # ``prompt_metadata`` mirrors the same logic used by
+        # ``_planner_payload`` so the span attribute reflects
+        # the prompt the LLM actually received. Built eagerly
+        # so the span gets its attrs immediately.
+        meta = prompt_metadata(context)
+        root_attrs: Dict[str, Any] = {
+            "prompt_version": int(meta.get("version", 0)),
+            "max_cost_usd": self._max_cost_usd_safe(),
+            "plan_chunk_size": int(self.plan_chunk_size),
+            "provider": getattr(self._llm, "provider", "unknown"),
+            "model": getattr(self._llm, "model", "unknown"),
+        }
+        with tracer.start_as_current_span("nl2pbip.run", attributes=root_attrs):
+            return self._run_impl(user_prompt, context)
+
+    def _max_cost_usd_safe(self) -> float:
+        """Return the orchestrator's cost cap, or ``-1.0`` when none is set."""
+        budget = getattr(self, "token_budget", None)
+        if budget is None:
+            return -1.0
+        return float(getattr(budget, "max_cost_usd", 0.0))
+
+    def _run_impl(
+        self,
+        user_prompt: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> List[ToolResult]:
+        """Body of :meth:`run`, extracted so the OTEL span can wrap it.
+
+        Lives alongside :meth:`run` (and not on the public surface)
+        so the public API stays identical to v1.4.x. Logic is the
+        same loop that used to be inside ``run``.
+        """
         context = context or {}
         # Reset the partial-recovery carry-over from any previous
         # ``run()`` call on this orchestrator instance. Without
@@ -553,6 +593,43 @@ class Orchestrator:
         ReflectiveTrace
             The full attempt history, final results (or final error),
             and critic score.
+        """
+        # Local imports keep telemetry optional: a slim install
+        # (no OTEL SDK, no console exporter) never even resolves
+        # ``opentelemetry.trace`` on the hot path.
+        from nl2pbip.telemetry import get_tracer
+
+        tracer = get_tracer(__name__)
+        reflection_attrs: Dict[str, Any] = {
+            "max_attempts": int(max_attempts),
+            "max_reflection_rounds": int(max_reflection_rounds),
+            "critic_threshold": float(critic_threshold),
+            "has_critic": bool(critic is not None),
+        }
+        with tracer.start_as_current_span(
+            "nl2pbip.run_with_reflection", attributes=reflection_attrs
+        ):
+            return self._run_with_reflection_impl(
+                user_prompt,
+                context,
+                max_attempts=max_attempts,
+                max_reflection_rounds=max_reflection_rounds,
+                critic_threshold=critic_threshold,
+                critic=critic,
+            )
+
+    def _run_with_reflection_impl(
+        self,
+        user_prompt: str,
+        context: Optional[Dict[str, Any]] = None,
+        *,
+        max_attempts: int = 3,
+        max_reflection_rounds: int = 1,
+        critic_threshold: float = 0.7,
+        critic: Optional[LLMClient] = None,
+    ) -> ReflectiveTrace:
+        """Body of :meth:`run_with_reflection`, extracted so the OTEL
+        span can wrap it. Logic is identical to the pre-OTEL version.
         """
         context = context or {}
         trace = ReflectiveTrace(user_prompt=user_prompt)
@@ -963,25 +1040,59 @@ class Orchestrator:
         every call, so "persist the partial result" is
         automatic — the hook just gives observers a chance to
         see progress.
+
+        Each chunk is wrapped in a ``nl2pbip.plan_chunk`` OTEL
+        span (when telemetry is enabled) with attributes
+        ``chunk_index``, ``chunk_size``, ``plan_size``, and a
+        running ``cost_usd_so_far`` read from the budget when
+        one is attached.
         """
+        # Lazy import: the no-OTEL path never resolves
+        # ``opentelemetry``. The local call is a single
+        # function-resolve, not a hook into the hot path.
+        from nl2pbip.telemetry import get_tracer
+
+        tracer = get_tracer(__name__)
         chunk_size = self.plan_chunk_size
         results: List[ToolResult] = []
-        for start in range(0, len(plan), chunk_size):
+        plan_size = len(plan)
+        for chunk_index, start in enumerate(range(0, plan_size, chunk_size), 1):
             chunk = plan[start : start + chunk_size]
-            for call in chunk:
-                spec = self._tools.get(call.tool)
-                spec.validate_payload(call.args)
-                payload = {**call.args, "context": context}
-                output = spec.handler(**payload)
-                results.append(
-                    ToolResult(tool=call.tool, args=call.args, output=output)
-                )
+            cost_so_far = self._cost_usd_so_far()
+            chunk_attrs: Dict[str, Any] = {
+                "chunk_index": int(chunk_index),
+                "chunk_size": int(len(chunk)),
+                "plan_size": int(plan_size),
+                "cost_usd_so_far": float(cost_so_far),
+            }
+            with tracer.start_as_current_span(
+                "nl2pbip.plan_chunk", attributes=chunk_attrs
+            ):
+                for call in chunk:
+                    spec = self._tools.get(call.tool)
+                    spec.validate_payload(call.args)
+                    payload = {**call.args, "context": context}
+                    output = spec.handler(**payload)
+                    results.append(
+                        ToolResult(tool=call.tool, args=call.args, output=output)
+                    )
             if self.on_plan_chunk_complete is not None:
                 # Hand the caller the cumulative results-so-far
                 # (so they can snapshot progress without
                 # re-aggregating) plus the live context.
                 self.on_plan_chunk_complete(list(results), context)
         return results
+
+    def _cost_usd_so_far(self) -> float:
+        """Return the running cost from the orchestrator's budget.
+
+        Returns ``0.0`` when no budget is attached so the
+        span attribute is always a concrete float.
+        """
+        budget = getattr(self, "token_budget", None)
+        if budget is None:
+            return 0.0
+        return float(getattr(budget, "spent_usd", 0.0))
 
     def _tool_stub(self, spec: ToolSpec) -> Dict[str, Any]:
         return {

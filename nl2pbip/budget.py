@@ -160,6 +160,14 @@ class TokenBudget:
         Mutates ``self.calls`` and ``self.spent_usd``. Returns the
         new :class:`CallRecord` for callers that want to attach
         it to a trace.
+
+        Emits a ``nl2pbip.budget.spend`` *event* on the current
+        OTEL span (when telemetry is enabled) carrying
+        ``provider``, ``model``, ``prompt_tokens``,
+        ``completion_tokens``, ``cost_usd``, and the running
+        ``cost_usd_so_far`` / ``cumulative_tokens`` totals.
+        Events (rather than nested spans) keep the trace tree
+        flat for the cost ledger.
         """
         effective_provider = provider or self.provider
         effective_model = model or self.model
@@ -181,6 +189,24 @@ class TokenBudget:
         )
         self.calls.append(record)
         self.spent_usd += cost
+        # Lazy import: telemetry is opt-in; this is the
+        # cheap path even on the no-OTEL install because the
+        # ``record_event`` body returns ``None`` immediately
+        # when ``is_tracing_enabled()`` is False.
+        from nl2pbip.telemetry import record_event
+
+        record_event(
+            "nl2pbip.budget.spend",
+            {
+                "provider": str(effective_provider),
+                "model": str(effective_model),
+                "prompt_tokens": int(prompt_tokens),
+                "completion_tokens": int(completion_tokens),
+                "cost_usd": float(cost),
+                "cost_usd_so_far": float(self.spent_usd),
+                "cumulative_tokens": int(self.total_tokens),
+            },
+        )
         return record
 
     def check_and_record(
@@ -200,6 +226,10 @@ class TokenBudget:
         budget — a failed call shouldn't consume headroom.
 
         Returns the new :class:`CallRecord` when the call fits.
+        On ``BudgetExceededError`` the method emits a
+        ``nl2pbip.budget.exceeded`` span event so the trace
+        flags the rejection at the same point the LLM client
+        did.
         """
         effective_provider = provider or self.provider
         effective_model = model or self.model
@@ -209,6 +239,19 @@ class TokenBudget:
         else:
             cost = self.estimate_cost(prompt_tokens, completion_tokens)
         if self.would_exceed(cost):
+            # Lazy import: same rationale as ``record_call``.
+            from nl2pbip.telemetry import record_event
+
+            record_event(
+                "nl2pbip.budget.exceeded",
+                {
+                    "provider": str(effective_provider),
+                    "model": str(effective_model),
+                    "would_cost_usd": float(cost),
+                    "cost_usd_so_far": float(self.spent_usd),
+                    "budget_usd": float(self.max_cost_usd),
+                },
+            )
             raise BudgetExceededError(
                 f"LLM cost ${self.spent_usd + cost:.6f} would exceed "
                 f"budget ${self.max_cost_usd:.6f}",

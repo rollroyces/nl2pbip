@@ -11,14 +11,14 @@
 [![PyPI](https://img.shields.io/pypi/v/nl2pbip.svg)](https://pypi.org/project/nl2pbip/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#installation)
 [![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
-[![Tests](https://img.shields.io/badge/tests-957%20collected%2C%20943%20passing-brightgreen.svg)](#test-counts)
+[![Tests](https://img.shields.io/badge/tests-976%20collected%2C%20962%20passing-brightgreen.svg)](#test-counts)
 [![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
 [![mypy --strict](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml)
 [![Bandit](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml)
 
 ## Contents
 
-- [What ships in v1.5.0](#what-ships-in-v150)
+- [What ships in v1.6.0](#what-ships-in-v160)
 - [5-minute demo](#5-minute-demo-no-llm-required)
 - [Install](#installation)
 - [Quickstart](#quickstart--core-usage)
@@ -47,9 +47,14 @@
 
 ---
 
-## What ships in v1.5.0
+## What ships in v1.6.0
 
 | Capability | What it gives you |
+|---|---|
+| **OpenTelemetry tracing** (`[telemetry]` extra) | Stdlib-only fallback by default; opt-in install pulls `opentelemetry-api`, `opentelemetry-sdk`, and `opentelemetry-exporter-otlp-proto-http`. Exposes `nl2pbip.run` root span + `nl2pbip.run_with_reflection`, `nl2pbip.llm.chat`, `nl2pbip.plan_chunk` children. Token-budget spend lands as `nl2pbip.budget.spend` / `nl2pbip.budget.exceeded` events on the current span. `NL2PBIP_OTEL_EXPORTER=console` writes JSON spans to stderr; `=otlp_http` ships to Jaeger / Tempo / Honeycomb via the configured endpoint. Zero behaviour change when disabled; mypy-strict clean on the slim CI runner. |
+| **All v1.5.0 capabilities** | Below — left intact for posterity. |
+
+| From v1.5.0 | What it gave you |
 |---|---|
 | **TMDL feature expansion** | Calculation groups + dynamic format strings (`formatStringDefinition`), Object-Level Security (Sept 2025 grammar), field parameters, Power Query (M) partitions with 6 source templates + 4 transformations. |
 | **Fabric Git integration** | `package_pbip` writes `itemMetadata.json` + `.platform` per Fabric item. Validated against the 21 canonical Fabric item types. |
@@ -812,7 +817,7 @@ nl2pbip/
 │   │   ├── dataset_generator.py  # instructor + OpenAI synthetic data
 │   │   └── train.py            # Unsloth + trl SFT + GGUF export
 │   └── mcp_server/             # Model Context Protocol server (4 tools)
-├── tests/                      # 943 pytest cases across 29 test files
+├── tests/                      # 975 pytest cases across 31 test files
 ├── artifacts/                  # example Run output (SalesInsights.pbipdir)
 ├── .github/                    # workflows, issue templates, CODEOWNERS,
 │                               # renovate.json, labeler.yml, SECURITY.md, etc.
@@ -826,7 +831,7 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **957 test cases across 31 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **944 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **976 test cases across 32 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **962 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Cases |
 |---|---:|
@@ -906,6 +911,19 @@ To reduce token spend:
 - Skip `ontology_hints` if your column names are obvious: `context["ontology_hints_enabled"] = False`
 - Skip `data_understanding` for tiny datasets (< 10 rows): `context["data_understanding_enabled"] = False`
 - Pin the prompt version so retries don't re-load changelog data: read `prompt_meta.version` and pass it back via `context["prompt_version"]`
+
+### Tracing (OpenTelemetry)
+
+The orchestrator emits OTEL spans around every `run()`, `run_with_reflection()`, LLM call, plan chunk, and per-call spend. Install the optional extra and flip an env var:
+
+```bash
+pip install ".[telemetry]"
+export NL2PBIP_OTEL_EXPORTER=console          # or "otlp_http" for Jaeger / Tempo
+export NL2PBIP_OTEL_SERVICE_NAME=nl2pbip      # surfaced as span attribute
+export NL2PBIP_OTEL_OTLP_ENDPOINT=http://localhost:4318  # OTLP/HTTP default
+```
+
+Spans land in your backend (Jaeger / Tempo / Honeycomb) with `nl2pbip.run` as the root and `nl2pbip.llm.chat`, `nl2pbip.plan_chunk`, `nl2pbip.budget.spend`, and `nl2pbip.budget.exceeded` as children / events. Telemetry is **opt-in and zero-cost when disabled** — no SDK imports, no startup latency, no behaviour change. See `tests/test_telemetry.py` for the supported attribute schema.
 
 ---
 

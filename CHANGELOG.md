@@ -6,6 +6,27 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.0] - YYYY-MM-DD
+
+### Added
+- **OpenTelemetry tracing (opt-in via `[telemetry]` extra).** New
+  module `nl2pbip.telemetry` provides a stdlib-only fallback by
+  default and delegates to `opentelemetry.trace` when the SDK is
+  installed. The orchestrator now emits a `nl2pbip.run` root span
+  (with `prompt_version`, `max_cost_usd`, `plan_chunk_size`,
+  `provider`, `model` attributes), `nl2pbip.run_with_reflection`
+  child span, `nl2pbip.llm.chat` per-call span
+  (`tokens_in` / `tokens_out` / `cost_usd` / `budget_remaining_usd`),
+  `nl2pbip.plan_chunk` per-chunk span (`chunk_index` / `chunk_size`
+  / `plan_size` / `cost_usd_so_far`), and
+  `nl2pbip.budget.spend` / `nl2pbip.budget.exceeded` span events
+  emitted by `TokenBudget`. Configure via env vars
+  `NL2PBIP_OTEL_EXPORTER` (`none` / `console` / `otlp_http`),
+  `NL2PBIP_OTEL_OTLP_ENDPOINT`, `NL2PBIP_OTEL_SERVICE_NAME`,
+  `NL2PBIP_OTEL_CONSOLE_OUT`. Disabled when no SDK is installed —
+  zero behaviour change, zero startup cost. 19 new tests in
+  `tests/test_telemetry.py`. Closes Phase 3 Item 3.
+
 ## [1.5.1] - 2026-09-19
 
 ### Fixed

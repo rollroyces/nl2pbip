@@ -1,3 +1,3 @@
 """nl2pbip: Natural Language to Power BI Project (.pbip) generator."""
 
-__version__ = "1.5.1"
+__version__ = "1.6.0"

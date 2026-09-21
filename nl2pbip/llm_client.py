@@ -172,6 +172,49 @@ class StructuredLLMClient:
         self._budget: Optional["TokenBudget"] = budget
 
     def generate(self, messages: List[Dict[str, str]]) -> str:
+        """Run the provider call + budget charge + plan normalisation.
+
+        Wrapped in an OTEL ``nl2pbip.llm.chat`` span (when
+        telemetry is enabled) carrying ``provider``, ``model``,
+        ``tokens_in``, ``tokens_out``, ``cost_usd``, and
+        ``budget_remaining_usd``. The span attributes are set
+        BEFORE the provider call so a slow LLM still shows
+        useful information in the trace while it's in flight.
+        """
+        # Local import: keep ``opentelemetry`` off the import
+        # graph when telemetry is disabled.
+        from nl2pbip.telemetry import get_tracer
+        from nl2pbip.budget import count_tokens
+
+        tracer = get_tracer(__name__)
+        # Pre-count prompt tokens so the span gets a useful
+        # ``tokens_in`` attribute even when the LLM itself
+        # never reports token usage.
+        prompt_estimate = count_tokens(messages, "")
+        prompt_in = int(prompt_estimate.get("prompt_tokens", 0))
+        llm_attrs: Dict[str, Any] = {
+            "provider": str(self.provider),
+            "model": str(self.model),
+            "tokens_in": int(prompt_in),
+            "tokens_out": 0,
+            "cost_usd": 0.0,
+            "budget_remaining_usd": self._budget_remaining_safe(),
+        }
+        with tracer.start_as_current_span("nl2pbip.llm.chat", attributes=llm_attrs):
+            return self._generate_impl(messages)
+
+    def _generate_impl(self, messages: List[Dict[str, str]]) -> str:
+        """Body of :meth:`generate`, extracted so the OTEL span
+        can wrap it.
+
+        Used to be inlined in ``generate``; behaviour is
+        unchanged. The span it runs under is named
+        ``nl2pbip.llm.chat`` in :meth:`generate` so the public
+        method name does not have to be renamed.
+        """
+        from nl2pbip.telemetry import get_current_span, record_event
+        from nl2pbip.budget import count_tokens
+
         last_error: Optional[Exception] = None
         for attempt in range(1, self.max_retries + 1):
             try:
@@ -183,6 +226,49 @@ class StructuredLLMClient:
                 # consistent error type.
                 if self._budget is not None:
                     self._charge_budget(messages, raw_text)
+                # Reflect the post-call budget state on the
+                # parent span so traces show the running
+                # cost and remaining headroom after the LLM
+                # answers.
+                counts = count_tokens(messages, raw_text)
+                span = get_current_span()
+                try:
+                    span.set_attribute("tokens_in", int(counts.get("prompt_tokens", 0)))
+                    span.set_attribute(
+                        "tokens_out", int(counts.get("completion_tokens", 0))
+                    )
+                except Exception:  # pragma: no cover - defensive
+                    pass
+                # ``spent_usd`` is the cumulative cost in USD
+                # tracked by TokenBudget; reported as the
+                # per-call ``cost_usd`` only when the budget is
+                # attached. Otherwise record 0 so trace consumers
+                # don't see ``None``.
+                spent_usd = 0.0
+                budget = getattr(self, "_budget", None)
+                if budget is not None:
+                    spent_usd = float(getattr(budget, "spent_usd", 0.0))
+                    # Capture the marginal cost of THIS call by
+                    # looking at the last appended CallRecord.
+                    calls = getattr(budget, "calls", [])
+                    if calls:
+                        spent_usd = float(getattr(calls[-1], "cost_usd", spent_usd))
+                try:
+                    span.set_attribute("cost_usd", spent_usd)
+                    span.set_attribute(
+                        "budget_remaining_usd",
+                        self._budget_remaining_safe(),
+                    )
+                except Exception:  # pragma: no cover - defensive
+                    pass
+                record_event(
+                    "nl2pbip.llm.completed",
+                    {
+                        "tokens_in": int(counts.get("prompt_tokens", 0)),
+                        "tokens_out": int(counts.get("completion_tokens", 0)),
+                        "cost_usd": spent_usd,
+                    },
+                )
                 return self._normalize_plan(raw_text)
             except Exception as exc:  # pragma: no cover - network code
                 last_error = exc
@@ -190,6 +276,15 @@ class StructuredLLMClient:
                     break
                 time.sleep(1.5 * attempt)
         raise RuntimeError("LLM client failed after retries.") from last_error
+
+    def _budget_remaining_safe(self) -> float:
+        """Return the live budget headroom in USD, or ``-1.0`` when no
+        budget is attached. Used by the OTEL span attributes.
+        """
+        budget = getattr(self, "_budget", None)
+        if budget is None:
+            return -1.0
+        return float(getattr(budget, "remaining_usd", 0.0))
 
     def _charge_budget(
         self, messages: List[Dict[str, str]], completion_text: str
