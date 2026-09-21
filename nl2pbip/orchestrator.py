@@ -430,8 +430,8 @@ class Orchestrator:
         # Local import to keep telemetry opt-in: a slim
         # install (no OTEL SDK, no console exporter) never
         # even resolves the module-level name on the hot path.
-        from nl2pbip.telemetry import get_tracer
         from nl2pbip.prompts import prompt_metadata
+        from nl2pbip.telemetry import get_tracer
 
         tracer = get_tracer(__name__)
         # ``prompt_metadata`` mirrors the same logic used by

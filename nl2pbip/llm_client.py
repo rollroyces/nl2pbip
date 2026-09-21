@@ -183,8 +183,8 @@ class StructuredLLMClient:
         """
         # Local import: keep ``opentelemetry`` off the import
         # graph when telemetry is disabled.
-        from nl2pbip.telemetry import get_tracer
         from nl2pbip.budget import count_tokens
+        from nl2pbip.telemetry import get_tracer
 
         tracer = get_tracer(__name__)
         # Pre-count prompt tokens so the span gets a useful
@@ -212,8 +212,8 @@ class StructuredLLMClient:
         ``nl2pbip.llm.chat`` in :meth:`generate` so the public
         method name does not have to be renamed.
         """
-        from nl2pbip.telemetry import get_current_span, record_event
         from nl2pbip.budget import count_tokens
+        from nl2pbip.telemetry import get_current_span, record_event
 
         last_error: Optional[Exception] = None
         for attempt in range(1, self.max_retries + 1):
@@ -238,7 +238,7 @@ class StructuredLLMClient:
                         "tokens_out", int(counts.get("completion_tokens", 0))
                     )
                 except Exception:  # pragma: no cover - defensive
-                    pass
+                    pass  # nosec B110 — best-effort span attribute setting
                 # ``spent_usd`` is the cumulative cost in USD
                 # tracked by TokenBudget; reported as the
                 # per-call ``cost_usd`` only when the budget is
@@ -260,7 +260,7 @@ class StructuredLLMClient:
                         self._budget_remaining_safe(),
                     )
                 except Exception:  # pragma: no cover - defensive
-                    pass
+                    pass  # nosec B110 — best-effort span attribute setting
                 record_event(
                     "nl2pbip.llm.completed",
                     {
