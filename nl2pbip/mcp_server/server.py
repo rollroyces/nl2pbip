@@ -176,7 +176,7 @@ def build_server(
     # than casting (which also requires the FastMCP symbol
     # under TYPE_CHECKING) or leaking the optional-dep
     # abstraction out of the public signature.
-    return server  # type: ignore[no-any-return]
+    return server
 
 
 _SERVER_INSTRUCTIONS = (
