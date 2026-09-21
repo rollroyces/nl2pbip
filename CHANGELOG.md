@@ -6,7 +6,7 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [1.6.0] - YYYY-MM-DD
+## [1.6.0] - 2026-09-21
 
 ### Added
 - **OpenTelemetry tracing (opt-in via `[telemetry]` extra).** New
@@ -26,6 +26,26 @@ to [Semantic Versioning](https://semver.org/).
   `NL2PBIP_OTEL_CONSOLE_OUT`. Disabled when no SDK is installed —
   zero behaviour change, zero startup cost. 19 new tests in
   `tests/test_telemetry.py`. Closes Phase 3 Item 3.
+- **Streamable-HTTP transport for the MCP server.** The
+  `nl2pbip.mcp_server` module now accepts a `--transport
+  {stdio,streamable-http}` CLI flag and binds to
+  `127.0.0.1:8000` by default. Loopback-only is the v1.6.0
+  posture — the server trusts the network and assumes the
+  operator is exposing it via a trusted tunnel (Tailscale,
+  WireGuard, ssh -L); auth comes in a follow-up. The default
+  FastMCP stdio behaviour is unchanged, so existing Claude
+  Code / Cursor / Copilot CLI users see no difference.
+- **Base64 artifact return from `generate_report`.** New
+  `include_artifact=True` tool argument packages the packaged
+  `.pbipdir` into a base64-encoded zip in the JSON-RPC response,
+  so remote MCP clients running over streamable-http can deliver
+  the artifact to their caller without filesystem access to
+  the server. Capped at 50 MB by default (`max_artifact_bytes`);
+  oversized artifacts fall back to returning `project_path`
+  only with a warning. Off by default — stdio clients (which
+  have filesystem access) see the same response shape as before.
+  13 new tests in `tests/test_mcp_server_v160.py` covering both
+  the artifact round-trip and the streamable-http wire format.
 
 ## [1.5.1] - 2026-09-19
 

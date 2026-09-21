@@ -11,7 +11,7 @@
 [![PyPI](https://img.shields.io/pypi/v/nl2pbip.svg)](https://pypi.org/project/nl2pbip/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#installation)
 [![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
-[![Tests](https://img.shields.io/badge/tests-976%20collected%2C%20962%20passing-brightgreen.svg)](#test-counts)
+[![Tests](https://img.shields.io/badge/tests-989%20collected%2C%20975%20passing-brightgreen.svg)](#test-counts)
 [![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
 [![mypy --strict](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml)
 [![Bandit](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml)
@@ -63,10 +63,10 @@
 | **Multi-provider cost guardrails** | `TokenBudget` + per-provider pricing tables in `nl2pbip.pricing` track cumulative LLM spend; `--max-cost-usd N` (default 10.0) CLI flag and `Orchestrator(max_cost_usd=N)` abort with `BudgetExceededError` once spend crosses the cap. Tiktoken-based token counting with a 4-char heuristic fallback when tiktoken isn't installed. |
 | **Streaming plan execution** | `Orchestrator(plan_chunk_size=N)` slices the generated plan into N-step chunks; the optional `on_plan_chunk_complete` callback fires between chunks so callers can log progress, snapshot state, or push partial results to a queue. CLI surface via `--plan-chunk-size N` (default 0 keeps the legacy single-shot flow). |
 | **Lightweight RAG for `model_state`** | When the model already has tables AND the caller has registered focus hints (data-source keys, recent lint errors), the orchestrator emits only the relevant subset plus a stable `content_hash` instead of dumping the full state. Opt-out via `context["model_state_rag_enabled"]=False`. |
-| **MCP server** (`[mcp]` extra) | Exposes the generator as a Model Context Protocol server over stdio JSON-RPC. Four tools: `generate_report` (full NL → `.pbipdir`), `validate_pbip` (round-trip validator), `inspect_dataset` (CSV / JSON / JSONL / Parquet profiler), `version` (handshake). Drop into Claude Code, Cursor, or GitHub Copilot CLI via `mcpServers` config. Same env-var credential strategy as the CLI. |
+| **MCP server** (`[mcp]` extra) | Exposes the generator as a Model Context Protocol server over **stdio or streamable-http** JSON-RPC. Four tools: `generate_report` (full NL → `.pbipdir`), `validate_pbip` (round-trip validator), `inspect_dataset` (CSV / JSON / JSONL / Parquet profiler), `version` (handshake). Drop into Claude Code, Cursor, or GitHub Copilot CLI via `mcpServers` config (stdio) or any HTTP-capable client (streamable-http, loopback-only by default — tunnel it via Tailscale / ssh -L / WireGuard). Same env-var credential strategy as the CLI. Pass `include_artifact=True` to `generate_report` to receive the packaged `.pbip` as base64 zip over the wire. |
 | **Type safety** | **0 errors under `mypy --strict`** (down from 77 baseline). Gated by CI since v1.3.5. Heavy ML deps excluded via `[tool.mypy.overrides]`. |
 | **Security automation** | 11 GitHub Actions workflows cover CI matrix, CodeQL, actionlint, OpenSSF Scorecard, stale bot, mypy --strict, Gitleaks, Bandit (gating), Vulture (gating), `pip-licenses`, PR labeler. Renovate runs as a separate weekly config. See [CI/CD integration](#cicd-integration). |
-| **11 PyPI releases** | `v1.1.0` … `v1.4.0` live at https://pypi.org/project/nl2pbip/ before this release; `v1.5.0` lands here once the tag push fires `release.yml`. Trusted publishing via OIDC — no API token in the repo. |
+| **11 PyPI releases** | `v1.1.0` … `v1.5.1` live at https://pypi.org/project/nl2pbip/ before this release; `v1.6.0` lands here once the tag push fires `release.yml`. Trusted publishing via OIDC — no API token in the repo. |
 
 The full history of capabilities and the changelog are in [`CHANGELOG.md`](./CHANGELOG.md).
 
@@ -280,6 +280,30 @@ The server speaks stdio JSON-RPC and exposes four tools:
 | `version` | Library + prompt version handshake | No |
 
 Credential strategy mirrors the CLI exactly — `NL2PBIP_LLM_PROVIDER` plus the provider's env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.). The two no-LLM tools (`validate_pbip`, `inspect_dataset`) run cleanly in CI on every PR. Start the server manually with `nl2pbip-mcp` (console script) or `python -m nl2pbip.mcp_server` for debugging.
+
+### Streamable-HTTP transport (v1.6.0)
+
+For remote agent stacks (containers, hosted endpoints, custom gateways) the MCP server also exposes the same four tools over HTTP:
+
+```bash
+nl2pbip-mcp --transport streamable-http --host 127.0.0.1 --port 8000
+```
+
+Loopback-only by default — the server assumes the operator is exposing it via a trusted tunnel (Tailscale, WireGuard, `ssh -L`). To accept remote MCP clients directly, run behind a reverse proxy with auth of your choice. Set `host=0.0.0.0` only when you have a real network boundary in place.
+
+When the client has no filesystem access to the server (most HTTP deployments), pass `include_artifact=True` to `generate_report` so the response carries the packaged `.pbip` as a base64-encoded zip:
+
+```python
+result = await session.call_tool("generate_report", {
+    "prompt": "monthly revenue by region",
+    "workspace": "/tmp/nl2pbip",
+    "include_artifact": True,
+})
+with open(result["artifact_filename"], "wb") as fh:
+    fh.write(base64.b64decode(result["artifact_zip_b64"]))
+```
+
+The zip is capped at 50 MB by default (`max_artifact_bytes`); oversized artifacts fall back to returning `project_path` only with a warning, so a runaway plan can't OOM the JSON-RPC frame.
 
 ---
 
@@ -831,11 +855,11 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **976 test cases across 32 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **962 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **989 test cases across 32 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **975 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Cases |
 |---|---:|
-| `tests/test_repo_templates.py` | 109 |
+| `tests/test_repo_templates.py` | 108 |
 | `tests/test_data_types.py` | 90 |
 | `tests/test_prompt_polisher.py` | 76 |
 | `tests/test_visual_types.py` | 73 |
@@ -858,6 +882,7 @@ Pytest collects **976 test cases across 32 test files** in CI (Python 3.10 / 3.1
 | `tests/test_partial_plan_recovery.py` | 15 |
 | `tests/test_mcp_server.py` | 13 (MCP tool surface + round-trip validation) |
 | `tests/test_mcp_server_e2e.py` | 13 (MCP round-trip via real FastMCP wire format) |
+| `tests/test_mcp_server_v160.py` | 13 (streamable-http transport + base64 artifact return) |
 | `tests/test_performance.py` | 13 (opt-in via `NL2PBIP_RUN_BENCHMARKS=1`) |
 | `tests/test_dax_catalog_cache.py` | 12 |
 | `tests/test_polisher_integration.py` | 11 |
