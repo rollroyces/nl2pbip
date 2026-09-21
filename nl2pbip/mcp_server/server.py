@@ -176,7 +176,7 @@ def build_server(
     # than casting (which also requires the FastMCP symbol
     # under TYPE_CHECKING) or leaking the optional-dep
     # abstraction out of the public signature.
-    return server
+    return server  # type: ignore[no-any-return,unused-ignore]  # FastMCP is dynamic-imported; narrow type depends on whether mcp SDK is installed (CI=installed, slim=missing)
 
 
 _SERVER_INSTRUCTIONS = (
