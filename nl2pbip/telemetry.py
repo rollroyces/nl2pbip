@@ -60,12 +60,9 @@ import sys
 from contextlib import contextmanager
 from typing import (
     Any,
-    Callable,
-    Dict,
     Iterator,
     Mapping,
     Optional,
-    Union,
 )
 
 _LOG = logging.getLogger(__name__)
@@ -206,14 +203,14 @@ def _span_cm(name: str, attrs: Optional[Mapping[str, Any]] = None) -> Iterator[A
                 try:
                     span.set_attribute(key, value)
                 except Exception:  # pragma: no cover - defensive
-                    pass
+                    pass  # nosec B110 — best-effort span attribute setting
         try:
             yield span
         except Exception as exc:
             try:
                 span.record_exception(exc)
             except Exception:  # pragma: no cover - defensive
-                pass
+                pass  # nosec B110 — best-effort exception recording
             raise
 
 

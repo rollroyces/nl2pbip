@@ -30,12 +30,15 @@ The four MCP tools
 
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
 import sys
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from mcp.server.fastmcp import FastMCP
@@ -79,7 +82,11 @@ def _require_mcp() -> "Any":
 # ---------------------------------------------------------------------
 
 
-def build_server(name: str = "nl2pbip") -> FastMCP:
+def build_server(
+    name: str = "nl2pbip",
+    host: str = "127.0.0.1",
+    port: int = 8000,
+) -> FastMCP:
     """Construct a configured :class:`FastMCP` exposing the four tools.
 
     A factory (not a module-level singleton) makes the server
@@ -88,13 +95,31 @@ def build_server(name: str = "nl2pbip") -> FastMCP:
     registered tools via ``await server.list_tools()`` without
     touching the real default server.
 
+    Args:
+        name: Server name advertised in the MCP ``initialize``
+            response. Defaults to ``"nl2pbip"``.
+        host: Bind address for the ``streamable-http`` transport.
+            Defaults to ``127.0.0.1`` (loopback only — the v1.6.0
+            server trusts the network and assumes the operator
+            is exposing it via a trusted tunnel). Set to
+            ``0.0.0.0`` only when running behind a reverse proxy
+            with appropriate access controls.
+        port: TCP port for the ``streamable-http`` transport.
+            Defaults to ``8000`` (FastMCP's default). Ignored for
+            stdio transport.
+
     Requires the optional ``[mcp]`` extra; raises :class:`ImportError`
     with an install hint when the SDK is missing. Importing
     :mod:`nl2pbip.mcp_server` itself stays cheap.
     """
 
     FastMCP = _require_mcp()
-    server = FastMCP(name=name, instructions=_SERVER_INSTRUCTIONS)
+    server = FastMCP(
+        name=name,
+        instructions=_SERVER_INSTRUCTIONS,
+        host=host,
+        port=port,
+    )
     server.tool(
         name="generate_report",
         description=(
@@ -104,7 +129,11 @@ def build_server(name: str = "nl2pbip") -> FastMCP:
             "credentials are picked up from environment variables "
             "(NL2PBIP_LLM_PROVIDER, OPENAI_API_KEY, ANTHROPIC_API_KEY, "
             "etc.). Returns the absolute path to the packaged .pbip "
-            "folder plus a structured plan summary."
+            "folder plus a structured plan summary. Set "
+            "`include_artifact=True` to additionally receive the "
+            "packaged .pbip as a base64-encoded zip in the response "
+            "(useful over streamable-http transport where the client "
+            "has no filesystem access to the server)."
         ),
     )(_tool_generate_report)
     server.tool(
@@ -173,11 +202,23 @@ def _tool_generate_report(
     max_cost_usd: float = 10.0,
     plan_chunk_size: int = 0,
     dax_library: Optional[str] = None,
+    include_artifact: bool = False,
+    max_artifact_bytes: int = 50 * 1024 * 1024,
 ) -> Dict[str, Any]:
     """MCP tool: NL prompt -> packaged .pbip folder.
 
     Mirrors :func:`nl2pbip.cli._handle_generate` 1:1 so behaviour is
     identical to ``nl2pbip generate --prompt ...`` on the CLI.
+
+    When ``include_artifact=True`` the response additionally
+    carries ``artifact_zip_b64`` — a base64-encoded zip archive of
+    the packaged ``.pbipdir`` folder — so a remote MCP client
+    (e.g. running over streamable-http) can deliver the artifact
+    back to its caller without needing filesystem access to the
+    server. The zip is only included if it fits under
+    ``max_artifact_bytes`` (default 50 MB); larger artifacts fall
+    back to returning ``project_path`` only with a warning, so a
+    runaway plan can't OOM the JSON-RPC frame.
     """
 
     if not prompt or not prompt.strip():
@@ -233,19 +274,84 @@ def _tool_generate_report(
     if package_outputs is not None:
         project_path = package_outputs.output.get("project_path")
 
-    return {
+    artifact_b64: Optional[str] = None
+    artifact_filename: Optional[str] = None
+    if include_artifact and project_path:
+        artifact_b64, artifact_filename, artifact_warning = _encode_pbip_artifact(
+            Path(project_path), max_artifact_bytes
+        )
+    elif include_artifact and not project_path:
+        artifact_warning = "no artifact produced: plan did not include package_pbip"
+    else:
+        artifact_warning = None
+
+    warnings: List[str] = []
+    if not project_path:
+        warnings.append("plan did not include package_pbip; review LLM output")
+    if artifact_warning is not None:
+        warnings.append(artifact_warning)
+
+    response: Dict[str, Any] = {
         "status": "ok" if project_path else "plan_incomplete",
         "project_path": project_path,
         "output_dir": str(output_path),
         "workspace": str(workspace_path),
         "plan_steps": len(plan_summary),
         "plan": plan_summary,
-        "warnings": (
-            []
-            if project_path
-            else ["plan did not include package_pbip; review LLM output"]
-        ),
+        "warnings": warnings,
     }
+    if artifact_b64 is not None:
+        response["artifact_zip_b64"] = artifact_b64
+        response["artifact_filename"] = artifact_filename
+    return response
+
+
+def _encode_pbip_artifact(
+    pbip_dir: Path,
+    max_bytes: int,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Zip a ``.pbipdir`` folder into base64 if it fits under ``max_bytes``.
+
+    Returns ``(b64_payload, filename, warning)``:
+
+    - ``b64_payload``: base64-encoded zip bytes, or ``None`` if the
+      artifact was too large (or doesn't exist). When ``None`` the
+      warning carries the reason.
+    - ``filename``: suggested filename for the artifact
+      (``<pbip_dir_name>.zip``).
+    - ``warning``: human-readable string the caller should append
+      to the response's ``warnings`` list, or ``None`` if no warning.
+    """
+    if not pbip_dir.exists():
+        return None, None, f"artifact directory missing: {pbip_dir}"
+
+    buf = io.BytesIO()
+    try:
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for path in sorted(pbip_dir.rglob("*")):
+                if path.is_file():
+                    # Store paths relative to the .pbipdir root so the
+                    # recipient sees <name>.pbip, <name>.SemanticModel/...
+                    # etc. when they unzip.
+                    zf.write(path, path.relative_to(pbip_dir.parent))
+    except OSError as exc:
+        return None, None, f"failed to zip artifact: {exc}"
+
+    raw = buf.getvalue()
+    if len(raw) > max_bytes:
+        size_mb = len(raw) / (1024 * 1024)
+        cap_mb = max_bytes / (1024 * 1024)
+        return (
+            None,
+            None,
+            f"artifact too large to embed ({size_mb:.1f} MB > {cap_mb:.0f} MB cap); "
+            f"client should fetch project_path directly: {pbip_dir}",
+        )
+    return (
+        base64.b64encode(raw).decode("ascii"),
+        f"{pbip_dir.name}.zip",
+        None,
+    )
 
 
 def _tool_validate_pbip(pbip_path: str) -> Dict[str, Any]:
@@ -394,37 +500,72 @@ class Nl2PbipMcpServer:
     directly to get the raw FastMCP for ``run()``.
     """
 
-    def __init__(self, name: str = "nl2pbip") -> None:
+    def __init__(
+        self,
+        name: str = "nl2pbip",
+        host: str = "127.0.0.1",
+        port: int = 8000,
+    ) -> None:
         self.name = name
-        self.server: FastMCP = build_server(name=name)
+        self.host = host
+        self.port = port
+        self.server: FastMCP = build_server(name=name, host=host, port=port)
 
-    def run(self, transport: Literal["stdio"] = "stdio") -> None:
+    def run(
+        self,
+        transport: Literal["stdio", "streamable-http"] = "stdio",
+    ) -> None:
         """Proxy to :meth:`FastMCP.run` for symmetry with the CLI entry point.
 
-        v1 is stdio-only. ``sse`` / ``streamable-http`` require
-        deployment plumbing we don't have yet.
+        ``stdio`` (default): blocks until the client closes stdin.
+        ``streamable-http``: serves over HTTP at ``self.host:self.port``.
         """
 
         self.server.run(transport=transport)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
-    """Run the MCP server over stdio.
+    """Run the MCP server.
 
     Invoked by ``python -m nl2pbip.mcp_server`` (and the console
     script ``nl2pbip-mcp`` registered in pyproject.toml). Blocks
-    until the client closes the stdin pipe or the process receives
-    SIGINT/SIGTERM.
+    until the client closes the connection or the process
+    receives SIGINT/SIGTERM.
 
-    The FastMCP ``run()`` coroutine drives the stdio JSON-RPC loop
-    via :func:`mcp.server.stdio.stdio_server`. We use asyncio.run
-    because the package's CLI entry points are synchronous — the
-    MCP framework's ``anyio``/``asyncio`` internals stay inside
-    :func:`FastMCP.run`.
+    CLI flags (parsed from ``argv`` or ``sys.argv[1:]``):
+
+    ``--transport {stdio,streamable-http}``
+        Wire protocol. Default ``stdio``.
+    ``--host HOST``
+        Bind address for ``streamable-http``. Default ``127.0.0.1``.
+    ``--port PORT``
+        TCP port for ``streamable-http``. Default ``8000``.
     """
 
-    server = build_server()
-    server.run(transport="stdio")
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="nl2pbip-mcp")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "streamable-http"],
+        default="stdio",
+        help="Wire protocol (default: stdio).",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Bind address for streamable-http (default: 127.0.0.1).",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="TCP port for streamable-http (default: 8000).",
+    )
+    args = parser.parse_args(argv)
+
+    server = build_server(host=args.host, port=args.port)
+    server.run(transport=args.transport)
 
 
 if __name__ == "__main__":  # pragma: no cover - module entry point

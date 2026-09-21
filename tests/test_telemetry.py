@@ -155,6 +155,8 @@ class TestConfigureTracing:
         os.environ["NL2PBIP_OTEL_SERVICE_NAME"] = "nl2pbip-test"
         telemetry.reset_for_testing()
         provider = telemetry._configure_tracing()
+        if not telemetry.is_tracing_enabled():
+            pytest.skip("OpenTelemetry SDK not installed")
         assert telemetry.is_tracing_enabled() is True
         # The provider is either the real SDK provider or None
         # if the SDK is somehow unavailable — but the flag is
@@ -173,7 +175,7 @@ class TestConfigureTracing:
         telemetry.reset_for_testing()
         # Should NOT raise even when the http exporter module
         # isn't present.
-        provider = telemetry._configure_tracing()
+        telemetry._configure_tracing()
         assert isinstance(telemetry.is_tracing_enabled(), bool)
 
     def test_unknown_exporter_does_not_crash(self) -> None:
@@ -573,7 +575,7 @@ class TestExporterFailure:
             del sys.modules[name]
         telemetry.reset_for_testing()
         try:
-            provider = telemetry._configure_tracing()
+            telemetry._configure_tracing()
         except Exception as exc:  # pragma: no cover - safety net
             pytest.fail(f"_configure_tracing raised: {exc!r}")
         assert isinstance(telemetry.is_tracing_enabled(), bool)

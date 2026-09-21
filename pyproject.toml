@@ -74,6 +74,12 @@ dev = [
   # suite + smoke tests can read TOML on Python 3.10 without
   # an extra install step. Python 3.11+ ignores this dep.
   'tomli>=2.0; python_version < "3.11"',
+  # ``httpx`` powers the streamable-http MCP transport tests
+  # in tests/test_mcp_server_v160.py. The tests are gated on
+  # the ``[mcp]`` extra (which itself requires the MCP SDK),
+  # so httpx only matters when the operator has opted into
+  # the MCP surface.
+  "httpx>=0.27",
 ]
 
 [project.scripts]
