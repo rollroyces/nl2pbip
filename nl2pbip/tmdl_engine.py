@@ -1429,13 +1429,41 @@ def _extract_expression(body: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
-def load_model(model_path: Path) -> TMDLModel:
-    """Load a TMDL model from a single ``model.tmdl`` file.
+def load_model(
+    model_path: Path,
+    *,
+    prefer_canonical: Optional[bool] = None,
+) -> TMDLModel:
+    """Load a TMDL model from disk.
 
-    Roles are loaded from ``<model_dir>/.roles/*.tmdl`` if present.
+    Auto-detects the layout as of v2.0:
+
+    * If ``<model_dir>/database.tmdl`` exists OR
+      ``<model_dir>/tables/*.tmdl`` exists, the canonical layout is
+      assumed and :func:`_load_model_canonical` is used.
+    * Otherwise the legacy monolithic ``model.tmdl`` is parsed.
+
+    Pass ``prefer_canonical=False`` to force legacy parsing even when
+    a canonical tree is present (useful when migrating one artifact at
+    a time). Pass ``prefer_canonical=True`` to raise on a legacy
+    ``model.tmdl`` (useful when verifying a freshly-canonicalised
+    artifact).
+
+    Roles are loaded from ``<model_dir>/.roles/*.tmdl`` if present,
+    regardless of the layout.
     """
     if not model_path.exists():
         raise FileNotFoundError(f"TMDL model file not found at {model_path}.")
+    model_dir = model_path.parent
+    # Auto-detect when the caller didn't override.
+    if prefer_canonical is None:
+        has_database = (model_dir / "database.tmdl").exists()
+        tables_dir = model_dir / "tables"
+        has_tables = tables_dir.exists() and any(tables_dir.glob("*.tmdl"))
+        prefer_canonical = has_database or has_tables
+    if prefer_canonical:
+        return _load_model_canonical(model_path)
+    # Legacy monolithic path.
     model = parse_tmdl_text(model_path.read_text(encoding="utf-8"))
     roles_dir = roles_workspace_dir(model_path)
     if roles_dir.exists():
@@ -1557,25 +1585,27 @@ def _types_are_joinable(from_type: str, to_type: str) -> bool:
 
 
 def _persist_model(context: Dict[str, Any]) -> Path:
-    """Persist the model in either the legacy monolithic layout (default)
-    or the canonical layout (when ``NL2PBIP_TMDL_CANONICAL=1`` or
-    ``context['canonical_tmdl_layout']`` is set).
+    """Persist the model.
 
-    The legacy layout writes everything to ``model.tmdl`` and is preserved
-    for back-compat with every shipped artifact. The canonical layout
-    writes ``database.tmdl`` + per-table files + ``model.tmdl`` with
-    ``ref table X`` declarations — the format Microsoft's
-    ``powerbi-modeling-mcp`` TOM parser expects.
+    Default (v2.0+) is the canonical layout (``database.tmdl`` +
+    per-table files + ``model.tmdl`` with ``ref table X``
+    declarations + ``relationships.tmdl``).
+
+    To opt BACK into the deprecated monolithic layout for one release
+    cycle, set ``NL2PBIP_TMDL_LEGACY=1`` or pass
+    ``context['legacy_tmdl_layout'] = True`` — a
+    :class:`TMDLLegacyDeprecationWarning` is emitted (once per process).
     """
     if not context or MODEL_PATH_KEY not in context:
         raise ValueError("Tool handlers require 'model_path' inside context.")
     if _canonical_layout_requested(context):
-        return _persist_model_canonical(context)
-    model_path = Path(context[MODEL_PATH_KEY]).expanduser()
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    model = load_model(model_path)
-    model_path.write_text(_render_model_body(model), encoding="utf-8")
-    return model_path
+        _warn_legacy_layout_once()
+        model_path = Path(context[MODEL_PATH_KEY]).expanduser()
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        model = load_model(model_path)
+        model_path.write_text(_render_model_body(model), encoding="utf-8")
+        return model_path
+    return _persist_model_canonical(context)
 
 
 def _render_model_body(model: TMDLModel) -> str:
@@ -1599,17 +1629,57 @@ def _render_model_body(model: TMDLModel) -> str:
 # ``load_model`` pair remain the default entry points.
 # ---------------------------------------------------------------------------
 
-CANONICAL_ENV_VAR = "NL2PBIP_TMDL_CANONICAL"
+CANONICAL_ENV_VAR = "NL2PBIP_TMDL_LEGACY"
+"""Env var name that opts BACK to the legacy monolithic TMDL layout.
+
+Phase A (v2.0.0) flipped the default to canonical. The legacy layout
+remains opt-in for one release cycle via this env var (or
+``context['legacy_tmdl_layout']``); emits a :class:`TMDLLegacyDeprecationWarning`.
+"""
+
+
+class TMDLLegacyDeprecationWarning(DeprecationWarning):
+    """The monolithic ``model.tmdl`` layout is deprecated as of v2.0.
+
+    Set ``NL2PBIP_TMDL_LEGACY=1`` (or pass
+    ``context['legacy_tmdl_layout'] = True`` to the persist helpers)
+    to silence this warning. The legacy layout will be removed in v2.1.
+    """
+
+
+_LEGACY_WARNING_EMITTED: bool = False
+
+
+def _warn_legacy_layout_once() -> None:
+    """Emit the legacy-layout deprecation warning at most once per process."""
+    global _LEGACY_WARNING_EMITTED
+    if _LEGACY_WARNING_EMITTED:
+        return
+    import warnings as _warnings
+
+    _warnings.warn(
+        "The monolithic model.tmdl layout is deprecated as of v2.0. "
+        "Set NL2PBIP_TMDL_LEGACY=1 to silence this warning. "
+        "Use scripts/legacy_to_canonical.py to migrate existing artifacts.",
+        TMDLLegacyDeprecationWarning,
+        stacklevel=3,
+    )
+    _LEGACY_WARNING_EMITTED = True
 
 
 def _canonical_layout_requested(context: Dict[str, Any]) -> bool:
-    """Return True when the caller (or env) opted into the canonical layout.
+    """Return True when the caller opted OUT of the canonical layout
+    (i.e. back into the legacy monolithic layout).
+
+    As of v2.0 the canonical layout is the default; this helper exists
+    only to centralize the env-var / context-flag resolution for the
+    legacy opt-in path.
 
     Resolution order:
-    1. ``context['canonical_tmdl_layout']`` (explicit dict flag)
-    2. ``NL2PBIP_TMDL_CANONICAL=1`` in the env
+    1. ``context['legacy_tmdl_layout']`` (explicit dict flag)
+    2. ``NL2PBIP_TMDL_LEGACY=1`` in the env
     """
-    if context and context.get("canonical_tmdl_layout"):
+    if context and context.get("legacy_tmdl_layout"):
         return True
     return os.environ.get(CANONICAL_ENV_VAR, "").strip().lower() in (
         "1",

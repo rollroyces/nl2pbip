@@ -335,16 +335,36 @@ CI skips it by default; the new `.github/workflows/cross-server.yml` job trigger
 
 #### Canonical TMDL layout
 
-By default nl2pbip writes a single monolithic `model.tmdl` with every `table {...}` block inlined. This is the format every shipped artifact uses and the format the legacy `load_model` parser understands. Microsoft's `powerbi-modeling-mcp` parser, however, expects a multi-file layout: `database.tmdl` + per-table files under `definition/tables/` + `model.tmdl` carrying `ref table X` declarations + a separate `relationships.tmdl`.
+**As of v2.0.0, canonical is the default.** nl2pbip writes
+`database.tmdl` + per-table files under `definition/tables/` + `model.tmdl`
+carrying `ref table X` declarations + a separate `relationships.tmdl`.
+This is the layout `microsoft/powerbi-modeling-mcp` parses correctly, the
+layout Power BI Desktop itself emits, and the layout every shipped v2.0
+artifact uses.
 
-To produce the canonical layout instead:
+To opt BACK into the deprecated monolithic layout (one release cycle, will
+be removed in v2.1):
 
 ```bash
-export NL2PBIP_TMDL_CANONICAL=1
+export NL2PBIP_TMDL_LEGACY=1
 python -m nl2pbip.cli ...
 ```
 
-Programmatic equivalent: pass `canonical_tmdl_layout=True` in the persist context. The default path is preserved for back-compat; the canonical writer only activates on request. Tests in `tests/test_tmdl_canonical.py` cover the layout, env-var resolution, and a full write-then-read round-trip.
+Programmatic equivalent: pass `legacy_tmdl_layout=True` in the persist
+context. A `TMDLLegacyDeprecationWarning` is emitted once per process.
+
+#### Migrating existing artifacts
+
+Existing v1.x artifacts (monolithic `model.tmdl`) keep loading — `load_model`
+auto-detects the layout. To canonicalise an artifact in place:
+
+```bash
+python scripts/legacy_to_canonical.py path/to/Sales.SemanticModel          # dry-run
+python scripts/legacy_to_canonical.py path/to/Sales.SemanticModel --commit # apply
+```
+
+The script refuses to run on already-canonical trees, refuses to run on
+non-TMDL directories, and is idempotent.
 
 ---
 
@@ -1191,7 +1211,7 @@ Inspecting the orchestrator's intermediate state is straightforward — `results
 
 ## Limitations
 
-What `nl2pbip` doesn't do well, as of v1.7.0:
+What `nl2pbip` doesn't do well, as of v2.0.0:
 
 | Limitation | Why | Workaround |
 |---|---|---|
