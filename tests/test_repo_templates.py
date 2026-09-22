@@ -1148,6 +1148,25 @@ class TestReadmeConsistency:
             "headline to match."
         )
 
+    def test_readme_test_counts_table_lists_mcp_stdio_module(self) -> None:
+        """The per-module test-counts table must list
+        ``tests/test_mcp_server_stdio.py``.
+
+        The stdio transport has shipped since v1.5.0 but its
+        test file was the only MCP module missing from the
+        per-module table — that drift hid the fact that stdio
+        had no real round-trip coverage. This test catches the
+        next regression of the same shape (a new test file
+        ships without a corresponding README row).
+        """
+        text = (REPO_ROOT / "README.md").read_text()
+        assert "tests/test_mcp_server_stdio.py" in text, (
+            "README per-module test-counts table must reference "
+            "tests/test_mcp_server_stdio.py — without it the "
+            "stdio round-trip coverage is invisible to readers "
+            "scanning the table."
+        )
+
     def test_limitations_table_has_as_of_current(self) -> None:
         """The Limitations section must declare itself current —
         i.e. the 'as of vX.Y.Z' marker must name the package's
