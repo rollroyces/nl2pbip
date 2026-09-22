@@ -1,0 +1,113 @@
+name: "Cross-server MCP tests"
+
+# Label-gated run of the cross-server validation suite
+# (tests/test_cross_server_validation.py) against Microsoft's
+# ``@microsoft/powerbi-modeling-mcp`` npm package.
+#
+# Why label-gated: the install pulls a ~150 MB native .NET binary
+# plus the Analysis Services / TOM runtime, which is far too heavy
+# for the default PR gate (a 7-test sweep finishing in <1 second
+# becomes a 3-minute job). A maintainer adds the ``cross-server``
+# label once they've verified the change is cross-server-relevant
+# (e.g. a TMDL emitter refactor, an MCP wire-protocol change, or a
+# fixture refresh); the pr-labeler workflow auto-applies it to
+# future PRs that touch ``scripts/install_powerbi_modeling_mcp.sh``,
+# ``tests/test_cross_server_validation.py``, the cross-server
+# fixture tree, or this workflow itself (see .github/labeler.yml).
+#
+# Trigger parity with ``pr-labeler.yml``: ``pull_request_target``
+# (so we get the standard PR_TOKEN permissions), running only when
+# the label is added. ``workflow_dispatch`` is also exposed for
+# ad-hoc local re-runs from the Actions tab. ``pull_request`` is
+# NOT used — push to the head runs the cheap CI matrix instead.
+
+on:
+  pull_request_target:
+    types: [labeled]
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  cross-server:
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || contains(github.event.label.name, 'CROSS_SERVER')
+    name: Cross-server MCP tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Cancel in-flight re-runs when a newer commit on the same PR
+    # re-applies the label — saves CI minutes on rapid fixes.
+    concurrency:
+      group: cross-server-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python deps
+        # ``[mcp]`` is required because the cross-server tests
+        # themselves import from ``nl2pbip.mcp_server``. The test
+        # file is *not* modified by this workflow — the import
+        # chain pulls in FastMCP at module-load time.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,mcp]"
+
+      - name: Install Node.js
+        # Microsoft's ``powerbi-modeling-mcp`` npm package bundles
+        # a native .NET binary per platform. The install script
+        # (scripts/install_powerbi_modeling_mcp.sh) shells out to
+        # ``npm`` via Node ≥18.
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install microsoft/powerbi-modeling-mcp
+        # Clones @microsoft/powerbi-modeling-mcp into
+        # vendor/powerbi-modeling-mcp/ (gitignored, re-built every
+        # run). Pins v0.5.0-beta.13 — bump alongside the script.
+        # The macOS codesign branch in the script is a no-op on
+        # Linux, so this step is hermetic on ubuntu-latest.
+        run: bash scripts/install_powerbi_modeling_mcp.sh
+
+      - name: Run cross-server tests
+        # Opt-in via NL2PBIP_RUN_CROSS_SERVER_TESTS=1 — without
+        # this env var the test module records clean
+        # ``pytest.skip`` (see the module docstring for details).
+        # Running pytest with -v gives us a per-test PASS/FAIL
+        # line in the Actions log; the test names mirror the
+        # ``tests/test_cross_server_validation.py`` module so
+        # callers can read the failure log directly.
+        env:
+          NL2PBIP_RUN_CROSS_SERVER_TESTS: "1"
+        run: |
+          python -m pytest tests/test_cross_server_validation.py -v
+
+      - name: Upload cross-server artifacts
+        # Always run so the npm cache + vendor tree are available
+        # for post-mortem even when pytest is green. The vendor
+        # tree is gitignored so a fresh checkout won't have it.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-server-vendor-${{ github.event.pull_request.number || github.run_id }}
+          # Only the platform binary + npm install metadata are
+          # interesting; the full ``node_modules`` tree is ~150 MB
+          # which would exhaust the 500 MB artifact budget on
+          # larger PR bases. ``npm install --no-save`` already
+          # leaves the cache readable from ``vendor/.cache``.
+          path: |
+            vendor/powerbi-modeling-mcp/package.json
+            vendor/powerbi-modeling-mcp/node_modules/.package-lock.json
+          retention-days: 7
+          if-no-files-found: ignore

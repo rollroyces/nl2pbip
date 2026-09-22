@@ -86,3 +86,10 @@ LABEL_TESTS:
   - changed-files:
       - any-glob-to-any-file:
           - tests/**
+LABEL_CROSS_SERVER:
+  - changed-files:
+      - any-glob-to-any-file:
+          - scripts/install_powerbi_modeling_mcp.sh
+          - tests/test_cross_server_validation.py
+          - tests/_fixtures/cross_server/**
+          - .github/workflows/cross-server.yml
