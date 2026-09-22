@@ -20,6 +20,7 @@ linter, so the orchestrator's retry loop has something to feed back.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1556,8 +1557,20 @@ def _types_are_joinable(from_type: str, to_type: str) -> bool:
 
 
 def _persist_model(context: Dict[str, Any]) -> Path:
+    """Persist the model in either the legacy monolithic layout (default)
+    or the canonical layout (when ``NL2PBIP_TMDL_CANONICAL=1`` or
+    ``context['canonical_tmdl_layout']`` is set).
+
+    The legacy layout writes everything to ``model.tmdl`` and is preserved
+    for back-compat with every shipped artifact. The canonical layout
+    writes ``database.tmdl`` + per-table files + ``model.tmdl`` with
+    ``ref table X`` declarations — the format Microsoft's
+    ``powerbi-modeling-mcp`` TOM parser expects.
+    """
     if not context or MODEL_PATH_KEY not in context:
         raise ValueError("Tool handlers require 'model_path' inside context.")
+    if _canonical_layout_requested(context):
+        return _persist_model_canonical(context)
     model_path = Path(context[MODEL_PATH_KEY]).expanduser()
     model_path.parent.mkdir(parents=True, exist_ok=True)
     model = load_model(model_path)
@@ -1572,6 +1585,140 @@ def _render_model_body(model: TMDLModel) -> str:
     for table in model.tables.values():
         parts.append(table.to_tmdl())
     return ("\n\n".join(parts).strip() + "\n") if parts else ""
+
+
+# ---------------------------------------------------------------------------
+# Canonical TMDL layout (one file per table + database.tmdl + model.tmdl
+# with ``ref table X`` declarations). This is the layout Microsoft's
+# ``powerbi-modeling-mcp`` TOM-based parser expects.
+#
+# Default in v1.7.0 is still the monolithic single-file ``model.tmdl`` to
+# preserve back-compat with every shipped artifact. Set the env var
+# ``NL2PBIP_TMDL_CANONICAL=1`` to flip this writer to the canonical layout
+# without changing any public API. The legacy ``_persist_model`` /
+# ``load_model`` pair remain the default entry points.
+# ---------------------------------------------------------------------------
+
+CANONICAL_ENV_VAR = "NL2PBIP_TMDL_CANONICAL"
+
+
+def _canonical_layout_requested(context: Dict[str, Any]) -> bool:
+    """Return True when the caller (or env) opted into the canonical layout.
+
+    Resolution order:
+    1. ``context['canonical_tmdl_layout']`` (explicit dict flag)
+    2. ``NL2PBIP_TMDL_CANONICAL=1`` in the env
+    """
+    if context and context.get("canonical_tmdl_layout"):
+        return True
+    return os.environ.get(CANONICAL_ENV_VAR, "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _render_database_tmdl(model: TMDLModel) -> str:
+    """Render ``database.tmdl`` for the canonical layout."""
+    return "database\n\tcompatibilityLevel: 1550\n"
+
+
+def _render_model_refs_tmdl(model: TMDLModel) -> str:
+    """Render the ``model.tmdl`` file with ``ref table X`` declarations only."""
+    lines = [f"ref table {name}" for name in model.tables]
+    return ("\n".join(lines) + "\n") if lines else ""
+
+
+def _render_relationships_tmdl(model: TMDLModel) -> str:
+    """Render the ``relationships.tmdl`` file.
+
+    Microsoft expects this file to contain both the ``ref table X``
+    declarations AND the relationship blocks; the canonical layout
+    splits it out from ``model.tmdl``.
+    """
+    parts: List[str] = []
+    for name in model.tables:
+        parts.append(f"ref table {name}")
+    if model.relationships:
+        parts.append("")
+        parts.append("\n\n".join(rel.to_tmdl() for rel in model.relationships))
+    return ("\n".join(parts).strip() + "\n") if any(parts) else ""
+
+
+def _persist_model_canonical(context: Dict[str, Any]) -> Path:
+    """Write the model to disk in Microsoft's canonical TMDL layout.
+
+    Produces:
+    - ``<model_dir>/database.tmdl``
+    - ``<model_dir>/model.tmdl`` (table refs only)
+    - ``<model_dir>/relationships.tmdl`` (refs + relationships)
+    - ``<model_dir>/tables/<Name>.tmdl`` (one file per table)
+    - ``<model_dir>/.roles/*.tmdl`` (unchanged from legacy layout)
+    """
+    if not context or MODEL_PATH_KEY not in context:
+        raise ValueError("Tool handlers require 'model_path' inside context.")
+    model_path = Path(context[MODEL_PATH_KEY]).expanduser()
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    model = load_model(model_path)
+    model_dir = model_path.parent
+
+    # database.tmdl
+    (model_dir / "database.tmdl").write_text(
+        _render_database_tmdl(model), encoding="utf-8"
+    )
+    # model.tmdl — table refs only
+    (model_dir / "model.tmdl").write_text(
+        _render_model_refs_tmdl(model), encoding="utf-8"
+    )
+    # relationships.tmdl — refs + relationships
+    (model_dir / "relationships.tmdl").write_text(
+        _render_relationships_tmdl(model), encoding="utf-8"
+    )
+    # tables/<Name>.tmdl — one per table
+    tables_dir = model_dir / "tables"
+    tables_dir.mkdir(parents=True, exist_ok=True)
+    for table in model.tables.values():
+        (tables_dir / f"{table.name}.tmdl").write_text(
+            table.to_tmdl() + "\n", encoding="utf-8"
+        )
+    return model_path
+
+
+def _load_model_canonical(model_path: Path) -> TMDLModel:
+    """Load a model that was persisted in canonical layout.
+
+    Mirrors :func:`load_model` but reads ``database.tmdl`` + ``tables/*.tmdl``
+    + ``relationships.tmdl`` instead of the monolithic ``model.tmdl``.
+    """
+    if not model_path.exists():
+        raise FileNotFoundError(f"TMDL model file not found at {model_path}.")
+    model_dir = model_path.parent
+    model = TMDLModel()
+    # Walk tables/*.tmdl
+    tables_dir = model_dir / "tables"
+    if tables_dir.exists():
+        for table_file in sorted(tables_dir.glob("*.tmdl")):
+            parsed = parse_tmdl_text(table_file.read_text(encoding="utf-8"))
+            for _name, table in parsed.tables.items():
+                model.add_table(table)
+            # Relationships may also live in tables/*.tmdl files; pick them up.
+            model.relationships.extend(parsed.relationships)
+            model.roles.update(parsed.roles)
+    # relationships.tmdl may carry additional relationship blocks.
+    rel_file = model_dir / "relationships.tmdl"
+    if rel_file.exists():
+        parsed = parse_tmdl_text(rel_file.read_text(encoding="utf-8"))
+        model.relationships.extend(parsed.relationships)
+        model.roles.update(parsed.roles)
+    # Roles live alongside as before.
+    roles_dir = roles_workspace_dir(model_path)
+    if roles_dir.exists():
+        for role_file in sorted(roles_dir.glob("*.tmdl")):
+            role_model = parse_tmdl_text(role_file.read_text(encoding="utf-8"))
+            for name, role in role_model.roles.items():
+                model.roles[name] = role
+    return model
 
 
 def _save_role(context: Dict[str, Any], role: TMDLRole) -> Path:
