@@ -26,12 +26,16 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hmac
 import io
 import json
+import os
 import socket
+import threading
+import time
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import pytest
 
@@ -322,7 +326,12 @@ def _initialize_session(client, base_url: str) -> Dict[str, str]:
     return {"mcp-session-id": session_id}
 
 
-def _tools_list(client, base_url: str, session_headers: Dict[str, str]) -> List[str]:
+def _tools_list(
+    client: Any,
+    base_url: str,
+    session_headers: Dict[str, str],
+    extra_headers: Optional[Dict[str, str]] = None,
+) -> List[str]:
     """Return the sorted list of tool names advertised by the server."""
 
     r = client.post(
@@ -333,7 +342,7 @@ def _tools_list(client, base_url: str, session_headers: Dict[str, str]) -> List[
             "method": "tools/list",
             "params": {},
         },
-        headers={**MCP_HEADERS, **session_headers},
+        headers={**MCP_HEADERS, **session_headers, **(extra_headers or {})},
     )
     assert r.status_code == 200, r.text
     body = _parse_sse_jsonrpc(r.text)
@@ -382,23 +391,28 @@ def _tools_call(
 
 
 @pytest.fixture
-def http_server():
+def http_server(request):
     """Boot a streamable-http FastMCP server on a free loopback port.
 
-    Yields ``(base_url, stop_fn)``. The server runs in a
-    background thread (started with ``asyncio.run`` via the
-    FastMCP ``run()`` coroutine). The fixture kills it on
-    teardown.
+    Accepts an optional indirect param ``request.param`` carrying a
+    ``bearer_token`` string. When the param is provided (or omitted)
+    the server is built with ``bearer_token=request.param``; pass
+    ``None`` (or simply don't parametrize) for the legacy no-auth
+    default. Yields the base URL; the server runs in a background
+    thread and is reclaimed when the test process exits.
     """
-
-    import threading
-    import time
 
     import httpx
 
+    bearer_token: Optional[str] = getattr(request, "param", None)
     port = _free_port()
     base_url = f"http://127.0.0.1:{port}"
-    server = build_server(name="nl2pbip-http-test", host="127.0.0.1", port=port)
+    server = build_server(
+        name="nl2pbip-http-test",
+        host="127.0.0.1",
+        port=port,
+        bearer_token=bearer_token,
+    )
 
     server_thread = threading.Thread(
         target=lambda: server.run(transport="streamable-http"),
@@ -407,7 +421,11 @@ def http_server():
     server_thread.start()
 
     # Wait for the server to bind. Polling /mcp with a
-    # connection-refused loop is reliable on macOS CI.
+    # connection-refused loop is reliable on macOS CI. When the
+    # server has a bearer token configured, the probe request
+    # WITHOUT the header gets 401 — that's a successful bind,
+    # not a connect failure, so we only fall through to the
+    # raise on httpx transport-level errors (connection refused).
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
         try:
@@ -637,3 +655,295 @@ def test_nl2pbip_mcp_server_stores_host_and_port() -> None:
     assert instance.host == "127.0.0.1"
     assert instance.port == 19000
     assert instance.name == "nl2pbip-cfg"
+
+
+# ---------------------------------------------------------------------
+# Bearer-token auth (v1.7.0)
+# ---------------------------------------------------------------------
+
+_TEST_BEARER = "test-bearer-token-12345"
+
+
+def _auth_headers(token: str) -> Dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _post_initialize(
+    client: Any,
+    base_url: str,
+    extra_headers: Optional[Dict[str, str]] = None,
+) -> Any:
+    """POST ``initialize`` and return the raw response (no
+    assertion on status — the auth tests want to inspect 401s).
+    """
+
+    headers = {**MCP_HEADERS, **(extra_headers or {})}
+    return client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "test-client", "version": "0"},
+            },
+        },
+        headers=headers,
+    )
+
+
+@pytest.mark.parametrize("http_server", [_TEST_BEARER], indirect=True)
+def test_http_unauthenticated_request_returns_401(http_server: str) -> None:
+    """When the server is built with a Bearer token, an HTTP
+    request without an ``Authorization: Bearer <token>`` header
+    MUST return ``401 Unauthorized`` with a
+    ``WWW-Authenticate: Bearer realm="nl2pbip-mcp"`` response
+    header — BEFORE any session is established.
+    """
+
+    import httpx
+
+    with httpx.Client(timeout=5.0, base_url=http_server) as client:
+        r = _post_initialize(client, http_server)  # no Authorization header
+
+    assert r.status_code == 401, r.text
+    assert "mcp-session-id" not in r.headers, (
+        "401 must be returned before session init — the server must not "
+        "leak a session ID to an unauthenticated caller"
+    )
+    www_auth = r.headers.get("www-authenticate", "")
+    assert "Bearer" in www_auth, f"missing WWW-Authenticate Bearer header: {www_auth!r}"
+    assert (
+        'realm="nl2pbip-mcp"' in www_auth
+    ), f"WWW-Authenticate realm must be 'nl2pbip-mcp'; got {www_auth!r}"
+
+
+@pytest.mark.parametrize("http_server", [_TEST_BEARER], indirect=True)
+def test_http_wrong_bearer_token_returns_401(http_server: str) -> None:
+    """A wrong Bearer token gets the same 401 + WWW-Authenticate
+    contract — the response must not distinguish 'no token' from
+    'wrong token' (otherwise it leaks which tokens are valid).
+    """
+
+    import httpx
+
+    with httpx.Client(timeout=5.0, base_url=http_server) as client:
+        r = _post_initialize(client, http_server, extra_headers=_auth_headers("wrong"))
+
+    assert r.status_code == 401, r.text
+    assert "Bearer" in r.headers.get("www-authenticate", "")
+
+
+@pytest.mark.parametrize("http_server", [_TEST_BEARER], indirect=True)
+def test_http_correct_bearer_token_succeeds(http_server: str) -> None:
+    """With the correct Bearer token, ``initialize`` returns 200
+    and a session id, and ``tools/list`` advertises the four
+    documented MCP tools.
+    """
+
+    import httpx
+
+    with httpx.Client(timeout=5.0, base_url=http_server) as client:
+        r = _post_initialize(
+            client, http_server, extra_headers=_auth_headers(_TEST_BEARER)
+        )
+        assert r.status_code == 200, r.text
+        session_id = r.headers.get("mcp-session-id")
+        assert session_id, "streamable-http server must return a session id"
+        session = {"mcp-session-id": session_id}
+
+        # The Bearer header is required on every request (the
+        # auth middleware sits BEFORE the session manager), so
+        # subsequent calls must carry it too.
+        tool_names = _tools_list(
+            client, http_server, session, extra_headers=_auth_headers(_TEST_BEARER)
+        )
+
+    assert tool_names == [
+        "generate_report",
+        "inspect_dataset",
+        "validate_pbip",
+        "version",
+    ]
+
+
+def test_http_no_auth_when_token_unset(http_server: str) -> None:
+    """When the server is built without a bearer token
+    (back-compat default), HTTP requests succeed without an
+    ``Authorization`` header. The v1.6.0 callers see the same
+    no-auth loopback behaviour they had before.
+    """
+
+    import httpx
+
+    with httpx.Client(timeout=5.0, base_url=http_server) as client:
+        session = _initialize_session(client, http_server)  # no auth header
+        tool_names = _tools_list(client, http_server, session)
+
+    assert tool_names == [
+        "generate_report",
+        "inspect_dataset",
+        "validate_pbip",
+        "version",
+    ]
+
+
+def test_http_bearer_token_compare_digest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The token-comparison path MUST use ``hmac.compare_digest``
+    rather than ``==``. A simple ``==`` short-circuits on the
+    first mismatching byte and leaks the valid token's prefix
+    length via timing — defeating the point of a constant
+    comparison. We monkeypatch ``hmac.compare_digest`` so the
+    test fails if any code path bypasses it.
+    """
+
+    import httpx
+
+    from nl2pbip.mcp_server import server as mcp_module
+
+    real_compare_digest = hmac.compare_digest
+    call_state: Dict[str, int] = {"calls": 0}
+
+    def spy_compare_digest(a: bytes, b: bytes) -> bool:
+        call_state["calls"] += 1
+        return real_compare_digest(a, b)
+
+    monkeypatch.setattr(hmac, "compare_digest", spy_compare_digest)
+    # The server module imports ``hmac`` directly, so its bound
+    # ``hmac.compare_digest`` is what the auth path actually
+    # calls. Patch the attribute the module already references
+    # too, so the spy can't be bypassed via the cached name.
+    monkeypatch.setattr(mcp_module.hmac, "compare_digest", spy_compare_digest)
+
+    port = _free_port()
+    base_url = f"http://127.0.0.1:{port}"
+    server = build_server(
+        name="nl2pbip-auth-spy",
+        host="127.0.0.1",
+        port=port,
+        bearer_token="spy-token",
+    )
+    server_thread = threading.Thread(
+        target=lambda: server.run(transport="streamable-http"),
+        daemon=True,
+    )
+    server_thread.start()
+
+    # Wait for bind
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        try:
+            with httpx.Client(timeout=0.5, base_url=base_url) as probe:
+                probe.post(
+                    "/mcp",
+                    json={"jsonrpc": "2.0", "id": 99, "method": "ping", "params": {}},
+                    headers=MCP_HEADERS,
+                )
+                break
+        except (httpx.HTTPError, OSError):
+            time.sleep(0.05)
+    else:
+        pytest.fail(f"server did not bind on {base_url} within 5s")
+
+    with httpx.Client(timeout=5.0, base_url=base_url) as client:
+        r = _post_initialize(client, base_url, extra_headers=_auth_headers("spy-token"))
+
+    assert r.status_code == 200, r.text
+    assert call_state["calls"] >= 1, (
+        "bearer-auth path did not invoke hmac.compare_digest — the "
+        "implementation must use constant-time comparison to avoid "
+        "leaking the valid token prefix via timing"
+    )
+
+
+def test_http_bearer_token_env_var_overrides_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Setting ``NL2PBIP_MCP_BEARER_TOKEN`` in the subprocess
+    environment MUST flip the server into auth-required mode even
+    when the operator didn't pass ``--bearer-token``. The
+    CLI / env var precedence is: ``--bearer-token`` > env > unset.
+    """
+
+    import subprocess
+    import sys
+
+    import httpx
+
+    port = _free_port()
+    env_token = "env-derived-secret-9876"
+    env = os.environ.copy()
+    env["NL2PBIP_MCP_BEARER_TOKEN"] = env_token
+    # Ensure we don't accidentally inherit a real operator token
+    env.pop("OPENAI_API_KEY", None)
+    env.pop("ANTHROPIC_API_KEY", None)
+
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "nl2pbip.mcp_server.server",
+            "--transport",
+            "streamable-http",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+
+    base_url = f"http://127.0.0.1:{port}"
+    try:
+        # Wait for the server to bind
+        deadline = time.monotonic() + 8.0
+        bound = False
+        while time.monotonic() < deadline:
+            try:
+                with httpx.Client(timeout=0.5, base_url=base_url) as probe:
+                    probe.post(
+                        "/mcp",
+                        json={
+                            "jsonrpc": "2.0",
+                            "id": 99,
+                            "method": "ping",
+                            "params": {},
+                        },
+                        headers=MCP_HEADERS,
+                    )
+                    bound = True
+                    break
+            except (httpx.HTTPError, OSError):
+                time.sleep(0.1)
+        assert bound, (
+            f"server did not bind on {base_url} within 8s; "
+            f"stderr: {proc.stderr.read().decode('utf-8', errors='replace') if proc.stderr else ''}"
+        )
+
+        # No auth header → must be 401
+        with httpx.Client(timeout=5.0, base_url=base_url) as client:
+            r = _post_initialize(client, base_url)
+        assert (
+            r.status_code == 401
+        ), f"env-derived token should require auth; got {r.status_code}: {r.text}"
+        assert "Bearer" in r.headers.get("www-authenticate", "")
+
+        # With the env-derived token → must succeed
+        with httpx.Client(timeout=5.0, base_url=base_url) as client:
+            r = _post_initialize(
+                client, base_url, extra_headers=_auth_headers(env_token)
+            )
+        assert r.status_code == 200, r.text
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:  # pragma: no cover - defensive
+            proc.kill()
+            proc.wait(timeout=3)

@@ -11,7 +11,7 @@
 [![PyPI](https://img.shields.io/pypi/v/nl2pbip.svg)](https://pypi.org/project/nl2pbip/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#installation)
 [![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
-[![Tests](https://img.shields.io/badge/tests-989%20collected%2C%20975%20passing-brightgreen.svg)](#test-counts)
+[![Tests](https://img.shields.io/badge/tests-995%20collected%2C%20981%20passing-brightgreen.svg)](#test-counts)
 [![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
 [![mypy --strict](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml)
 [![Bandit](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml)
@@ -304,6 +304,19 @@ with open(result["artifact_filename"], "wb") as fh:
 ```
 
 The zip is capped at 50 MB by default (`max_artifact_bytes`); oversized artifacts fall back to returning `project_path` only with a warning, so a runaway plan can't OOM the JSON-RPC frame.
+
+#### Authentication (v1.7.0)
+
+The streamable-http transport is unauthenticated by default — the loopback-only binding still applies, so the no-auth posture is safe when paired with a trusted tunnel (Tailscale, WireGuard, `ssh -L`). To accept remote MCP clients directly, set a Bearer token via the `NL2PBIP_MCP_BEARER_TOKEN` env var or the `--bearer-token $TOKEN` CLI flag (the flag wins when both are set):
+
+```bash
+export NL2PBIP_MCP_BEARER_TOKEN="$(openssl rand -hex 32)"
+nl2pbip-mcp --transport streamable-http --host 127.0.0.1 --port 8000
+```
+
+Every request to `/mcp` must then carry `Authorization: Bearer <token>`. Missing or wrong tokens get `401 Unauthorized` with `WWW-Authenticate: Bearer realm="nl2pbip-mcp"`, **before** any MCP session is established — so an attacker can't even probe the JSON-RPC surface. The token comparison uses `hmac.compare_digest` (constant-time) rather than `==` to avoid leaking the valid token's prefix length via timing. The stdio transport is unaffected — auth only applies to HTTP.
+
+Generate a token with `openssl rand -hex 32` (or any 32+ char random string). The token is plaintext in the env var; rotate by restarting the server with a new value. Stdio clients (Claude Code, Cursor, Copilot CLI) are unchanged.
 
 ---
 
@@ -841,7 +854,7 @@ nl2pbip/
 │   │   ├── dataset_generator.py  # instructor + OpenAI synthetic data
 │   │   └── train.py            # Unsloth + trl SFT + GGUF export
 │   └── mcp_server/             # Model Context Protocol server (4 tools)
-├── tests/                      # 975 pytest cases across 31 test files
+├── tests/                      # 981 pytest cases across 31 test files
 ├── artifacts/                  # example Run output (SalesInsights.pbipdir)
 ├── .github/                    # workflows, issue templates, CODEOWNERS,
 │                               # renovate.json, labeler.yml, SECURITY.md, etc.
@@ -855,7 +868,7 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **989 test cases across 32 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **975 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **995 test cases across 32 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **981 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Cases |
 |---|---:|
@@ -882,7 +895,7 @@ Pytest collects **989 test cases across 32 test files** in CI (Python 3.10 / 3.1
 | `tests/test_partial_plan_recovery.py` | 15 |
 | `tests/test_mcp_server.py` | 13 (MCP tool surface + round-trip validation) |
 | `tests/test_mcp_server_e2e.py` | 13 (MCP round-trip via real FastMCP wire format) |
-| `tests/test_mcp_server_v160.py` | 13 (streamable-http transport + base64 artifact return) |
+| `tests/test_mcp_server_v160.py` | 19 (streamable-http transport + base64 artifact return + Bearer-token auth) |
 | `tests/test_performance.py` | 13 (opt-in via `NL2PBIP_RUN_BENCHMARKS=1`) |
 | `tests/test_dax_catalog_cache.py` | 12 |
 | `tests/test_polisher_integration.py` | 11 |

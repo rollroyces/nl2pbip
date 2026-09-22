@@ -31,6 +31,7 @@ The four MCP tools
 from __future__ import annotations
 
 import base64
+import hmac
 import io
 import json
 import os
@@ -77,6 +78,195 @@ def _require_mcp() -> "Any":
     return FastMCP
 
 
+_BEARER_REALM = "nl2pbip-mcp"
+_BEARER_ENV_VAR = "NL2PBIP_MCP_BEARER_TOKEN"
+
+
+def _resolve_bearer_token(explicit: Optional[str]) -> Optional[str]:
+    """Pick the effective Bearer token: explicit arg > env var > None.
+
+    The resolution order is documented in the CLI help and the
+    README's Authentication section so operators know which
+    source is authoritative when more than one is set.
+    """
+
+    if explicit is not None:
+        return explicit
+    env_value = os.environ.get(_BEARER_ENV_VAR)
+    if env_value:
+        return env_value
+    return None
+
+
+class _BearerAuthMiddleware:
+    """Pure ASGI middleware that enforces ``Authorization: Bearer``.
+
+    Inserted as the outermost layer around the streamable-http
+    Starlette app: when a ``bearer_token`` is configured, every
+    HTTP request must include ``Authorization: Bearer <token>``
+    or the middleware short-circuits with
+    ``401 Unauthorized`` + ``WWW-Authenticate: Bearer realm=...``.
+    No session ID is issued on the 401 path — the auth gate
+    sits before the FastMCP session manager so an attacker
+    can't even probe the JSON-RPC surface.
+
+    The comparison uses :func:`hmac.compare_digest` rather than
+    ``==``: a naive ``==`` short-circuits on the first
+    mismatching byte and leaks the valid token's prefix length
+    via timing. Constant-time comparison removes that side
+    channel.
+
+    The middleware is a single class (not Starlette's
+    :class:`BaseHTTPMiddleware`) so it streams the request body
+    without buffering — important for ``generate_report`` with
+    ``include_artifact=True`` whose base64 zip can be tens of MB.
+    """
+
+    def __init__(self, app: Any, token: Optional[str]) -> None:
+        self.app = app
+        # Keep the token as bytes — compare_digest requires
+        # bytes-like inputs and we want to avoid an implicit
+        # str<->bytes conversion at request time (which itself
+        # can leak length info on some encodings).
+        self._token_bytes: Optional[bytes] = (
+            token.encode("utf-8") if isinstance(token, str) and token else None
+        )
+
+    async def __call__(
+        self,
+        scope: Any,
+        receive: Any,
+        send: Any,
+    ) -> None:
+        if scope["type"] != "http" or self._token_bytes is None:
+            # Pass-through: not an HTTP request, or no token
+            # configured — let the underlying app handle it
+            # (stdio path / auth-disabled deployments).
+            await self.app(scope, receive, send)
+            return
+
+        # Extract the Authorization header (case-insensitive per
+        # RFC 7235 §2.2). Starlette normalises headers to a list
+        # of (bytes, bytes) tuples in the ASGI scope.
+        provided: Optional[bytes] = None
+        for name, value in scope.get("headers", []):
+            if name == b"authorization":
+                provided = value
+                break
+
+        # Reject when header is missing OR the "Bearer " prefix
+        # is absent OR the suffix doesn't match (compare_digest
+        # returns False on length mismatch — that's fine).
+        expected_prefix = b"Bearer "
+        authorized = (
+            provided is not None
+            and provided.startswith(expected_prefix)
+            and hmac.compare_digest(provided[len(expected_prefix) :], self._token_bytes)
+        )
+        if not authorized:
+            await self._send_401(send)
+            return
+
+        await self.app(scope, receive, send)
+
+    @staticmethod
+    async def _send_401(send: Any) -> None:
+        """Emit a 401 + ``WWW-Authenticate`` per RFC 7235 §4.1.
+
+        Kept tiny and dependency-free so the auth path doesn't
+        drag in the full Starlette response machinery — the
+        middleware lives outside the FastMCP app, so importing
+        JSONResponse here would create a dependency loop with
+        the slim / ``[mcp]``-extras split.
+        """
+
+        body = b'{"error":"unauthorized","detail":"Bearer token required"}'
+        headers = [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode("ascii")),
+            (b"www-authenticate", f'Bearer realm="{_BEARER_REALM}"'.encode("ascii")),
+        ]
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 401,
+                "headers": headers,
+            }
+        )
+        await send({"type": "http.response.body", "body": body, "more_body": False})
+
+
+class _BearerFastMCP:
+    """Lightweight mixin: re-expose :meth:`streamable_http_app` with
+    the Bearer-auth middleware prepended when a token is configured.
+
+    FastMCP 1.x doesn't accept a ``bearer_token`` constructor arg,
+    so we wrap the Starlette app it produces rather than monkey-
+    patching the SDK. Composition over subclassing keeps the
+    auth layer independently testable and free of MCP-version
+    coupling.
+    """
+
+    _bearer_token: Optional[str]
+
+    def _wrap_with_bearer_auth(self, app: Any) -> Any:
+        token = getattr(self, "_bearer_token", None)
+        if not token:
+            return app
+        return _BearerAuthMiddleware(app, token)
+
+    def streamable_http_app(self) -> Any:
+        # FastMCP.streamable_http_app returns a Starlette app.
+        # Wrap it in our Bearer middleware when a token is set
+        # so the auth gate sits BEFORE the session manager. The
+        # ``type: ignore`` is here because ``super()`` is typed as
+        # ``object`` under ``TYPE_CHECKING`` (FastMCP is dynamic-
+        # imported via ``_require_mcp`` to keep the ``[mcp]``
+        # extra slim); the runtime value DOES define the method.
+        base_app = super().streamable_http_app()  # type: ignore[misc]
+        return self._wrap_with_bearer_auth(base_app)
+
+
+def _build_auth_aware_fastmcp() -> Any:
+    """Return a module-level :class:`_BearerFastMCP + FastMCP` subclass.
+
+    Built lazily inside :func:`build_server` (where :func:`_require_mcp`
+    has already proven the SDK is installed) so we don't import
+    FastMCP at module load time. Hoisting to a module-level
+    class would force the import even for callers who only need
+    :mod:`nl2pbip.mcp_server` helpers.
+
+    The class is cached on the module so
+    ``type(build_server()) is type(Nl2PbipMcpServer.server)`` —
+    that's the contract the v1.5.0 test
+    ``test_nl2pbip_mcp_server_class_wraps_build_server`` checks
+    via ``isinstance``.
+    """
+
+    FastMCP = _require_mcp()
+    cached = globals().get("_AuthAwareFastMCP")
+    if cached is not None:
+        return cached
+
+    def __init__(self: Any, **kwargs: Any) -> None:
+        # Bypass ``_BearerFastMCP`` (it has no ``__init__``) and
+        # call FastMCP's ``__init__`` directly so we don't depend
+        # on FastMCP's MRO signature remaining stable across
+        # SDK versions. ``_bearer_token`` defaults to ``None``;
+        # :func:`build_server` overwrites it right after
+        # construction.
+        FastMCP.__init__(self, **kwargs)
+        self._bearer_token = None
+
+    cached = type(
+        "_AuthAwareFastMCP",
+        (_BearerFastMCP, FastMCP),
+        {"__init__": __init__},
+    )
+    globals()["_AuthAwareFastMCP"] = cached
+    return cached
+
+
 # ---------------------------------------------------------------------
 # MCP server factory
 # ---------------------------------------------------------------------
@@ -86,6 +276,7 @@ def build_server(
     name: str = "nl2pbip",
     host: str = "127.0.0.1",
     port: int = 8000,
+    bearer_token: Optional[str] = None,
 ) -> FastMCP:
     """Construct a configured :class:`FastMCP` exposing the four tools.
 
@@ -107,19 +298,41 @@ def build_server(
         port: TCP port for the ``streamable-http`` transport.
             Defaults to ``8000`` (FastMCP's default). Ignored for
             stdio transport.
+        bearer_token: Optional shared-secret token. When set
+            (explicitly or via the ``NL2PBIP_MCP_BEARER_TOKEN``
+            env var), every HTTP request to ``/mcp`` MUST include
+            ``Authorization: Bearer <token>`` or the server
+            returns ``401 Unauthorized`` + ``WWW-Authenticate:
+            Bearer realm="nl2pbip-mcp"``. When ``None`` (default)
+            the server is unauthenticated and trusts the network
+            — the loopback-only binding is still in force, so the
+            no-auth posture is safe when paired with a trusted tunnel.
+            Resolution order: explicit arg → env var → ``None``.
 
     Requires the optional ``[mcp]`` extra; raises :class:`ImportError`
     with an install hint when the SDK is missing. Importing
     :mod:`nl2pbip.mcp_server` itself stays cheap.
     """
 
-    FastMCP = _require_mcp()
-    server = FastMCP(
+    # Surface a clear ImportError when the [mcp] extra is
+    # missing before we try to subclass FastMCP below.
+    _require_mcp()
+    effective_token = _resolve_bearer_token(bearer_token)
+
+    # The cached ``_AuthAwareFastMCP`` overrides
+    # ``streamable_http_app`` so the auth middleware wraps the
+    # Starlette app before any session is created. Module-level
+    # class identity keeps ``isinstance`` checks stable across
+    # calls — see the docstring of :func:`_build_auth_aware_fastmcp`.
+    Server = _build_auth_aware_fastmcp()
+
+    server = Server(
         name=name,
         instructions=_SERVER_INSTRUCTIONS,
         host=host,
         port=port,
     )
+    server._bearer_token = effective_token
     server.tool(
         name="generate_report",
         description=(
@@ -505,11 +718,18 @@ class Nl2PbipMcpServer:
         name: str = "nl2pbip",
         host: str = "127.0.0.1",
         port: int = 8000,
+        bearer_token: Optional[str] = None,
     ) -> None:
         self.name = name
         self.host = host
         self.port = port
-        self.server: FastMCP = build_server(name=name, host=host, port=port)
+        self.bearer_token = _resolve_bearer_token(bearer_token)
+        self.server: FastMCP = build_server(
+            name=name,
+            host=host,
+            port=port,
+            bearer_token=bearer_token,
+        )
 
     def run(
         self,
@@ -540,6 +760,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         Bind address for ``streamable-http``. Default ``127.0.0.1``.
     ``--port PORT``
         TCP port for ``streamable-http``. Default ``8000``.
+    ``--bearer-token TOKEN``
+        Required shared secret for the ``Authorization: Bearer``
+        header on every ``streamable-http`` request. Overrides
+        ``NL2PBIP_MCP_BEARER_TOKEN`` when both are set. When
+        neither is set, the server is unauthenticated (the
+        loopback-only binding still applies — pair with a
+        trusted tunnel).
     """
 
     import argparse
@@ -562,9 +789,22 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         default=8000,
         help="TCP port for streamable-http (default: 8000).",
     )
+    parser.add_argument(
+        "--bearer-token",
+        default=None,
+        help=(
+            "Required shared secret for 'Authorization: Bearer <token>'. "
+            f"Overrides ${_BEARER_ENV_VAR} when set. Default: read from "
+            f"${_BEARER_ENV_VAR} env var, or unauthenticated if unset."
+        ),
+    )
     args = parser.parse_args(argv)
 
-    server = build_server(host=args.host, port=args.port)
+    server = build_server(
+        host=args.host,
+        port=args.port,
+        bearer_token=args.bearer_token,
+    )
     server.run(transport=args.transport)
 
 
