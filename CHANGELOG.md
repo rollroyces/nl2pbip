@@ -6,6 +6,23 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Bearer-token auth for the streamable-HTTP MCP transport
+  (v1.7.0).** New optional env var `NL2PBIP_MCP_BEARER_TOKEN`
+  and matching `--bearer-token $TOKEN` CLI flag flip the
+  server into auth-required mode. When set, every HTTP
+  request to `/mcp` must carry `Authorization: Bearer <token>`;
+  missing / wrong tokens get `401 Unauthorized` + a
+  `WWW-Authenticate: Bearer realm="nl2pbip-mcp"` response header
+  **before** any MCP session is created. The comparison uses
+  `hmac.compare_digest` (constant-time) to avoid leaking the
+  valid token's prefix length via timing. The stdio transport
+  is unaffected. When unset, the v1.6.0 no-auth loopback
+  behaviour is preserved — pair with a trusted tunnel.
+  Resolution order: `--bearer-token` flag > `NL2PBIP_MCP_BEARER_TOKEN`
+  env var > unauthenticated default. 6 new tests in
+  `tests/test_mcp_server_v160.py` (now 19 total in that file).
+
 ## [1.6.0] - 2026-09-21
 
 ### Added
