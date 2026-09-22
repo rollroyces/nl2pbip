@@ -1,0 +1,27 @@
+table Sales
+
+	column SaleId
+		dataType: string
+		summarizeBy: none
+		sourceColumn: SaleId
+
+	column Region
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Region
+
+	column Amount
+		dataType: decimal
+		formatString: #,0.00
+		summarizeBy: sum
+		sourceColumn: Amount
+
+	column Date
+		dataType: dateTime
+		formatString: yyyy-MM-dd
+		summarizeBy: none
+		sourceColumn: Date
+
+	measure 'Total Revenue'
+		expression = SUM(Sales[Amount])
+		formatString: $#,0.00
