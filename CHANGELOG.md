@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Label-gated `Cross-server MCP tests` CI workflow** (`.github/workflows/cross-server.yml`). The cross-server validation tests against `microsoft/powerbi-modeling-mcp` install a ~150 MB native .NET binary plus the Analysis Services / TOM runtime, far too heavy for the default PR gate. The new workflow runs only when a maintainer applies the `CROSS_SERVER` label (auto-applied via `.github/labeler.yml` when the PR touches the install script, the cross-server test file, the fixture tree, or the workflow itself). On `pull_request_target` with `pull-requests: read`, plus `workflow_dispatch` for ad-hoc local re-runs. Drops `vendor/package.json` + `node_modules/.package-lock.json` as a 7-day artifact for post-mortem when the run is red. New regression tests in `tests/test_repo_templates.py::TestReadmeConsistency` (`test_cross_server_workflow_exists_and_references_env_var`, `test_cross_server_label_exists_in_manifest`) lock the workflow + label in place so a workflow-deletion PR can't land silently. README's "Cross-server compatibility" section is updated to point at the label gate.
 
 ## [1.6.1] - 2026-09-22
 

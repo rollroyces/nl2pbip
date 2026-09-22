@@ -331,7 +331,7 @@ bash scripts/install_powerbi_modeling_mcp.sh   # clones the package into vendor/
 NL2PBIP_RUN_CROSS_SERVER_TESTS=1 pytest tests/test_cross_server_validation.py -v
 ```
 
-CI skips it by default; enable by setting `NL2PBIP_RUN_CROSS_SERVER_TESTS=1` in the workflow. The cross-server fixture (`tests/_fixtures/cross_server/Canonical.SemanticModel/`) is the canonical PBIP layout Microsoft's parser expects; the second cross-server test (`..._flags_nl2pbip_monolithic_layout`) honestly reports that `nl2pbip`'s *own* TMDL writer currently emits a non-canonical monolithic `model.tmdl` and is rejected — tracked as a follow-up to refactor `nl2pbip/tmdl_engine.py` to write one file per table under `definition/tables/`.
+CI skips it by default; the new `.github/workflows/cross-server.yml` job triggers when a maintainer applies the `CROSS_SERVER` label (or auto-applied via `.github/labeler.yml` when the PR touches `scripts/install_powerbi_modeling_mcp.sh`, `tests/test_cross_server_validation.py`, the `tests/_fixtures/cross_server/` fixture tree, or the workflow itself). Without the label the cross-server tests are unreachable from CI — the label is the deliberate gate that keeps the ~150 MB vendor install out of the default PR sweep. The job installs the npm package, then runs `tests/test_cross_server_validation.py` with `NL2PBIP_RUN_CROSS_SERVER_TESTS=1` set; on `ubuntu-latest` the macOS codesign branch in the install script is a no-op, so a green run is hermetic. The cross-server fixture (`tests/_fixtures/cross_server/Canonical.SemanticModel/`) is the canonical PBIP layout Microsoft's parser expects; the second cross-server test (`..._flags_nl2pbip_monolithic_layout`) honestly reports that `nl2pbip`'s *own* TMDL writer currently emits a non-canonical monolithic `model.tmdl` and is rejected — tracked as a follow-up to refactor `nl2pbip/tmdl_engine.py` to write one file per table under `definition/tables/`.
 
 ---
 
@@ -883,11 +883,11 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **1012 test cases across 34 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **996 pass** on every supported Python version; the remaining 16 are skipped — 13 are benchmarks in `tests/test_performance.py` opt-in via `NL2PBIP_RUN_BENCHMARKS=1`, and 3 are the cross-server round-trip tests in `tests/test_cross_server_validation.py` opt-in via `NL2PBIP_RUN_CROSS_SERVER_TESTS=1` (the latter additionally require Microsoft's binary, installed by `scripts/install_powerbi_modeling_mcp.sh`). 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install -e ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **1015 test cases across 34 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **1000 pass** on every supported Python version; the remaining 15 are skipped — 12 are benchmarks in `tests/test_performance.py` opt-in via `NL2PBIP_RUN_BENCHMARKS=1`, and 3 are the cross-server round-trip tests in `tests/test_cross_server_validation.py` opt-in via `NL2PBIP_RUN_CROSS_SERVER_TESTS=1` (the latter additionally require Microsoft's binary, installed by `scripts/install_powerbi_modeling_mcp.sh` and gated behind the label-triggered `Cross-server MCP tests` workflow). 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install -e ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Cases |
 |---|---:|
-| `tests/test_repo_templates.py` | 108 |
+| `tests/test_repo_templates.py` | 110 |
 | `tests/test_data_types.py` | 90 |
 | `tests/test_prompt_polisher.py` | 76 |
 | `tests/test_visual_types.py` | 73 |

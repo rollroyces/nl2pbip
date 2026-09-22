@@ -786,7 +786,7 @@ class TestCIWorkflow:
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
         # Fallback: hard-coded manifest. Kept in sync with
-        # `gh label create` invocations in CONTRIBUTING.md and
+        # ``gh label create`` invocations in CONTRIBUTING.md and
         # the bootstrap script. Lowercase because we normalize
         # the live-API labels to lowercase as well.
         return {
@@ -809,6 +809,7 @@ class TestCIWorkflow:
             "mcp",
             "finetune",
             "tests",
+            "cross_server",
         }
 
 
@@ -1322,6 +1323,64 @@ class TestReadmeConsistency:
             f"README performance-benchmarks table lists {table_rows} "
             f"rows but tests/test_performance.py defines {actual} "
             "benches. Update the table."
+        )
+
+    def test_cross_server_workflow_exists_and_references_env_var(self) -> None:
+        """.github/workflows/cross-server.yml must exist and
+        run ``tests/test_cross_server_validation.py`` behind the
+        ``NL2PBIP_RUN_CROSS_SERVER_TESTS=1`` opt-in flag.
+
+        Without the env var, the test module records
+        ``pytest.skip`` (see the module docstring). Without the
+        workflow, the opt-in flag is just a hint — there's no CI
+        gate to ever actually run the cross-server sweep. This
+        test pins both ends so a workflow-deletion PR can't land
+        silently.
+        """
+        wf = REPO_ROOT / ".github/workflows/cross-server.yml"
+        assert wf.exists(), (
+            ".github/workflows/cross-server.yml is missing — "
+            "the cross-server MCP tests have no CI gate. Either "
+            "restore the workflow or update this test if the "
+            "cross-server gate is being retired."
+        )
+        text = wf.read_text()
+        assert "NL2PBIP_RUN_CROSS_SERVER_TESTS" in text, (
+            "cross-server.yml must reference "
+            "NL2PBIP_RUN_CROSS_SERVER_TESTS — without it the "
+            "test module records pytest.skip and the heavy "
+            "install is wasted."
+        )
+        assert "NL2PBIP_RUN_CROSS_SERVER_TESTS: " in text or (
+            'NL2PBIP_RUN_CROSS_SERVER_TESTS="1"' in text
+        ), "cross-server.yml must set NL2PBIP_RUN_CROSS_SERVER_TESTS to enable the opt-in tests"
+        assert "tests/test_cross_server_validation.py" in text, (
+            "cross-server.yml must target " "tests/test_cross_server_validation.py."
+        )
+
+    def test_cross_server_label_exists_in_manifest(self) -> None:
+        """The ``CROSS_SERVER`` label must be in the labels
+        manifest so ``.github/labeler.yml``\u2019s ``LABEL_CROSS_SERVER``
+        rule can resolve. Drift here would mean the pr-labeler
+        workflow silently no-ops (labeler rejects unknown rule
+        names) and the heavy cross-server CI job never triggers.
+
+        Reuses the live-API + manifest fallback path from
+        ``TestCIWorkflow._known_labels`` rather than re-fetching
+        the API. Note: ``_known_labels()`` lowercases whatever
+        the API returns (uppercase GH label names come back
+        case-preserved), and ``test_labeler_config_references_existing_labels``
+        lowercases the ``LABEL_CROSS_SERVER`` rule name to the
+        same form, so we assert against the lowercase form.
+        """
+        known = TestCIWorkflow._known_labels()
+        assert "cross_server" in known, (
+            "'CROSS_SERVER' label missing from repo. Run "
+            "`gh label create CROSS_SERVER --color 'c5def5' "
+            "--description 'Triggers the cross-server MCP tests "
+            "(heavy, ~150MB vendor binary).' --repo "
+            "rollroyces/nl2pbip` (or update the manifest in "
+            "_known_labels())."
         )
 
     def test_readme_mermaid_blocks_all_render(self) -> None:
