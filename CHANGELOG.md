@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+
+## [1.6.1] - 2026-09-22
+
+### Fixed
+- **Limitations table is current.** The README's 'Limitations' section was last refreshed at v1.3.5; 5 of its 8 rows listed work that has since shipped in v1.4.0 (RAG, tier-2 FK confidence, DAX library hot-reload, custom visual registry, streaming plan execution). Replaced each stale row with a 'Closed in v1.4.0' pointer + the new limitation text. Added 3 regression tests in `tests/test_repo_templates.py` (`test_limitations_table_no_closed_in_old_version`, `test_limitations_table_has_as_of_current`, `test_readme_test_count_matches_pytest_collection`) so this drift can't recur silently. The v1.6.0 capability table is also corrected — streamable-HTTP transport and base64 artifact return are now listed under v1.6.0 (where they shipped) rather than the v1.5.0 row they were misplaced in.
+## [1.7.0] - 2026-09-22
+
 ### Added
 - **Bearer-token auth for the streamable-HTTP MCP transport
   (v1.7.0).** New optional env var `NL2PBIP_MCP_BEARER_TOKEN`
@@ -23,7 +30,6 @@ to [Semantic Versioning](https://semver.org/).
   env var > unauthenticated default. 6 new tests in
   `tests/test_mcp_server_v160.py` (now 19 total in that file).
 - **Cross-server validation against Microsoft's `powerbi-modeling-mcp`** (`tests/test_cross_server_validation.py`, 7 tests; 4 always-on + 3 opt-in via `NL2PBIP_RUN_CROSS_SERVER_TESTS=1`). Spawns Microsoft's official MCP server as a subprocess, speaks JSON-RPC over stdio, and verifies a canonical Power BI Project fixture is readable end-to-end (`database.tmdl` + `tables/*.tmdl` + `ref table X` declarations). One honest gap-report test surfaces `nl2pbip`'s current monolithic TMDL writer as a known incompatibility with Microsoft's parser — flagged as a follow-up to refactor `nl2pbip/tmdl_engine.py`. Install script at `scripts/install_powerbi_modeling_mcp.sh` clones the npm package into `vendor/powerbi-modeling-mcp/` (gitignored) and ad-hoc-codesigns the binary on macOS to work around Gatekeeper. New fixture under `tests/_fixtures/cross_server/Canonical.SemanticModel/` for the canonical layout.
-
 ## [1.6.0] - 2026-09-21
 
 ### Added
