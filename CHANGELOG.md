@@ -4,25 +4,73 @@ All notable changes to `nl2pbip` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.0.0] - 2026-09-22
+
+### Breaking change
+- **Default TMDL layout is now canonical.** nl2pbip writes
+  ``database.tmdl`` + per-table files under ``definition/tables/`` +
+  ``model.tmdl`` carrying ``ref table X`` declarations +
+  ``relationships.tmdl`` by default. The legacy monolithic
+  ``model.tmdl`` (everything inlined) is deprecated and will be
+  removed in v2.1.
+
+  - Opt BACK into the legacy layout for one release cycle with
+    ``NL2PBIP_TMDL_LEGACY=1`` or by passing
+    ``context['legacy_tmdl_layout'] = True`` to the persist helpers.
+    A :class:`TMDLLegacyDeprecationWarning` is emitted once per process.
+  - The new ``scripts/legacy_to_canonical.py`` (dry-run by default;
+    ``--commit`` to apply) migrates an existing artifact in place.
+  - ``load_model`` now auto-detects the layout: ``database.tmdl`` or
+    ``tables/*.tmdl`` triggers canonical parsing, otherwise legacy.
+    An explicit ``prefer_canonical=True/False`` keyword overrides the
+    auto-detect when needed.
+  - The packager (``nl2pbip/packager.py``) was already writing
+    ``tables/<Name>.tmdl`` + ``relationships.tmdl``; its ``model.tmdl``
+    now contains ``ref table X`` declarations only. The
+    ``definition.pbism::modelDefinition`` path stays
+    ``definition/model.tmdl`` — that file still exists, just carries
+    refs.
 
 ### Added
-- **Canonical TMDL layout writer (opt-in).** nl2pbip's TMDL writer now
-  has a Microsoft-canonical layout: ``database.tmdl`` + per-table files
-  under ``definition/tables/`` + ``model.tmdl`` carrying ``ref table X``
-  declarations + ``relationships.tmdl`` for the relationship blocks. This
-  is the layout ``microsoft/powerbi-modeling-mcp`` parses correctly. The
-  legacy monolithic ``model.tmdl`` (everything inlined) remains the
-  default to keep every shipped artifact readable. Opt in via the env var
-  ``NL2PBIP_TMDL_CANONICAL=1`` or by setting
-  ``context['canonical_tmdl_layout'] = True`` in the persist context.
-  New functions: ``_render_database_tmdl``, ``_render_model_refs_tmdl``,
-  ``_render_relationships_tmdl``, ``_persist_model_canonical``,
-  ``_load_model_canonical``. ``_persist_model`` itself routes to
-  canonical when the flag is set, so no caller code has to change.
-  15 new tests in ``tests/test_tmdl_canonical.py`` cover all three
-  renderers, the env-var resolution, the file layout, and a full
-  write-then-read round-trip.
+- :class:`nl2pbip.tmdl_engine.TMDLLegacyDeprecationWarning` —
+  ``DeprecationWarning`` subclass for the legacy layout opt-in path.
+- ``scripts/legacy_to_canonical.py`` — one-shot migration tool.
+
+### Changed
+- :func:`nl2pbip.tmdl_engine.load_model` signature gains
+  ``prefer_canonical: Optional[bool] = None`` (keyword-only).
+- ``_persist_model`` now defaults to canonical; the inverse flag
+  ``_canonical_layout_requested`` is renamed in semantics (now returns
+  True when the caller opts OUT of canonical, i.e. into legacy).
+
+### Tests
+- 18 tests in ``tests/test_tmdl_canonical.py`` (was 15). New: default
+  writer produces canonical, legacy opt-in emits the warning + writes
+  monolithic, ``load_model`` auto-detect + ``prefer_canonical``
+  override, legacy artifact round-trip via the migration script.
+- Migration script gets a smoke test via ``scripts/legacy_to_canonical.py --help``.
+
+### Migration
+```bash
+# Dry-run first
+python scripts/legacy_to_canonical.py path/to/Sales.SemanticModel
+# Apply
+python scripts/legacy_to_canonical.py path/to/Sales.SemanticModel --commit
+```
+Existing artifacts keep loading without changes (the loader auto-detects).
+The deprecation warning is emitted on every ``_persist_model`` call
+when legacy is requested; default ``DeprecationWarning`` filter
+silences it for non-``__main__`` callers.
+
+## [1.7.0] - 2026-09-22
+
+### Added
+- **Canonical TMDL layout writer (opt-in, pre-2.0).** Pre-2.0 this was
+  the only way to produce the layout ``microsoft/powerbi-modeling-mcp``
+  parses correctly. As of v2.0 it is the default; the
+  ``NL2PBIP_TMDL_CANONICAL=1`` opt-in is no longer needed. The new
+  ``scripts/legacy_to_canonical.py`` migrates existing artifacts to
+  the canonical layout.
 - **Label-gated `Cross-server MCP tests` CI workflow** (`.github/workflows/cross-server.yml`). The cross-server validation tests against `microsoft/powerbi-modeling-mcp` install a ~150 MB native .NET binary plus the Analysis Services / TOM runtime, far too heavy for the default PR gate. The new workflow runs only when a maintainer applies the `CROSS_SERVER` label (auto-applied via `.github/labeler.yml` when the PR touches the install script, the cross-server test file, the fixture tree, or the workflow itself). On `pull_request_target` with `pull-requests: read`, plus `workflow_dispatch` for ad-hoc local re-runs. Drops `vendor/package.json` + `node_modules/.package-lock.json` as a 7-day artifact for post-mortem when the run is red. New regression tests in `tests/test_repo_templates.py::TestReadmeConsistency` (`test_cross_server_workflow_exists_and_references_env_var`, `test_cross_server_label_exists_in_manifest`) lock the workflow + label in place so a workflow-deletion PR can't land silently. README's "Cross-server compatibility" section is updated to point at the label gate.
 
 ## [1.6.1] - 2026-09-22

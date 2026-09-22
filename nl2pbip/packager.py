@@ -322,7 +322,13 @@ def _write_semantic_model(
         table_files[table.name] = str(table_path)
 
     model_path = definition_dir / "model.tmdl"
-    model_path.write_text(_render_tables_block(model), encoding="utf-8")
+    # v2.0: model.tmdl carries ``ref table X`` declarations only —
+    # the canonical layout that ``microsoft/powerbi-modeling-mcp`` and
+    # Power BI Desktop both expect. Table bodies live in tables/*.tmdl
+    # (already written above). The path is unchanged so the
+    # ``definition.pbism::modelDefinition`` reference still resolves.
+    refs_text = "\n".join(f"ref table {name}" for name in model.tables)
+    model_path.write_text(refs_text + ("\n" if refs_text else ""), encoding="utf-8")
 
     relationships_path = definition_dir / "relationships.tmdl"
     relationships_path.write_text(_render_relationships_block(model), encoding="utf-8")
