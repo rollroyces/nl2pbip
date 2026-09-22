@@ -1,0 +1,17 @@
+table Date
+
+	column Date
+		dataType: dateTime
+		formatString: yyyy-MM-dd
+		summarizeBy: none
+		sourceColumn: Date
+
+	column Year
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: Year
+
+	column Month
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: Month

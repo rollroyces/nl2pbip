@@ -1,0 +1,6 @@
+ref table Sales
+ref table Date
+
+relationship SalesToDate-1
+	fromColumn: Sales.Date
+	toColumn: Date.Date

@@ -11,8 +11,8 @@ to [Semantic Versioning](https://semver.org/).
   (v1.7.0).** New optional env var `NL2PBIP_MCP_BEARER_TOKEN`
   and matching `--bearer-token $TOKEN` CLI flag flip the
   server into auth-required mode. When set, every HTTP
-  request to `/mcp` must carry `Authorization: Bearer <token>`;
-  missing / wrong tokens get `401 Unauthorized` + a
+  request to `/mcp` must carry `Authorization: Bearer ***`
+  — missing / wrong tokens get `401 Unauthorized` + a
   `WWW-Authenticate: Bearer realm="nl2pbip-mcp"` response header
   **before** any MCP session is created. The comparison uses
   `hmac.compare_digest` (constant-time) to avoid leaking the
@@ -22,6 +22,7 @@ to [Semantic Versioning](https://semver.org/).
   Resolution order: `--bearer-token` flag > `NL2PBIP_MCP_BEARER_TOKEN`
   env var > unauthenticated default. 6 new tests in
   `tests/test_mcp_server_v160.py` (now 19 total in that file).
+- **Cross-server validation against Microsoft's `powerbi-modeling-mcp`** (`tests/test_cross_server_validation.py`, 7 tests; 4 always-on + 3 opt-in via `NL2PBIP_RUN_CROSS_SERVER_TESTS=1`). Spawns Microsoft's official MCP server as a subprocess, speaks JSON-RPC over stdio, and verifies a canonical Power BI Project fixture is readable end-to-end (`database.tmdl` + `tables/*.tmdl` + `ref table X` declarations). One honest gap-report test surfaces `nl2pbip`'s current monolithic TMDL writer as a known incompatibility with Microsoft's parser — flagged as a follow-up to refactor `nl2pbip/tmdl_engine.py`. Install script at `scripts/install_powerbi_modeling_mcp.sh` clones the npm package into `vendor/powerbi-modeling-mcp/` (gitignored) and ad-hoc-codesigns the binary on macOS to work around Gatekeeper. New fixture under `tests/_fixtures/cross_server/Canonical.SemanticModel/` for the canonical layout.
 
 ## [1.6.0] - 2026-09-21
 

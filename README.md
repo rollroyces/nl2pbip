@@ -11,7 +11,7 @@
 [![PyPI](https://img.shields.io/pypi/v/nl2pbip.svg)](https://pypi.org/project/nl2pbip/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#installation)
 [![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
-[![Tests](https://img.shields.io/badge/tests-995%20collected%2C%20981%20passing-brightgreen.svg)](#test-counts)
+[![Tests](https://img.shields.io/badge/tests-1002%20collected%2C%20986%20passing-brightgreen.svg)](#test-counts)
 [![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
 [![mypy --strict](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml)
 [![Bandit](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml)
@@ -317,6 +317,19 @@ nl2pbip-mcp --transport streamable-http --host 127.0.0.1 --port 8000
 Every request to `/mcp` must then carry `Authorization: Bearer <token>`. Missing or wrong tokens get `401 Unauthorized` with `WWW-Authenticate: Bearer realm="nl2pbip-mcp"`, **before** any MCP session is established — so an attacker can't even probe the JSON-RPC surface. The token comparison uses `hmac.compare_digest` (constant-time) rather than `==` to avoid leaking the valid token's prefix length via timing. The stdio transport is unaffected — auth only applies to HTTP.
 
 Generate a token with `openssl rand -hex 32` (or any 32+ char random string). The token is plaintext in the env var; rotate by restarting the server with a new value. Stdio clients (Claude Code, Cursor, Copilot CLI) are unchanged.
+
+#### Cross-server compatibility
+
+`nl2pbip` ships a `.pbipdir` in Microsoft's Power BI Project format. To prove that, the test suite spawns Microsoft's official [`powerbi-modeling-mcp`](https://github.com/microsoft/powerbi-modeling-mcp) server as a separate subprocess, speaks JSON-RPC over stdio, and asks it to introspect the artifact. The headline test (`test_cross_server_validation.py::test_microsoft_powerbi_modeling_mcp_reads_canonical_pbip`) reads a hand-written canonical PBIP fixture, asserts Microsoft's parser enumerates 2 tables, 1 measure, and 1 relationship, and verifies the round-trip on every tool family we depend on.
+
+The test is opt-in because Microsoft's binary is ~150 MB (npm package + .NET runtime + Analysis Services SDK) and not every operator wants it on disk. To run it locally:
+
+```bash
+bash scripts/install_powerbi_modeling_mcp.sh   # clones the package into vendor/
+NL2PBIP_RUN_CROSS_SERVER_TESTS=1 pytest tests/test_cross_server_validation.py -v
+```
+
+CI skips it by default; enable by setting `NL2PBIP_RUN_CROSS_SERVER_TESTS=1` in the workflow. The cross-server fixture (`tests/_fixtures/cross_server/Canonical.SemanticModel/`) is the canonical PBIP layout Microsoft's parser expects; the second cross-server test (`..._flags_nl2pbip_monolithic_layout`) honestly reports that `nl2pbip`'s *own* TMDL writer currently emits a non-canonical monolithic `model.tmdl` and is rejected — tracked as a follow-up to refactor `nl2pbip/tmdl_engine.py` to write one file per table under `definition/tables/`.
 
 ---
 
@@ -854,7 +867,7 @@ nl2pbip/
 │   │   ├── dataset_generator.py  # instructor + OpenAI synthetic data
 │   │   └── train.py            # Unsloth + trl SFT + GGUF export
 │   └── mcp_server/             # Model Context Protocol server (4 tools)
-├── tests/                      # 981 pytest cases across 31 test files
+├── tests/                      # 983 pytest cases across 33 test files
 ├── artifacts/                  # example Run output (SalesInsights.pbipdir)
 ├── .github/                    # workflows, issue templates, CODEOWNERS,
 │                               # renovate.json, labeler.yml, SECURITY.md, etc.
@@ -868,7 +881,7 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **995 test cases across 32 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **981 pass** on every supported Python version; the remaining 13 are skipped because the benchmarks in `tests/test_performance.py` are opt-in via `NL2PBIP_RUN_BENCHMARKS=1`. 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **1002 test cases across 33 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **986 pass** on every supported Python version; the remaining 16 are skipped — 13 are benchmarks in `tests/test_performance.py` opt-in via `NL2PBIP_RUN_BENCHMARKS=1`, and 3 are the cross-server round-trip tests in `tests/test_cross_server_validation.py` opt-in via `NL2PBIP_RUN_CROSS_SERVER_TESTS=1` (the latter additionally require Microsoft's binary, installed by `scripts/install_powerbi_modeling_mcp.sh`). 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install -e ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Cases |
 |---|---:|
@@ -896,6 +909,7 @@ Pytest collects **995 test cases across 32 test files** in CI (Python 3.10 / 3.1
 | `tests/test_mcp_server.py` | 13 (MCP tool surface + round-trip validation) |
 | `tests/test_mcp_server_e2e.py` | 13 (MCP round-trip via real FastMCP wire format) |
 | `tests/test_mcp_server_v160.py` | 19 (streamable-http transport + base64 artifact return + Bearer-token auth) |
+| `tests/test_cross_server_validation.py` | 7 (3 opt-in via `NL2PBIP_RUN_CROSS_SERVER_TESTS=1`; spawns `@microsoft/powerbi-modeling-mcp` over stdio JSON-RPC) |
 | `tests/test_performance.py` | 13 (opt-in via `NL2PBIP_RUN_BENCHMARKS=1`) |
 | `tests/test_dax_catalog_cache.py` | 12 |
 | `tests/test_polisher_integration.py` | 11 |
