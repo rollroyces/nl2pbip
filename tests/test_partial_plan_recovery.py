@@ -270,3 +270,67 @@ class TestOrchestratorPartialRecovery:
         # happened yet.
         prompt = orch._augment_prompt("fresh prompt", [])
         assert "truncated" not in prompt.lower()
+
+
+class TestAugmentPromptCumulativeFeedback:
+    """Regression tests for the v1.6.2 fix: _augment_prompt must
+    surface ALL accumulated feedback entries to the planner, not just
+    the most recent one. The run_with_reflection docstring explicitly
+    promises "Cumulative feedback" (every prior attempt's error), and
+    the loop accumulates via feedback.append(...). Using only
+    feedback[-1] silently dropped every earlier error."""
+
+    def test_empty_feedback_returns_base_only(self) -> None:
+        from nl2pbip.example_run import StaticPlanLLM  # noqa: F401  # any LLM stub
+
+        orch = Orchestrator(llm_client=StaticPlanLLM([]))
+        prompt = orch._augment_prompt("base prompt", [])
+        assert prompt == "base prompt"
+
+    def test_single_feedback_returns_that_entry(self) -> None:
+        from nl2pbip.example_run import StaticPlanLLM
+
+        orch = Orchestrator(llm_client=StaticPlanLLM([]))
+        prompt = orch._augment_prompt("base prompt", ["error A"])
+        assert "error A" in prompt
+        assert "base prompt" in prompt
+
+    def test_multiple_feedback_entries_are_all_preserved(self) -> None:
+        """The actual regression: two prior errors must both reach the
+        planner on attempt 3, not just the most recent."""
+        from nl2pbip.example_run import StaticPlanLLM
+
+        orch = Orchestrator(llm_client=StaticPlanLLM([]))
+        prompt = orch._augment_prompt(
+            "base prompt",
+            ["error A: column not found", "error B: missing relationship"],
+        )
+        # Both prior errors must reach the planner.
+        assert (
+            "error A: column not found" in prompt
+        ), f"earlier feedback was dropped: {prompt!r}"
+        assert (
+            "error B: missing relationship" in prompt
+        ), f"recent feedback was dropped: {prompt!r}"
+        # And they are separate entries (newline-separated), not concatenated.
+        assert "error A: column not found\nerror B: missing relationship" in prompt
+
+    def test_feedback_appears_after_continuation_note(self) -> None:
+        """When both a continuation_note and feedback are present,
+        feedback is appended after the note so the LLM sees the most
+        recent context (continuation) last."""
+        from nl2pbip.example_run import StaticPlanLLM
+
+        orch = Orchestrator(llm_client=StaticPlanLLM([]))
+        orch._last_partial_recovery = PartialPlanRecovery(
+            plan=[ToolCall(tool="x", args={})],
+            last_step="x()",
+            consumed_prefix="[]",
+        )
+        prompt = orch._augment_prompt("base", ["err1", "err2"])
+        # Continuation note first, then feedback.
+        cont_pos = prompt.index("truncated")
+        err1_pos = prompt.index("err1")
+        err2_pos = prompt.index("err2")
+        assert cont_pos < err1_pos < err2_pos
+        assert orch._last_partial_recovery is None

@@ -1528,7 +1528,12 @@ class Orchestrator:
         if continuation_note is not None:
             parts.append(continuation_note)
         if feedback:
-            parts.append(feedback[-1])
+            # Cumulative: include every prior error so the planner has
+            # the full picture, not just the most recent failure. The
+            # docstring on ``run_with_reflection`` (cumulative feedback)
+            # and the loop's own ``feedback.append(...)`` accumulation
+            # both promise this behaviour.
+            parts.append("\n".join(feedback))
         return "\n\n".join(parts)
 
     def _feedback_for_exception(self, error: Exception) -> str:
