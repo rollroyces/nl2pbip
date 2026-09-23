@@ -234,6 +234,7 @@ class ReflectiveTrace:
     attempts: List[AttemptRecord] = field(default_factory=list)
     final_results: Optional[List[ToolResult]] = None
     final_error: Optional[str] = None
+    final_exception: Optional[BaseException] = None
     critic_score: Optional[PlanQualityScore] = None
     reflection_rounds: int = 0
 
@@ -425,7 +426,18 @@ class Orchestrator:
     def run(
         self, user_prompt: str, context: Optional[Dict[str, Any]] = None
     ) -> List[ToolResult]:
-        """Full cycle with validation-aware self correction."""
+        """Full cycle with validation-aware self correction.
+
+        Thin wrapper over the reflection path with
+        ``max_reflection_rounds=0`` and ``critic=None``: this
+        preserves the v1.4.x single-shot behaviour (no critic
+        pass, no follow-up reflection rounds) while sharing the
+        unified retry/recover loop in
+        :meth:`_run_with_reflection_impl`. The
+        :class:`ReflectiveTrace` returned by that method is
+        converted back to the legacy ``List[ToolResult]`` shape
+        for back-compat with the v1.4.x public surface.
+        """
 
         # Local import to keep telemetry opt-in: a slim
         # install (no OTEL SDK, no console exporter) never
@@ -447,7 +459,25 @@ class Orchestrator:
             "model": getattr(self._llm, "model", "unknown"),
         }
         with tracer.start_as_current_span("nl2pbip.run", attributes=root_attrs):
-            return self._run_impl(user_prompt, context)
+            trace = self._run_with_reflection_impl(
+                user_prompt,
+                context,
+                max_reflection_rounds=0,
+                critic=None,
+            )
+            if trace.final_error is not None and not trace.final_results:
+                # Match the legacy ``run()`` contract: surface the
+                # failure as a raised exception, preserving the
+                # original exception type when the trace captured
+                # one. Callers that catch ``ValueError``,
+                # ``TMDLValidationError``, etc. continue to work
+                # exactly as before; only the catch-all path (when
+                # ``last_error`` was ``None``) falls back to
+                # ``RuntimeError``.
+                if trace.final_exception is not None:
+                    raise trace.final_exception
+                raise RuntimeError(trace.final_error)
+            return trace.final_results or []
 
     def _max_cost_usd_safe(self) -> float:
         """Return the orchestrator's cost cap, or ``-1.0`` when none is set."""
@@ -732,9 +762,17 @@ class Orchestrator:
                 if last_error
                 else ("Planner retries exceeded without validation detail.")
             )
+            trace.final_exception = last_error
             return trace
         trace.final_results = successful_results
-        # Critic pass.
+        # Critic pass. Skipped when ``run()`` delegates here with no
+        # critic and no reflection rounds — that combination is the
+        # legacy single-shot behaviour (the v1.4.x ``run()`` path
+        # never invoked a critic). When either a critic is explicitly
+        # supplied or reflection rounds are allowed, the critic runs
+        # exactly once after the first success.
+        if critic is None and max_reflection_rounds == 0:
+            return trace
         score = self._critic_score(
             user_prompt, successful_results, trace, critic_client
         )

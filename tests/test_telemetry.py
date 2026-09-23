@@ -484,12 +484,19 @@ class TestOrchestratorSpans:
         # body stubbed so we don't have to drive the LLM
         # dependency chain. ``Orchestrator.run`` opens the
         # root ``nl2pbip.run`` span and immediately delegates
-        # to ``_run_impl``; we mock the latter to a no-op.
+        # to ``_run_with_reflection_impl`` (v1.6.2 consolidation);
+        # we mock the latter to a no-op.
         with mock.patch.object(
             llm_mod.StructuredLLMClient, "_invoke_provider", fake_invoke
         ):
-            with mock.patch.object(orch, "_run_impl") as mock_run_impl:
-                mock_run_impl.return_value = []
+            with mock.patch.object(
+                orch, "_run_with_reflection_impl"
+            ) as mock_run_impl:
+                from nl2pbip.orchestrator import ReflectiveTrace
+
+                mock_run_impl.return_value = ReflectiveTrace(
+                    user_prompt="anything", final_results=[]
+                )
                 with mock.patch.object(telemetry, "get_tracer") as mock_tracer:
                     tracer = mock.MagicMock()
                     cm = mock.MagicMock()
