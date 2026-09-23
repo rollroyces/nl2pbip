@@ -288,15 +288,19 @@ def test_handler_creates_field_parameter_table(
     assert result["status"] == "success"
     assert result["parameter"] == "Metric Selection"
     assert len(result["members"]) == 2
-    # File persisted.
-    written = (tmp_path / "model.tmdl").read_text(encoding="utf-8")
-    assert "isParameterTable" in written
-    assert "NAMEOF('Sales'[Total Revenue])" in written
-    assert "NAMEOF('Sales'[Region])" in written
+    # File persisted. v1.6.2: the canonical TMDL layout is the
+    # default; the parameter table lives in
+    # ``tables/Metric Selection.tmdl``.
+    table_text = (tmp_path / "tables" / "Metric Selection.tmdl").read_text(
+        encoding="utf-8"
+    )
+    assert "isParameterTable" in table_text
+    assert "NAMEOF('Sales'[Total Revenue])" in table_text
+    assert "NAMEOF('Sales'[Region])" in table_text
     # All three canonical columns present.
-    assert 'column "Metric Selection"' in written
-    assert 'column "Metric Selection Fields"' in written
-    assert 'column "Metric Selection Ordinal"' in written
+    assert 'column "Metric Selection"' in table_text
+    assert 'column "Metric Selection Fields"' in table_text
+    assert 'column "Metric Selection Ordinal"' in table_text
 
 
 def test_handler_rejects_empty_members(tmp_path: Path, model_path: Path) -> None:
@@ -413,8 +417,9 @@ def test_handler_supports_custom_sort_by_column(
         sort_by_column_name="Custom Ordinal",
         context={MODEL_PATH_KEY: str(model_path)},
     )
-    written = (tmp_path / "model.tmdl").read_text(encoding="utf-8")
-    name_col = written.split('column "M"')[1].split("}")[0]
+    # v1.6.2: canonical layout — read the per-table file.
+    table_text = (tmp_path / "tables" / "M.tmdl").read_text(encoding="utf-8")
+    name_col = table_text.split('column "M"')[1].split("}")[0]
     assert 'sortByColumn = "Custom Ordinal"' in name_col
 
 

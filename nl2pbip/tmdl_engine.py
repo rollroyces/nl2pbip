@@ -1584,7 +1584,10 @@ def _types_are_joinable(from_type: str, to_type: str) -> bool:
     return from_bucket == to_bucket
 
 
-def _persist_model(context: Dict[str, Any]) -> Path:
+def _persist_model(
+    context: Dict[str, Any],
+    model: Optional[TMDLModel] = None,
+) -> Path:
     """Persist the model.
 
     Default (v2.0+) is the canonical layout (``database.tmdl`` +
@@ -1595,17 +1598,52 @@ def _persist_model(context: Dict[str, Any]) -> Path:
     cycle, set ``NL2PBIP_TMDL_LEGACY=1`` or pass
     ``context['legacy_tmdl_layout'] = True`` — a
     :class:`TMDLLegacyDeprecationWarning` is emitted (once per process).
+
+    ``model`` is an optional in-memory model that the caller has
+    already mutated. When ``None`` (or when the canonical layout is
+    requested) the writer re-loads the model from disk. Tool handlers
+    should pass their already-mutated in-memory ``model`` so the
+    writer doesn't accidentally re-load a stale on-disk copy after
+    the mutation but before the write.
     """
     if not context or MODEL_PATH_KEY not in context:
         raise ValueError("Tool handlers require 'model_path' inside context.")
+    # ``_canonical_layout_requested`` returns True when the caller
+    # asked for the LEGACY monolithic layout (the v2.0 default is
+    # canonical, so this branch only fires when
+    # ``context['legacy_tmdl_layout']`` is set or
+    # ``NL2PBIP_TMDL_LEGACY=1``). All other callers land on the
+    # canonical path.
     if _canonical_layout_requested(context):
         _warn_legacy_layout_once()
+        _persist_model_legacy(context, model=model)
+        return Path(context[MODEL_PATH_KEY]).expanduser()
+    # Canonical layout (the v2.0 default).
+    if model is None:
         model_path = Path(context[MODEL_PATH_KEY]).expanduser()
         model_path.parent.mkdir(parents=True, exist_ok=True)
-        model = load_model(model_path)
-        model_path.write_text(_render_model_body(model), encoding="utf-8")
-        return model_path
-    return _persist_model_canonical(context)
+        model = load_model(model_path) if model_path.exists() else TMDLModel()
+    return _persist_model_canonical(context, model=model)
+
+
+def _persist_model_legacy(
+    context: Dict[str, Any],
+    model: Optional[TMDLModel] = None,
+) -> Path:
+    """Write the deprecated monolithic ``model.tmdl`` layout.
+
+    Carved out from :func:`_persist_model` so the legacy writer can
+    also accept an in-memory model from a handler without the caller
+    having to write the model to disk first.
+    """
+    if not context or MODEL_PATH_KEY not in context:
+        raise ValueError("Tool handlers require 'model_path' inside context.")
+    model_path = Path(context[MODEL_PATH_KEY]).expanduser()
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    if model is None:
+        model = load_model(model_path) if model_path.exists() else TMDLModel()
+    model_path.write_text(_render_model_body(model), encoding="utf-8")
+    return model_path
 
 
 def _render_model_body(model: TMDLModel) -> str:
@@ -1716,7 +1754,10 @@ def _render_relationships_tmdl(model: TMDLModel) -> str:
     return ("\n".join(parts).strip() + "\n") if any(parts) else ""
 
 
-def _persist_model_canonical(context: Dict[str, Any]) -> Path:
+def _persist_model_canonical(
+    context: Dict[str, Any],
+    model: Optional[TMDLModel] = None,
+) -> Path:
     """Write the model to disk in Microsoft's canonical TMDL layout.
 
     Produces:
@@ -1725,12 +1766,21 @@ def _persist_model_canonical(context: Dict[str, Any]) -> Path:
     - ``<model_dir>/relationships.tmdl`` (refs + relationships)
     - ``<model_dir>/tables/<Name>.tmdl`` (one file per table)
     - ``<model_dir>/.roles/*.tmdl`` (unchanged from legacy layout)
+
+    When ``model`` is supplied (via :func:`_persist_model`'s handler
+    composition), the writer uses that in-memory snapshot instead of
+    re-reading the on-disk ``model.tmdl``. This matters for tool
+    handlers, which mutate the in-memory model and then ask the
+    writer to dump it — re-loading from disk would either fail
+    (when the file doesn't exist yet) or clobber the handler's
+    mutation with a stale read.
     """
     if not context or MODEL_PATH_KEY not in context:
         raise ValueError("Tool handlers require 'model_path' inside context.")
     model_path = Path(context[MODEL_PATH_KEY]).expanduser()
     model_path.parent.mkdir(parents=True, exist_ok=True)
-    model = load_model(model_path)
+    if model is None:
+        model = load_model(model_path) if model_path.exists() else TMDLModel()
     model_dir = model_path.parent
 
     # database.tmdl
@@ -1864,7 +1914,7 @@ def create_table_handler(
             )
 
     model.add_table(table)
-    model_path.write_text(_render_model_body(model), encoding="utf-8")
+    _persist_model(context, model=model)
     return {
         "status": "success",
         "table": table_name,
@@ -1911,7 +1961,7 @@ def add_measure_handler(
         description=description,
     )
     table.add_measure(measure)
-    model_path.write_text(_render_model_body(model), encoding="utf-8")
+    _persist_model(context, model=model)
     return {
         "status": "success",
         "table": table_name,
@@ -2100,7 +2150,7 @@ def define_relationship_handler(
         is_active=active,
     )
     model.add_relationship(relationship)
-    model_path.write_text(_render_model_body(model), encoding="utf-8")
+    _persist_model(context, model=model)
     return {
         "status": "success",
         "relationship": rel_name,
@@ -2239,7 +2289,7 @@ def add_calculation_group_handler(
 
     if not existing:
         model.add_table(table)
-    model_path.write_text(_render_model_body(model), encoding="utf-8")
+    _persist_model(context, model=model)
     return {
         "status": "success",
         "table": chosen_name,
@@ -2390,7 +2440,7 @@ def add_field_parameter_handler(
         )
     )
     model.add_table(table)
-    model_path.write_text(_render_model_body(model), encoding="utf-8")
+    _persist_model(context, model=model)
     return {
         "status": "success",
         "parameter": chosen_name,
@@ -2556,7 +2606,7 @@ def add_power_query_partition_handler(
     else:
         table.partitions.append(new_partition)
 
-    model_path.write_text(_render_model_body(model), encoding="utf-8")
+    _persist_model(context, model=model)
     return {
         "status": "success",
         "table": table_name,

@@ -379,8 +379,12 @@ class TestHandlerTemplateMode:
         assert result["status"] == "success"
         assert result["template"] == "csv"
         assert result["promote"] is False
-        text = Path(tmp_model_path[MODEL_PATH_KEY]).read_text()
-        assert "Csv.Document" in text
+        # v1.6.2: the canonical TMDL layout is the default. The
+        # partition expression lives in ``tables/Sales.tmdl``;
+        # ``model.tmdl`` only carries the ``ref table X`` line.
+        model_path = Path(tmp_model_path[MODEL_PATH_KEY])
+        table_text = (model_path.parent / "tables" / "Sales.tmdl").read_text()
+        assert "Csv.Document" in table_text
 
     def test_sql_template(self, tmp_model_path: Dict[str, Any]) -> None:
         result = add_power_query_partition_handler(
@@ -394,8 +398,9 @@ class TestHandlerTemplateMode:
             context=tmp_model_path,
         )
         assert result["status"] == "success"
-        text = Path(tmp_model_path[MODEL_PATH_KEY]).read_text()
-        assert "Sql.Database" in text
+        model_path = Path(tmp_model_path[MODEL_PATH_KEY])
+        table_text = (model_path.parent / "tables" / "Sales.tmdl").read_text()
+        assert "Sql.Database" in table_text
 
     def test_json_template(self, tmp_model_path: Dict[str, Any]) -> None:
         result = add_power_query_partition_handler(
@@ -405,8 +410,9 @@ class TestHandlerTemplateMode:
             context=tmp_model_path,
         )
         assert result["status"] == "success"
-        text = Path(tmp_model_path[MODEL_PATH_KEY]).read_text()
-        assert "Json.Document" in text
+        model_path = Path(tmp_model_path[MODEL_PATH_KEY])
+        table_text = (model_path.parent / "tables" / "Sales.tmdl").read_text()
+        assert "Json.Document" in table_text
 
     def test_with_promote_flag(self, tmp_model_path: Dict[str, Any]) -> None:
         result = add_power_query_partition_handler(
@@ -423,9 +429,10 @@ class TestHandlerTemplateMode:
         assert result["status"] == "success"
         assert result["promote"] is True
         assert result["column_types"] == 2
-        text = Path(tmp_model_path[MODEL_PATH_KEY]).read_text()
-        assert "Table.PromoteHeaders" in text
-        assert "Table.TransformColumnTypes" in text
+        model_path = Path(tmp_model_path[MODEL_PATH_KEY])
+        table_text = (model_path.parent / "tables" / "Sales.tmdl").read_text()
+        assert "Table.PromoteHeaders" in table_text
+        assert "Table.TransformColumnTypes" in table_text
 
 
 class TestHandlerRawM:
@@ -435,8 +442,9 @@ class TestHandlerRawM:
             "Sales", m_expression=m, context=tmp_model_path
         )
         assert result["status"] == "success"
-        text = Path(tmp_model_path[MODEL_PATH_KEY]).read_text()
-        assert "let Source = 1 in Source" in text
+        model_path = Path(tmp_model_path[MODEL_PATH_KEY])
+        table_text = (model_path.parent / "tables" / "Sales.tmdl").read_text()
+        assert "let Source = 1 in Source" in table_text
 
     def test_raw_m_with_promote(self, tmp_model_path: Dict[str, Any]) -> None:
         m = "let Source = Csv.Document(...) in Source"
@@ -448,8 +456,9 @@ class TestHandlerRawM:
             context=tmp_model_path,
         )
         assert result["status"] == "success"
-        text = Path(tmp_model_path[MODEL_PATH_KEY]).read_text()
-        assert "Table.PromoteHeaders" in text
+        model_path = Path(tmp_model_path[MODEL_PATH_KEY])
+        table_text = (model_path.parent / "tables" / "Sales.tmdl").read_text()
+        assert "Table.PromoteHeaders" in table_text
 
     def test_invalid_m_expression(self, tmp_model_path: Dict[str, Any]) -> None:
         with pytest.raises(ValueError):

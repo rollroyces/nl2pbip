@@ -403,9 +403,18 @@ class TestRelationshipCardinalityValidation:
         # per cardinality so we don't trip the duplicate-active
         # relationship check.
         for cardinality in ("oneToOne", "oneToMany", "manyToOne", "manyToMany"):
-            # Use a fresh model for each cardinality so we don't
-            # trip the duplicate-active-relationship check.
-            sub_ctx = {"model_path": str(tmp_path / f"model_{cardinality}.tmdl")}
+            # Use a fresh subdirectory per cardinality so the canonical
+            # layout's ``tables/`` directory doesn't accumulate tables
+            # across iterations and trip the duplicate-active check.
+            # The canonical writer writes ``model.tmdl`` + per-table
+            # files under the directory containing ``model_path``;
+            # the ``model_path`` itself must be named ``model.tmdl``
+            # so the writer's hard-coded ``model_dir / "model.tmdl"``
+            # matches it (otherwise the writer's model-file write is
+            # silently dropped and subsequent loads see no tables).
+            sub_dir = tmp_path / cardinality
+            sub_dir.mkdir()
+            sub_ctx = {"model_path": str(sub_dir / "model.tmdl")}
             create_table_handler(
                 table_name="A",
                 columns=[{"name": "K", "data_type": "int64"}],

@@ -409,8 +409,11 @@ class TestCreateTableHandlerAcceptsAliases:
             context={"model_path": str(model_path)},
         )
         assert result["status"] == "success"
-        # The on-disk file uses canonical TMDL spellings.
-        body = model_path.read_text()
+        # The on-disk file uses canonical TMDL spellings. v1.6.2:
+        # canonical layout puts the table body in
+        # ``tables/Sales.tmdl``; ``model.tmdl`` only carries the
+        # ``ref table X`` line.
+        body = (tmp_path / "tables" / "Sales.tmdl").read_text()
         assert "dataType = int64" in body
         assert "dataType = decimal" in body
         assert "dataType = dateTime" in body

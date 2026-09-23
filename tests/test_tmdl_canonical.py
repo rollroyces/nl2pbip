@@ -34,6 +34,9 @@ from nl2pbip.tmdl_engine import (
     _render_model_body,
     _render_model_refs_tmdl,
     _render_relationships_tmdl,
+    add_measure_handler,
+    create_table_handler,
+    define_relationship_handler,
     load_model,
 )
 
@@ -369,3 +372,123 @@ def test_load_model_prefer_canonical_false_skips_detection(
     # blocks). So the legacy parser sees no tables at all. That is
     # the expected behavior — the artifact was canonicalised.
     assert loaded.tables == {}
+
+
+# ---------------------------------------------------------------------------
+# Handler integration: writes through handlers must honour the canonical
+# layout dispatch (v1.6.2 fix). Before the fix each handler called
+# ``model_path.write_text(_render_model_body(model))`` directly and
+# silently rewrote the artifact into the deprecated monolithic layout,
+# even when canonical was the default.
+# ---------------------------------------------------------------------------
+
+
+def test_create_table_handler_writes_canonical_layout_by_default(
+    model_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``create_table_handler`` with no legacy opt-in must produce the
+    multi-file canonical layout: ``database.tmdl`` +
+    ``tables/<Name>.tmdl`` + ``model.tmdl`` carrying ``ref table X``
+    declarations. The monolithic ``table \"X\" {...}`` block must NOT
+    appear in ``model.tmdl``."""
+    monkeypatch.delenv(CANONICAL_ENV_VAR, raising=False)
+    model_path = model_dir / "model.tmdl"
+    create_table_handler(
+        table_name="Sales",
+        columns=[{"name": "Amount", "data_type": "decimal"}],
+        context={MODEL_PATH_KEY: str(model_path)},
+    )
+    assert (model_dir / "database.tmdl").exists()
+    assert (model_dir / "tables" / "Sales.tmdl").exists()
+    model_text = model_path.read_text()
+    assert "ref table Sales" in model_text
+    assert 'table "Sales"' not in model_text
+
+
+def test_add_measure_handler_writes_canonical_layout_by_default(
+    seeded_model_path: Path,
+    model_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``add_measure_handler`` mutates an existing model and re-writes
+    it. With canonical as the default, the re-write must produce the
+    multi-file layout — not overwrite the existing monolithic
+    ``model.tmdl`` in place."""
+    monkeypatch.delenv(CANONICAL_ENV_VAR, raising=False)
+    add_measure_handler(
+        table_name="Sales",
+        measure_name="Average",
+        expression="AVERAGE(Sales[Amount])",
+        context={MODEL_PATH_KEY: str(seeded_model_path)},
+    )
+    assert (model_dir / "database.tmdl").exists()
+    assert (model_dir / "tables" / "Sales.tmdl").exists()
+    model_text = seeded_model_path.read_text()
+    assert "ref table Sales" in model_text
+    assert 'table "Sales"' not in model_text
+
+
+def test_define_relationship_handler_writes_canonical_layout_by_default(
+    seeded_model_path: Path,
+    model_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``define_relationship_handler`` re-renders the model after
+    appending a relationship. The default-canonical dispatch must
+    apply through this handler too. The seeded fixture supplies
+    ``Sales.Amount`` (decimal) so we add an ``Amount → Id`` style
+    link against an existing ``Id`` column on ``Date`` is impossible
+    — so we add the column first via ``create_table_handler`` then
+    define the relationship."""
+    monkeypatch.delenv(CANONICAL_ENV_VAR, raising=False)
+    # The seeded ``Sales`` only has an ``Amount`` column; create a
+    # second table that links to it. ``Sales.Amount (decimal)`` and
+    # a synthetic ``Target`` table with an ``Amount`` column.
+    create_table_handler(
+        table_name="Target",
+        columns=[{"name": "Amount", "data_type": "decimal"}],
+        context={MODEL_PATH_KEY: str(seeded_model_path)},
+    )
+    define_relationship_handler(
+        from_table="Sales",
+        from_column="Amount",
+        to_table="Target",
+        to_column="Amount",
+        context={MODEL_PATH_KEY: str(seeded_model_path)},
+    )
+    assert (model_dir / "relationships.tmdl").exists()
+    model_text = seeded_model_path.read_text()
+    assert "ref table Sales" in model_text
+    assert "ref table Target" in model_text
+    rel_text = (model_dir / "relationships.tmdl").read_text()
+    assert "fromTable" in rel_text
+    # The original SalesToDate relationship is still present (it was
+    # on the seeded model) and the new Amount → Amount link is added.
+    assert "SalesToDate" in rel_text
+    assert "Sales_Amount_Target_Amount" in rel_text
+
+
+def test_create_table_handler_honours_legacy_opt_in(
+    model_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the caller passes ``legacy_tmdl_layout=True``, the handler
+    must write the monolithic layout (the legacy writer at
+    ``_persist_model_legacy``). Confirms the dispatch flows through
+    ``_persist_model`` rather than bypassing it. The deprecation
+    warning is asserted in
+    :func:`test_persist_model_legacy_layout_warns_and_writes_monolithic`
+    because it's emitted once per process — testing it twice would be
+    flaky."""
+    monkeypatch.delenv(CANONICAL_ENV_VAR, raising=False)
+    model_path = model_dir / "model.tmdl"
+    create_table_handler(
+        table_name="Sales",
+        columns=[{"name": "Amount", "data_type": "decimal"}],
+        context={MODEL_PATH_KEY: str(model_path), "legacy_tmdl_layout": True},
+    )
+    assert not (model_dir / "database.tmdl").exists()
+    assert not (model_dir / "tables").exists()
+    text = model_path.read_text()
+    assert 'table "Sales"' in text
