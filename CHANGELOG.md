@@ -62,6 +62,10 @@ The deprecation warning is emitted on every ``_persist_model`` call
 when legacy is requested; default ``DeprecationWarning`` filter
 silences it for non-``__main__`` callers.
 
+### Fixed
+- **TMDL handlers now route writes through ``_persist_model`` for the canonical layout.** The v2.0.0 default-flip was betrayed by six tool handlers (``create_table_handler``, ``add_measure_handler``, ``define_relationship_handler``, ``add_calculation_group_handler``, ``add_field_parameter_handler``, ``add_power_query_partition_handler``) that continued to call ``model_path.write_text(_render_model_body(model), ...)`` directly. The env var ``NL2PBIP_TMDL_LEGACY=1`` therefore had no effect on handler-driven writes: every handler silently re-emitted the deprecated monolithic file even when canonical layout was active, leaving the on-disk ``.pbipdir`` in an inconsistent state that ``scripts/legacy_to_canonical.py`` then flagged. The writers now accept an optional ``model=None`` parameter; handlers pass their already-mutated in-memory snapshot. 18 new regression tests in ``tests/test_tmdl_canonical.py`` cover every handler.
+- **Reflection-loop planner now sees cumulative feedback, not just the most recent failure.** ``Orchestrator._augment_prompt`` read ``feedback[-1]`` while the ``run_with_reflection`` docstring explicitly promised "Cumulative feedback. When an attempt fails, the next prompt includes ALL prior errors (not just the most recent one)." The list was built up with ``.append(...)`` but only the last entry reached the planner. Joined entries with newlines; 4 new regression tests in ``tests/test_partial_plan_recovery.py::TestAugmentPromptCumulativeFeedback`` lock the contract.
+
 ## [1.7.0] - 2026-09-22
 
 ### Added
@@ -77,6 +81,10 @@ silences it for non-``__main__`` callers.
 
 ### Fixed
 - **Limitations table is current.** The README's 'Limitations' section was last refreshed at v1.3.5; 5 of its 8 rows listed work that has since shipped in v1.4.0 (RAG, tier-2 FK confidence, DAX library hot-reload, custom visual registry, streaming plan execution). Replaced each stale row with a 'Closed in v1.4.0' pointer + the new limitation text. Added 3 regression tests in `tests/test_repo_templates.py` (`test_limitations_table_no_closed_in_old_version`, `test_limitations_table_has_as_of_current`, `test_readme_test_count_matches_pytest_collection`) so this drift can't recur silently. The v1.6.0 capability table is also corrected — streamable-HTTP transport and base64 artifact return are now listed under v1.6.0 (where they shipped) rather than the v1.5.0 row they were misplaced in.
+### Fixed
+- **TMDL handlers now route writes through ``_persist_model`` for the canonical layout.** The v2.0.0 default-flip was betrayed by six tool handlers (``create_table_handler``, ``add_measure_handler``, ``define_relationship_handler``, ``add_calculation_group_handler``, ``add_field_parameter_handler``, ``add_power_query_partition_handler``) that continued to call ``model_path.write_text(_render_model_body(model), ...)`` directly. The env var ``NL2PBIP_TMDL_LEGACY=1`` therefore had no effect on handler-driven writes: every handler silently re-emitted the deprecated monolithic file even when canonical layout was active, leaving the on-disk ``.pbipdir`` in an inconsistent state that ``scripts/legacy_to_canonical.py`` then flagged. The writers now accept an optional ``model=None`` parameter; handlers pass their already-mutated in-memory snapshot. 18 new regression tests in ``tests/test_tmdl_canonical.py`` cover every handler.
+- **Reflection-loop planner now sees cumulative feedback, not just the most recent failure.** ``Orchestrator._augment_prompt`` read ``feedback[-1]`` while the ``run_with_reflection`` docstring explicitly promised "Cumulative feedback. When an attempt fails, the next prompt includes ALL prior errors (not just the most recent one)." The list was built up with ``.append(...)`` but only the last entry reached the planner. Joined entries with newlines; 4 new regression tests in ``tests/test_partial_plan_recovery.py::TestAugmentPromptCumulativeFeedback`` lock the contract.
+
 ## [1.7.0] - 2026-09-22
 
 ### Added
