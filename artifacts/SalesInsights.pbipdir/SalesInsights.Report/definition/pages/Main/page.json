@@ -11,12 +11,12 @@
   "visualContainers": [
     {
       "$schema": "http://powerbi.com/product/schema#visualContainer",
-      "name": "visual_ec8dee12",
+      "name": "visual_d5ac9c63",
       "visualType": "columnChart",
       "title": "Revenue by Region",
       "layout": {
-        "x": 24,
-        "y": 220,
+        "x": 24.0,
+        "y": 220.0,
         "width": 520,
         "height": 300,
         "z": 1

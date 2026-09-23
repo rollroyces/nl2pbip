@@ -12,6 +12,7 @@ from nl2pbip.pbir_engine import REPORT_PATH_KEY
 from nl2pbip.tmdl_engine import (
     MODEL_PATH_KEY,
     TMDLModel,
+    load_model,
     parse_tmdl_text,
     roles_workspace_dir,
 )
@@ -110,8 +111,13 @@ def _load_model(context: Dict[str, Any] | None) -> TMDLModel:
     model_path = Path(context[MODEL_PATH_KEY]).expanduser()
     if not model_path.exists():
         raise FileNotFoundError(f"Model file not found at {model_path}.")
-    model_text = model_path.read_text(encoding="utf-8")
-    return parse_tmdl_text(model_text)
+    # v1.6.2: route through ``load_model`` so the canonical TMDL
+    # layout (``database.tmdl`` + per-table files +
+    # ``model.tmdl`` carrying ``ref table X`` declarations +
+    # ``relationships.tmdl``) is auto-detected. The legacy parser
+    # would silently drop ``ref table X`` lines and produce an
+    # empty model whenever the canonical writer had been used.
+    return load_model(model_path)
 
 
 def _load_roles(context: Dict[str, Any] | None) -> Dict[str, str]:
