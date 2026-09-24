@@ -1211,7 +1211,7 @@ Inspecting the orchestrator's intermediate state is straightforward — `results
 
 ## Limitations
 
-What `nl2pbip` doesn't do well, as of v2.0.0:
+What `nl2pbip` doesn't do well, as of v2.0.1:
 
 | Limitation | Why | Workaround |
 |---|---|---|
