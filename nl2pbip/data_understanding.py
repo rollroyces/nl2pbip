@@ -52,7 +52,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Counter, Dict, Iterable, List, Optional, Set, Tuple
 
-from nl2pbip.data_inspector import DataProfile
+from nl2pbip.data_inspector import DataProfile, _try_numeric
 
 # ---------------------------------------------------------------------------
 # Primary-key detection
@@ -360,16 +360,13 @@ def compute_numeric_distribution(
 
 
 def _to_float(value: Any) -> Optional[float]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value.strip())
-        except ValueError:
-            return None
-    return None
+    """Deprecated alias for :func:`nl2pbip.data_inspector._try_numeric`.
+
+    Kept as a thin shim so existing callers that imported the helper
+    directly keep working. New code should import the canonical
+    helper from :mod:`nl2pbip.data_inspector`.
+    """
+    return _try_numeric(value)
 
 
 # ---------------------------------------------------------------------------

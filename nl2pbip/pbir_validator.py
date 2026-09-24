@@ -262,13 +262,9 @@ class PBIRValidator:
                 "visualContainer",
                 f"Visual layout exceeds canvas dimensions ({int(canvas_w)}x{int(canvas_h)}).",
             )
-        visual_type = visual_json.get("visualType")
-        if not isinstance(visual_type, str) or not visual_type:
-            raise PBIRValidationError(
-                "visualContainer",
-                "visualType is required and must be a non-empty string.",
-                path="visualType",
-            )
+        # visualType presence already validated above (lines 221-227);
+        # ``visual_json`` is unchanged by the layout/schema checks below,
+        # so no second guard is needed here.
         # Accept both the canonical spelling and any friendly alias
         # (``table``, ``matrix``, ``pie`` …). We normalise first so the
         # on-disk JSON always carries the canonical spelling Power BI

@@ -252,13 +252,10 @@ def make_data_model_schema_template(
     compatibility_level: int = DEFAULT_COMPATIBILITY_LEVEL,
     culture: str = DEFAULT_CULTURE,
 ) -> dict[str, Any]:
-    """Return the ``DataModelSchemaTemplate.json`` payload.
+    """Deprecated alias for :func:`make_minimal_data_model_schema`.
 
-    This is the part that the legacy ``export_as_pbit_zip`` used to
-    write. Real Power BI Desktop archives don't include this part
-    (they put the model schema in ``DataModelSchema`` instead) but
-    the file is still recognised by some readers; we keep emitting
-    it for compatibility.
+    Kept so callers importing the legacy name keep working. New code
+    should call :func:`make_minimal_data_model_schema` directly.
     """
     return make_minimal_data_model_schema(
         name=name,

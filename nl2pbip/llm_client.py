@@ -33,6 +33,8 @@ except ImportError:  # pragma: no cover - optional import
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from nl2pbip.budget import TokenBudget
 
+from nl2pbip.budget import count_tokens
+
 
 @dataclass(frozen=True)
 class ProviderConfig:
@@ -183,7 +185,6 @@ class StructuredLLMClient:
         """
         # Local import: keep ``opentelemetry`` off the import
         # graph when telemetry is disabled.
-        from nl2pbip.budget import count_tokens
         from nl2pbip.telemetry import get_tracer
 
         tracer = get_tracer(__name__)
@@ -191,11 +192,11 @@ class StructuredLLMClient:
         # ``tokens_in`` attribute even when the LLM itself
         # never reports token usage.
         prompt_estimate = count_tokens(messages, "")
-        prompt_in = int(prompt_estimate.get("prompt_tokens", 0))
+        prompt_in = prompt_estimate.get("prompt_tokens", 0)
         llm_attrs: Dict[str, Any] = {
             "provider": str(self.provider),
             "model": str(self.model),
-            "tokens_in": int(prompt_in),
+            "tokens_in": prompt_in,
             "tokens_out": 0,
             "cost_usd": 0.0,
             "budget_remaining_usd": self._budget_remaining_safe(),
@@ -212,7 +213,6 @@ class StructuredLLMClient:
         ``nl2pbip.llm.chat`` in :meth:`generate` so the public
         method name does not have to be renamed.
         """
-        from nl2pbip.budget import count_tokens
         from nl2pbip.telemetry import get_current_span, record_event
 
         last_error: Optional[Exception] = None
@@ -245,14 +245,13 @@ class StructuredLLMClient:
                 # attached. Otherwise record 0 so trace consumers
                 # don't see ``None``.
                 spent_usd = 0.0
-                budget = getattr(self, "_budget", None)
-                if budget is not None:
-                    spent_usd = float(getattr(budget, "spent_usd", 0.0))
+                if self._budget is not None:
+                    spent_usd = float(self._budget.spent_usd)
                     # Capture the marginal cost of THIS call by
                     # looking at the last appended CallRecord.
-                    calls = getattr(budget, "calls", [])
+                    calls = self._budget.calls
                     if calls:
-                        spent_usd = float(getattr(calls[-1], "cost_usd", spent_usd))
+                        spent_usd = float(calls[-1].cost_usd)
                 try:
                     span.set_attribute("cost_usd", spent_usd)
                     span.set_attribute(
@@ -264,8 +263,12 @@ class StructuredLLMClient:
                 record_event(
                     "nl2pbip.llm.completed",
                     {
-                        "tokens_in": int(counts.get("prompt_tokens", 0)),
-                        "tokens_out": int(counts.get("completion_tokens", 0)),
+                        # ``count_tokens`` returns a dict with
+                        # ``int`` values, so the explicit ``int``
+                        # cast here is redundant; left implicit
+                        # for mypy when the dict type is widened.
+                        "tokens_in": counts.get("prompt_tokens", 0),
+                        "tokens_out": counts.get("completion_tokens", 0),
                         "cost_usd": spent_usd,
                     },
                 )
@@ -281,10 +284,9 @@ class StructuredLLMClient:
         """Return the live budget headroom in USD, or ``-1.0`` when no
         budget is attached. Used by the OTEL span attributes.
         """
-        budget = getattr(self, "_budget", None)
-        if budget is None:
+        if self._budget is None:
             return -1.0
-        return float(getattr(budget, "remaining_usd", 0.0))
+        return float(self._budget.remaining_usd)
 
     def _charge_budget(
         self, messages: List[Dict[str, str]], completion_text: str
@@ -298,7 +300,6 @@ class StructuredLLMClient:
         """
         if self._budget is None:
             return
-        from nl2pbip.budget import count_tokens
 
         counts = count_tokens(messages, completion_text)
         self._budget.check_and_record(
@@ -513,8 +514,11 @@ class StructuredLLMClient:
         decoder = json.JSONDecoder()
         for idx, char in enumerate(text):
             if char in "[{":
+                # ``raw_decode`` takes the position where to start,
+                # which avoids the O(n) substring allocation that
+                # ``text[idx:]`` would do at every ``[`` or ``{``.
                 try:
-                    payload, _ = decoder.raw_decode(text[idx:])
+                    payload, _ = decoder.raw_decode(text, idx)
                 except json.JSONDecodeError:
                     continue
                 return payload

@@ -481,10 +481,9 @@ class Orchestrator:
 
     def _max_cost_usd_safe(self) -> float:
         """Return the orchestrator's cost cap, or ``-1.0`` when none is set."""
-        budget = getattr(self, "token_budget", None)
-        if budget is None:
+        if self.token_budget is None:
             return -1.0
-        return float(getattr(budget, "max_cost_usd", 0.0))
+        return float(self.token_budget.max_cost_usd)
 
     def _run_impl(
         self,
@@ -1127,10 +1126,9 @@ class Orchestrator:
         Returns ``0.0`` when no budget is attached so the
         span attribute is always a concrete float.
         """
-        budget = getattr(self, "token_budget", None)
-        if budget is None:
+        if self.token_budget is None:
             return 0.0
-        return float(getattr(budget, "spent_usd", 0.0))
+        return float(self.token_budget.spent_usd)
 
     def _tool_stub(self, spec: ToolSpec) -> Dict[str, Any]:
         return {

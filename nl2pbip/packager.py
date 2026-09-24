@@ -365,11 +365,6 @@ def _write_semantic_model(
     }
 
 
-def _render_tables_block(model: TMDLModel) -> str:
-    sections = [table.to_tmdl() for table in model.tables.values()]
-    return "\n\n".join(sections).strip() + ("\n" if sections else "")
-
-
 def _render_relationships_block(model: TMDLModel) -> str:
     if not model.relationships:
         return ""

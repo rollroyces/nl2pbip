@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hmac
+import httpx
 import io
 import json
 import os
@@ -364,8 +365,6 @@ def _tools_call(
     behaviour, so this is purely a wire-format sanity check.
     """
 
-    import httpx
-
     with client.stream(
         "POST",
         "/mcp",
@@ -401,8 +400,6 @@ def http_server(request):
     default. Yields the base URL; the server runs in a background
     thread and is reclaimed when the test process exits.
     """
-
-    import httpx
 
     bearer_token: Optional[str] = getattr(request, "param", None)
     port = _free_port()
@@ -484,8 +481,6 @@ def test_streamable_http_lists_four_tools(http_server: str) -> None:
     """The four MCP tools must be discoverable over the
     streamable-http JSON-RPC ``tools/list`` method."""
 
-    import httpx
-
     with httpx.Client(timeout=5.0, base_url=http_server) as client:
         session = _initialize_session(client, http_server)
         tool_names = _tools_list(client, http_server, session)
@@ -502,8 +497,6 @@ def test_streamable_http_invokes_version_tool(http_server: str) -> None:
     FastMCP's streamable-http serialisation path that the
     in-process tests bypass."""
 
-    import httpx
-
     with httpx.Client(timeout=5.0, base_url=http_server) as client:
         session = _initialize_session(client, http_server)
         result = _tools_call(client, http_server, session, "version", {})
@@ -518,8 +511,6 @@ def test_streamable_http_invokes_inspect_dataset(
     tmp_path: Path,
 ) -> None:
     """CSV profile round-trip over HTTP."""
-
-    import httpx
 
     csv = tmp_path / "sales.csv"
     csv.write_text(
@@ -548,8 +539,6 @@ def test_streamable_http_invokes_validate_pbip_on_real_fixture(
     """Round-trip ``validate_pbip`` over HTTP against the committed
     fixture. Confirms the validator output survives the SSE
     serialisation path unchanged."""
-
-    import httpx
 
     fixture_root = Path(__file__).parent.parent / "artifacts" / "SalesInsights.pbipdir"
     if not fixture_root.exists():
@@ -583,8 +572,6 @@ def test_streamable_http_invokes_generate_report_with_artifact(
     base64 artifact return so a remote MCP client gets the
     .pbip without filesystem access to the server.
     """
-
-    import httpx
 
     from nl2pbip.mcp_server import server as mcp_module
 
@@ -703,8 +690,6 @@ def test_http_unauthenticated_request_returns_401(http_server: str) -> None:
     header — BEFORE any session is established.
     """
 
-    import httpx
-
     with httpx.Client(timeout=5.0, base_url=http_server) as client:
         r = _post_initialize(client, http_server)  # no Authorization header
 
@@ -727,8 +712,6 @@ def test_http_wrong_bearer_token_returns_401(http_server: str) -> None:
     'wrong token' (otherwise it leaks which tokens are valid).
     """
 
-    import httpx
-
     with httpx.Client(timeout=5.0, base_url=http_server) as client:
         r = _post_initialize(client, http_server, extra_headers=_auth_headers("wrong"))
 
@@ -742,8 +725,6 @@ def test_http_correct_bearer_token_succeeds(http_server: str) -> None:
     and a session id, and ``tools/list`` advertises the four
     documented MCP tools.
     """
-
-    import httpx
 
     with httpx.Client(timeout=5.0, base_url=http_server) as client:
         r = _post_initialize(
@@ -776,8 +757,6 @@ def test_http_no_auth_when_token_unset(http_server: str) -> None:
     no-auth loopback behaviour they had before.
     """
 
-    import httpx
-
     with httpx.Client(timeout=5.0, base_url=http_server) as client:
         session = _initialize_session(client, http_server)  # no auth header
         tool_names = _tools_list(client, http_server, session)
@@ -800,8 +779,6 @@ def test_http_bearer_token_compare_digest(
     comparison. We monkeypatch ``hmac.compare_digest`` so the
     test fails if any code path bypasses it.
     """
-
-    import httpx
 
     from nl2pbip.mcp_server import server as mcp_module
 
@@ -871,8 +848,6 @@ def test_http_bearer_token_env_var_overrides_default(
 
     import subprocess
     import sys
-
-    import httpx
 
     port = _free_port()
     env_token = "env-derived-secret-9876"

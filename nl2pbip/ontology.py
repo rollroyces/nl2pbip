@@ -84,12 +84,6 @@ _TYPES: List[Tuple[str, str, str, Optional[str]]] = [
         "Thing",
     ),
     (
-        "Place",
-        "Place",
-        "Entities that have a somewhat fixed, physical extension.",
-        "Thing",
-    ),
-    (
         "Product",
         "Product",
         "Any offered product or service.",
@@ -220,12 +214,6 @@ _TYPES: List[Tuple[str, str, str, Optional[str]]] = [
         "Language",
         "Natural languages such as Spanish, Tamil, Hindi, etc.",
         "Thing",
-    ),
-    (
-        "Country",
-        "Country",
-        "A country.",
-        "AdministrativeArea",
     ),
     (
         "MonetaryAmount",
@@ -558,12 +546,6 @@ _PROPERTIES: List[Tuple[str, str, str, Tuple[str, ...]]] = [
         "addressCountry",
         "The country.",
         ("PostalAddress", "Place"),
-    ),
-    (
-        "telephone",
-        "telephone",
-        "The telephone number.",
-        ("Person", "Organization", "Place"),
     ),
     (
         "givenName",

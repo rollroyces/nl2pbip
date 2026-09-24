@@ -18,6 +18,7 @@ planner can pick them up. The tests cover:
 from __future__ import annotations
 
 import textwrap
+import tomllib
 from pathlib import Path
 from typing import List
 
@@ -100,12 +101,8 @@ class TestCustomVisualLoading:
     def test_malformed_toml_raises(self, tmp_path: Path) -> None:
         bad = tmp_path / "bad.toml"
         bad.write_text("[[visual]\nthis is not valid toml", encoding="utf-8")
-        # Python 3.10 needs tomli; 3.11+ has tomllib in stdlib.
-        try:
-            import tomllib  # type: ignore[import-not-found]
-        except ImportError:  # pragma: no cover - 3.10 fallback
-            import tomli as tomllib  # type: ignore[no-redef]
-
+        # ``tomllib`` is imported at module level; the test only
+        # uses ``TOMLDecodeError`` from it.
         with pytest.raises(tomllib.TOMLDecodeError):
             custom_visuals.load_custom_visual_specs(bad)
 

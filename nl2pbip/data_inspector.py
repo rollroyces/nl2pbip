@@ -366,16 +366,17 @@ def _profile_column(name: str, values: List[Any], top_n: int = 5) -> ColumnProfi
     if numeric_count and numeric_count / non_null_count >= 0.95:
         inferred = "numeric"
 
-    distinct = {_jsonable(v) for v in non_null}
-    distinct_count = len(distinct)
-
+    # Single pass: build both the distinct-count set and the
+    # frequency Counter in one walk over ``non_null`` so we don't
+    # iterate twice (and don't call ``_jsonable(v)`` twice per value).
+    value_counts: Counter[str] = Counter()
+    for v in non_null:
+        value_counts[_jsonable(v)] += 1
+    distinct_count = len(value_counts)
     # For the examples list, prefer the **most frequent** distinct
-    # values. Sets in Python have arbitrary iteration order, but
-    # the LLM uses these examples to reason about the data domain
-    # — top-N by frequency gives the most informative sample.
-    # Counter.most_common returns (value, count) tuples in
-    # frequency-descending order.
-    value_counts = Counter(_jsonable(v) for v in non_null)
+    # values. ``most_common`` returns ``(value, count)`` tuples in
+    # frequency-descending order — the top-N slice is what the LLM
+    # uses to reason about the data domain.
     distinct_examples = [v for v, _ in value_counts.most_common(top_n)]
 
     profile = ColumnProfile(
@@ -443,7 +444,8 @@ def inspect_data_source(
         column. Useful when sending the profile to a hosted LLM
         with strict data-residency rules.
     """
-    records, kind = _load_records(source, name or _default_name(source))
+    resolved_name = name or _default_name(source)
+    records, kind = _load_records(source, resolved_name)
     sampled = records[:max_rows]
     full_count = len(records)
     warnings: List[str] = []
@@ -455,7 +457,7 @@ def inspect_data_source(
 
     if not sampled:
         return DataProfile(
-            source_name=name or _default_name(source),
+            source_name=resolved_name,
             source_kind=kind,
             tables=[],
             warnings=warnings + ["No rows found in source."],
@@ -470,11 +472,11 @@ def inspect_data_source(
         for col in col_profiles:
             col.distinct_examples = []
     return DataProfile(
-        source_name=name or _default_name(source),
+        source_name=resolved_name,
         source_kind=kind,
         tables=[
             TableProfile(
-                name=name or _default_name(source),
+                name=resolved_name,
                 row_count=len(sampled),
                 sampled_at_least=full_count,
                 columns=col_profiles,
@@ -529,16 +531,16 @@ def _default_name(source: DataSource) -> str:
 
 
 def _gather_columns(records: List[Dict[str, Any]]) -> List[str]:
-    seen: List[str] = []
-    seen_set: set[str] = set()
+    # ``dict.fromkeys`` preserves insertion order while deduplicating,
+    # which is exactly the ordered-set pattern this helper used to
+    # emulate with a parallel ``seen_set``.
+    seen: Dict[str, None] = {}
     for r in records:
         if not isinstance(r, dict):
             continue
         for k in r.keys():
-            if k not in seen_set:
-                seen.append(k)
-                seen_set.add(k)
-    return seen
+            seen.setdefault(k, None)
+    return list(seen)
 
 
 # ---------------------------------------------------------------------------

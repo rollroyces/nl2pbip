@@ -33,6 +33,7 @@ from nl2pbip.data_types import (
     normalize_data_type,
 )
 from nl2pbip.dax_catalog import DAXCatalog
+from nl2pbip.m_builder import m_escape as _m_escape
 from nl2pbip.tmdl_linter import TMDLValidationError
 
 MODEL_PATH_KEY = "model_path"
@@ -416,8 +417,6 @@ def _render_source(source: Dict[str, Any]) -> str:
             # Note: we use ``m_escape`` (not ``quote_string``) because
             # the M expression text already contains its own string
             # literals — wrapping it again would double-escape.
-            from nl2pbip.m_builder import m_escape as _m_escape
-
             parts.append(f'expression = "{_m_escape(value)}"')
         elif isinstance(value, str):
             parts.append(f'{key} = "{value}"')
@@ -2538,6 +2537,10 @@ def add_power_query_partition_handler(
                 f"(got {type(params).__name__})."
             )
         staging = build_from_template(template, params)
+        # Validate the assembled M expression so a malformed template
+        # output (or a future built-in template that produces an
+        # edge-case like a NUL byte) is rejected before reaching disk.
+        validate_m_expression(staging)
     else:
         # m_expression mode — validate shape only.
         if m_expression is None:  # nosec B101 — guard against the

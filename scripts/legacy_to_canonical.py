@@ -43,19 +43,16 @@ def _looks_like_canonical(model_dir: Path) -> bool:
 
 
 def _looks_like_legacy(model_dir: Path) -> bool:
-    return (
-        (model_dir / "model.tmdl").exists()
-        and (
-            "ref table"
-            in (model_dir / "model.tmdl")
-            .read_text(encoding="utf-8")
-            .splitlines()[0:1][0]
-            if (model_dir / "model.tmdl").read_text(encoding="utf-8").strip()
-            else False
-        )
-        is False
-        and _looks_like_canonical(model_dir) is False
-    )
+    """Deprecated no-op kept for backward compatibility.
+
+    The legacy monolithic layout is detected by
+    :func:`_looks_like_canonical` returning ``False``, which is the
+    only signal any caller actually needs. This helper is unused in
+    production (only its docstring remains referenced in v2.0
+    migration notes); kept as a shim so external scripts that
+    imported it keep working.
+    """
+    return not _looks_like_canonical(model_dir)
 
 
 def main(argv: list[str] | None = None) -> int:

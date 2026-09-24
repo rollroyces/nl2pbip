@@ -35,6 +35,7 @@ single call — that's the typical pipeline integration.
 from __future__ import annotations
 
 import json
+import logging
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -83,7 +84,7 @@ class PbitArchiveBuilder:
         self.output_path = Path(self.output_path)
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         self._registry = _ContentTypeRegistry.for_power_bi()
-        self._logger = _build_logger()
+        self._logger = logging.getLogger(__name__)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -164,7 +165,7 @@ class PbitArchiveBuilder:
         """
         self.add_json_part(
             "DataModelSchemaTemplate.json",
-            make_data_model_schema_template(name=self.template_name),
+            make_minimal_data_model_schema(name=self.template_name),
         )
 
     def add_data_mashup(self, body: Optional[bytes] = None) -> None:
@@ -452,9 +453,3 @@ def _match_glob(path: str, glob: str) -> bool:
         else:
             regex = f"{regex}{re.escape(part)}"
     return re.fullmatch(regex, path) is not None
-
-
-def _build_logger() -> Any:
-    import logging
-
-    return logging.getLogger(__name__)

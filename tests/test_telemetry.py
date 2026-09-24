@@ -489,9 +489,7 @@ class TestOrchestratorSpans:
         with mock.patch.object(
             llm_mod.StructuredLLMClient, "_invoke_provider", fake_invoke
         ):
-            with mock.patch.object(
-                orch, "_run_with_reflection_impl"
-            ) as mock_run_impl:
+            with mock.patch.object(orch, "_run_with_reflection_impl") as mock_run_impl:
                 from nl2pbip.orchestrator import ReflectiveTrace
 
                 mock_run_impl.return_value = ReflectiveTrace(

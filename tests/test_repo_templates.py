@@ -24,6 +24,11 @@ from typing import Dict, List
 import pytest
 import yaml
 
+try:
+    import tomllib
+except ImportError:  # pragma: no cover - Python 3.10 fallback
+    import tomli as tomllib  # type: ignore[no-redef]
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -179,11 +184,8 @@ class TestTOMLConfigShape:
         full = REPO_ROOT / path
         if not full.exists():
             pytest.skip(f"{path} not present.")
-        # Python 3.11+ ships tomllib in stdlib.
-        try:
-            import tomllib
-        except ImportError:  # pragma: no cover - 3.10 fallback
-            import tomli as tomllib  # type: ignore[no-redef]
+        # ``tomllib`` is imported at module level (with the 3.10
+        # ``tomli`` fallback) so every test reuses the same import.
         with full.open("rb") as fh:
             data = tomllib.load(fh)
         assert data, f"{path} parsed as empty"
@@ -409,12 +411,8 @@ class TestCIWorkflow:
     def test_dev_extra_pins_vulture(self) -> None:
         """``pip install -e ".[dev]"`` must include Vulture so
         local runs (e.g. `make test` or `tox`) match CI."""
-        # Python 3.11+ ships tomllib in stdlib. On 3.10, fall
-        # back to the tomli package.
-        try:
-            import tomllib  # type: ignore[import-not-found]
-        except ImportError:  # pragma: no cover - 3.10 fallback
-            import tomli as tomllib  # type: ignore[no-redef]
+        # ``tomllib`` is imported at module level (with the 3.10
+        # ``tomli`` fallback) so every test reuses the same import.
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)
         dev_deps = data["project"]["optional-dependencies"]["dev"]
@@ -426,10 +424,6 @@ class TestCIWorkflow:
         """``pip install -e ".[dev]"`` must include pip-licenses
         so the license-check workflow runs in the same env as
         the test that asserts the workflow exists."""
-        try:
-            import tomllib  # type: ignore[import-not-found]
-        except ImportError:  # pragma: no cover - 3.10 fallback
-            import tomli as tomllib  # type: ignore[no-redef]
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)
         dev_deps = data["project"]["optional-dependencies"]["dev"]
@@ -547,10 +541,6 @@ class TestCIWorkflow:
         don't ship py.typed markers. If someone removes these
         overrides the gate would suddenly fail with dozens
         of import errors."""
-        try:
-            import tomllib  # type: ignore[import-not-found]
-        except ImportError:  # pragma: no cover - 3.10 fallback
-            import tomli as tomllib  # type: ignore[no-redef]
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)
         overrides = data["tool"]["mypy"]["overrides"]
@@ -587,10 +577,6 @@ class TestCIWorkflow:
         accept a class of regressions that the strict baseline
         would otherwise surface.
         """
-        try:
-            import tomllib  # type: ignore[import-not-found]
-        except ImportError:  # pragma: no cover - 3.10 fallback
-            import tomli as tomllib  # type: ignore[no-redef]
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
             data = tomllib.load(f)
         mypy_config = data["tool"]["mypy"]
