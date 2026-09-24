@@ -44,7 +44,6 @@ from typing import Any, Dict, Iterable, Optional
 from nl2pbip.exporter.opc import (
     _ContentTypeRegistry,
     make_data_mashup_stub,
-    make_data_model_schema_template,
     make_diagram_layout_json,
     make_metadata_json,
     make_minimal_data_model_schema,

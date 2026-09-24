@@ -13,7 +13,6 @@ from nl2pbip.tmdl_engine import (
     MODEL_PATH_KEY,
     TMDLModel,
     load_model,
-    parse_tmdl_text,
     roles_workspace_dir,
 )
 
