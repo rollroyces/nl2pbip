@@ -1424,7 +1424,9 @@ class TestReadmeConsistency:
                         timeout=90,
                     )
                 except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-                    return  # mmdc / npx / browser not available
+                    pytest.skip(
+                        "mmdc / npx / browser unavailable — Mermaid render check skipped"
+                    )
                 probe_err = (probe_proc.stderr or "").lower()
                 if probe_proc.returncode != 0 and (
                     "childprocess" in probe_err
@@ -1436,7 +1438,9 @@ class TestReadmeConsistency:
                     or "xcb" in probe_err
                     or "no usable sandbox" in probe_err
                 ):
-                    return  # browser-launch failure — skip
+                    pytest.skip(
+                        "Mermaid CLI cannot launch headless Chromium — render check skipped"
+                    )
                 # If the probe fails for any OTHER reason,
                 # surface it (real parse error).
                 failures: list[str] = []

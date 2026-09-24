@@ -6,7 +6,7 @@ import json
 import shutil
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from nl2pbip.pbir_engine import REPORT_PATH_KEY
 from nl2pbip.tmdl_engine import (
@@ -262,47 +262,63 @@ def _write_fabric_metadata(
     semantic_dir = project_dir / f"{project_name}.SemanticModel"
     report_dir = project_dir / f"{project_name}.Report"
 
-    semantic_metadata = _make_item_metadata(
-        semantic_model_type,
-        display_name=project_name,
-        description=f"Semantic model for {project_name}",
-        sensitivity_label_id=sensitivity_label_id,
-    )
-    semantic_platform = _make_platform(
-        semantic_model_type,
-        display_name=project_name,
+    sm_metadata_path, sm_platform_path = _write_item_metadata_pair(
+        item_dir=semantic_dir,
+        item_type=semantic_model_type,
+        project_name=project_name,
+        description_prefix="Semantic model",
         logical_id=logical_id,
-    )
-    sm_metadata_path = semantic_dir / "itemMetadata.json"
-    sm_platform_path = semantic_dir / ".platform"
-    sm_metadata_path.write_text(
-        json.dumps(semantic_metadata, indent=2), encoding="utf-8"
-    )
-    sm_platform_path.write_text(
-        json.dumps(semantic_platform, indent=2), encoding="utf-8"
+        sensitivity_label_id=sensitivity_label_id,
     )
     paths["semantic_model_item_metadata"] = str(sm_metadata_path)
     paths["semantic_model_platform"] = str(sm_platform_path)
 
-    report_metadata = _make_item_metadata(
-        report_type,
-        display_name=project_name,
-        description=f"Report for {project_name}",
+    r_metadata_path, r_platform_path = _write_item_metadata_pair(
+        item_dir=report_dir,
+        item_type=report_type,
+        project_name=project_name,
+        description_prefix="Report",
+        logical_id=logical_id,
         sensitivity_label_id=sensitivity_label_id,
     )
-    report_platform = _make_platform(
-        report_type,
-        display_name=project_name,
-        logical_id=logical_id,
-    )
-    r_metadata_path = report_dir / "itemMetadata.json"
-    r_platform_path = report_dir / ".platform"
-    r_metadata_path.write_text(json.dumps(report_metadata, indent=2), encoding="utf-8")
-    r_platform_path.write_text(json.dumps(report_platform, indent=2), encoding="utf-8")
     paths["report_item_metadata"] = str(r_metadata_path)
     paths["report_platform"] = str(r_platform_path)
     paths["logical_id"] = logical_id
     return paths
+
+
+def _write_item_metadata_pair(
+    *,
+    item_dir: Path,
+    item_type: str,
+    project_name: str,
+    description_prefix: str,
+    logical_id: str,
+    sensitivity_label_id: Optional[str],
+) -> Tuple[Path, Path]:
+    """Write ``itemMetadata.json`` + ``.platform`` for one Fabric item.
+
+    Returns the two paths in the order ``(itemMetadata, .platform)``
+    so callers can register them under their preferred names. Both
+    the semantic model and the report directories need the same
+    two-file pair, so this helper centralises the shape.
+    """
+    metadata = _make_item_metadata(
+        item_type,
+        display_name=project_name,
+        description=f"{description_prefix} for {project_name}",
+        sensitivity_label_id=sensitivity_label_id,
+    )
+    platform = _make_platform(
+        item_type,
+        display_name=project_name,
+        logical_id=logical_id,
+    )
+    metadata_path = item_dir / "itemMetadata.json"
+    platform_path = item_dir / ".platform"
+    metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    platform_path.write_text(json.dumps(platform, indent=2), encoding="utf-8")
+    return metadata_path, platform_path
 
 
 # ---------------------------------------------------------------------------

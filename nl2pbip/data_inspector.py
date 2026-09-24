@@ -158,7 +158,7 @@ class DataProfile:
 
 
 def _load_records(
-    source: DataSource, source_name: str
+    source: DataSource, source_name: str, max_rows: int
 ) -> Tuple[List[Dict[str, Any]], str]:
     """Return ``(records, kind)`` for any supported source.
 
@@ -168,7 +168,7 @@ def _load_records(
     """
     if callable(source):
         obj = source()
-        records = _records_from_dataframe_like(obj)
+        records = _records_from_dataframe_like(obj, max_rows)
         return records, "callable"
 
     if isinstance(source, (str, Path)):
@@ -188,7 +188,7 @@ def _load_records(
         )
         if inner_suffix in (".parquet", ".pq"):
             try:
-                records = _records_from_parquet(path)
+                records = _records_from_parquet(path, max_rows)
                 return records, "parquet"
             except ImportError as exc:
                 raise ValueError(
@@ -252,21 +252,27 @@ def _records_from_jsonl(path: Path) -> List[Dict[str, Any]]:
     return records
 
 
-def _records_from_parquet(path: Path) -> List[Dict[str, Any]]:
+def _records_from_parquet(path: Path, max_rows: int) -> List[Dict[str, Any]]:
     try:
         import pandas as pd  # type: ignore
     except ImportError as exc:
         raise ImportError("pandas is required for Parquet sources") from exc
     df = pd.read_parquet(path)
-    return _records_from_dataframe_like(df)
+    return _records_from_dataframe_like(df, max_rows)
 
 
-def _records_from_dataframe_like(obj: Any) -> List[Dict[str, Any]]:
-    """Coerce a DataFrame-like object (pandas, polars) into a list of dicts."""
+def _records_from_dataframe_like(obj: Any, max_rows: int) -> List[Dict[str, Any]]:
+    """Coerce a DataFrame-like object (pandas, polars) into a list of dicts.
+
+    Caps the materialised record count at ``max_rows`` so a
+    multi-million-row DataFrame doesn't OOM the planner. ``max_rows``
+    is shared with the CSV/JSONL loaders so all sources honour the
+    caller's ``max_rows_per_source`` setting.
+    """
     # pandas
     if hasattr(obj, "to_dict") and hasattr(obj, "columns"):
         try:
-            result: List[Dict[str, Any]] = obj.head(1000).to_dict(orient="records")
+            result: List[Dict[str, Any]] = obj.head(max_rows).to_dict(orient="records")
             return result
         except Exception:  # nosec B110 — best-effort fallback to the
             # polars / list paths below. The raised
@@ -275,7 +281,7 @@ def _records_from_dataframe_like(obj: Any) -> List[Dict[str, Any]]:
             pass
     # Already a list of records
     if isinstance(obj, list):
-        return [dict(r) for r in obj if isinstance(r, dict)]
+        return [dict(r) for r in obj if isinstance(r, dict)][:max_rows]
     raise ValueError(
         f"Could not extract records from object of type {type(obj).__name__}"
     )
@@ -445,7 +451,7 @@ def inspect_data_source(
         with strict data-residency rules.
     """
     resolved_name = name or _default_name(source)
-    records, kind = _load_records(source, resolved_name)
+    records, kind = _load_records(source, resolved_name, max_rows)
     sampled = records[:max_rows]
     full_count = len(records)
     warnings: List[str] = []

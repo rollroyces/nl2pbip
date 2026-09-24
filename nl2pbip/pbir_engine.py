@@ -696,11 +696,25 @@ def _persist_report(report_path: Path, document: ReportDocument) -> None:
 
 
 def _generate_visual_id(page: ReportPage) -> str:
+    """Return a fresh ``visual_<hex>`` id that doesn't collide with the page.
+
+    Uses the full 16-hex-char random prefix from ``uuid.uuid4`` (64
+    bits of randomness) rather than the 8-hex-char (32-bit) prefix,
+    which made the previous ``while`` loop theoretically unbounded
+    after ~65k visuals on the same page (birthday paradox).
+    """
     existing_ids = {visual.visual_id for visual in page.visuals}
-    while True:
-        candidate = f"visual_{uuid.uuid4().hex[:8]}"
+    candidate = f"visual_{uuid.uuid4().hex[:16]}"
+    if candidate not in existing_ids:
+        return candidate
+    # 64-bit random; a duplicate is astronomically unlikely. We
+    # retry up to 4 times just to be safe, then fall back to a
+    # 32-char hex (128 bits) which is collision-proof.
+    for _ in range(4):
+        candidate = f"visual_{uuid.uuid4().hex[:16]}"
         if candidate not in existing_ids:
             return candidate
+    return f"visual_{uuid.uuid4().hex}"
 
 
 def _load_model_from_context(context: Optional[Dict[str, Any]]) -> Optional[TMDLModel]:
