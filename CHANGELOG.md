@@ -4,6 +4,14 @@ All notable changes to `nl2pbip` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-09-24
+
+### Fixed
+- Various code-cleanup improvements identified by the v1.6.1 4-pass
+  code review. See PR for the full list of changed files. All
+  1025+ tests still pass; no behaviour changes; mypy --strict +
+  black clean.
+
 ## [2.0.0] - 2026-09-22
 
 ### Breaking change
