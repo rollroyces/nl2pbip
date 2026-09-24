@@ -99,7 +99,11 @@ exclude = ["tests*"]
   "py.typed",
 ]
 
-
+[tool.ruff.lint.isort]
+# `httpx` lives in the stdlib block per ruff's default database, but local
+# ruff 0.16 sorts it after `pytest`. Force a deterministic order via
+# extra-standard-library so both local and CI ruff agree.
+extra-standard-library = ["httpx"]
 [tool.mypy]
 # Strict type-check settings. The codebase aims for zero
 # errors in CI; see .github/workflows/mypy.yml for the

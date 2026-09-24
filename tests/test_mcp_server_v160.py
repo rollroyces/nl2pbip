@@ -27,7 +27,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import hmac
-import httpx
 import io
 import json
 import os
@@ -38,6 +37,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import httpx
 import pytest
 
 pytest.importorskip("mcp", reason="MCP transport tests require the [mcp] extra")
