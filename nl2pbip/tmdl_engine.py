@@ -2494,7 +2494,6 @@ def add_power_query_partition_handler(
     duplicate partition raises ``TMDLValidationError``.
     """
     from nl2pbip.m_builder import (
-        TEMPLATE_BUILDERS,
         build_from_template,
         build_promoted_table,
         validate_m_expression,
@@ -2524,11 +2523,16 @@ def add_power_query_partition_handler(
 
     # --- Build the M expression --------------------------------------
     if template is not None:
-        if template not in TEMPLATE_BUILDERS:
-            raise TMDLValidationError(
-                f"add_power_query_partition: unknown template "
-                f"'{template}'. Valid: {sorted(TEMPLATE_BUILDERS)}."
-            )
+        # ``build_from_template`` raises ``ValueError`` for unknown
+        # templates (the canonical contract documented at
+        # ``nl2pbip.m_builder.build_from_template``). Translate the
+        # ValueError to ``TMDLValidationError`` here so tool callers
+        # see one exception type for all invalid inputs to this
+        # handler — pre-translation, the same invalid ``template``
+        # could surface as either ValueError (direct caller) or
+        # TMDLValidationError (this handler), depending on which
+        # layer fired first. Now it always surfaces as
+        # TMDLValidationError when called via the tool.
         if params is None:
             params = {}
         if not isinstance(params, dict):
@@ -2536,7 +2540,10 @@ def add_power_query_partition_handler(
                 "add_power_query_partition: 'params' must be an object "
                 f"(got {type(params).__name__})."
             )
-        staging = build_from_template(template, params)
+        try:
+            staging = build_from_template(template, params)
+        except ValueError as exc:
+            raise TMDLValidationError(str(exc)) from exc
         # Validate the assembled M expression so a malformed template
         # output (or a future built-in template that produces an
         # edge-case like a NUL byte) is rejected before reaching disk.

@@ -495,7 +495,11 @@ class TestHandlerValidation:
             )
 
     def test_unknown_template(self, tmp_model_path: Dict[str, Any]) -> None:
-        with pytest.raises(TMDLValidationError, match="unknown template"):
+        # Message text comes from ``build_from_template`` in
+        # ``nl2pbip/m_builder.py`` (the canonical contract); the
+        # handler translates ValueError → TMDLValidationError at
+        # the boundary rather than maintaining its own copy.
+        with pytest.raises(TMDLValidationError, match="Power Query template"):
             add_power_query_partition_handler(
                 "Sales",
                 template="bogus",
