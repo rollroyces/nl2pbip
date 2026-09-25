@@ -1227,23 +1227,27 @@ class Orchestrator:
 
         Returns ``None`` when ``data_sources`` isn't set (the
         data needed to compute the stats isn't available).
+
+        .. note::
+           RISKY finding from the v1.6.1 4-pass review: previously
+           this method re-ran ``inspect_data_sources(sources)`` even
+           though the orchestrator had already called it (via
+           :meth:`_summarise_data_sources`) in the same
+           ``_planner_payload`` pass — every planner request
+           re-read every source file from disk + profiled every
+           column twice. Now the profiles are rehydrated from the
+           ``data_summary`` dict instead (same path as
+           :meth:`_summarise_ai_schema`).
         """
         if context.get("data_understanding_enabled", True) is False:
             return None
         # Re-import here to keep the cold-start path slim.
-        from nl2pbip.data_inspector import inspect_data_sources
         from nl2pbip.data_understanding import analyze_data_understanding
 
-        sources = context.get("data_sources")
-        if not isinstance(sources, dict) or not sources:
+        profiles = self._rehydrate_profiles(data_summary)
+        if not profiles:
             return None
-        try:
-            profiles = inspect_data_sources(
-                sources,
-                max_rows_per_source=int(context.get("data_profile_max_rows", 1000)),
-            )
-        except Exception:
-            return None
+        sources = context.get("data_sources") or {}
         understanding = analyze_data_understanding(profiles, records_by_source=sources)
         return understanding.to_json()
 
