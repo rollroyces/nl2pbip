@@ -36,20 +36,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Install nl2pbip + [mcp]
+        # Install [mcp] alongside [dev] so the MCP server
+        # test file (tests/test_mcp_server.py) is actually
+        # exercised. The extra is pure-optional for end
+        # users — only CI needs it for the surface tests.
+        uses: ./.github/actions/setup-python-env
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          # Install [mcp] alongside [dev] so the MCP server
-          # test file (tests/test_mcp_server.py) is actually
-          # exercised. The extra is pure-optional for end
-          # users — only CI needs it for the surface tests.
-          pip install -e ".[dev,mcp]"
+          pip-extras: "mcp"
 
       - name: Verify the example runner produces a valid PBIP
         # Smoke test for the top-level entry point — runs the
@@ -107,20 +102,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install nl2pbip + [mcp]
+        # Install [mcp] alongside [dev] so the MCP server
+        # test file (tests/test_mcp_server.py) is actually
+        # exercised. The extra is pure-optional for end
+        # users — only CI needs it for the surface tests.
+        uses: ./.github/actions/setup-python-env
         with:
           python-version: "3.12"
-          cache: pip
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          # Install [mcp] alongside [dev] so the MCP server
-          # test file (tests/test_mcp_server.py) is actually
-          # exercised. The extra is pure-optional for end
-          # users — only CI needs it for the surface tests.
-          pip install -e ".[dev,mcp]"
+          pip-extras: "mcp"
 
       - name: Run benchmarks
         env:

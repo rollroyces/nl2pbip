@@ -1,0 +1,70 @@
+name: "Setup Python env"
+description: "Checkout, install a pinned Python version, and pip-install nl2pbip in editable mode with optional extras."
+
+# Composite action used by every workflow that runs Python tests or
+# linters. Centralises:
+#   - The ``actions/setup-python`` invocation (was inline in 5+ workflows
+#     before the v2.0.2 review).
+#   - The ``pip install -e ".[extras]"`` step (also duplicated).
+#   - ``cache: pip`` (uses pyproject.toml as the cache key, which is
+#     more accurate than requirements.txt because all of our deps are
+#     declared in pyproject.toml's optional-dependencies groups).
+#
+# Inputs:
+#   python-version (default "3.12"): forwarded to ``setup-python``.
+#   cache-path (default "pyproject.toml"): path that ``cache-dependency-path``
+#     uses for the pip cache key hash.
+#   pip-extras (default ""): a comma-separated list of extras to install
+#     alongside the dev extras (e.g. "mcp" or "anthropic"). Empty means
+#     install only ``.[dev]``.
+#   working-directory (default "."): directory to run pip install in.
+#
+# Usage:
+#   - uses: actions/checkout@v4
+#   - uses: ./.github/actions/setup-python-env
+#     with:
+#       python-version: "3.12"
+#       pip-extras: "mcp"
+
+inputs:
+  python-version:
+    description: "Python version passed to actions/setup-python."
+    required: false
+    default: "3.12"
+  cache-path:
+    description: "Path that pip will hash for cache invalidation."
+    required: false
+    default: "pyproject.toml"
+  pip-extras:
+    description: "Comma-separated list of extras to install alongside [dev]. Empty = [dev] only."
+    required: false
+    default: ""
+  working-directory:
+    description: "Directory in which to run pip install."
+    required: false
+    default: "."
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: pip
+        cache-dependency-path: ${{ inputs.cache-path }}
+
+    - name: Install nl2pbip (editable)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        python -m pip install --upgrade pip
+        # Build the extras spec. ``pip-extras`` is comma-separated;
+        # we replace commas with spaces inside the brackets.
+        if [[ -n "${{ inputs.pip-extras }}" ]]; then
+            EXTRAS=$(echo "${{ inputs.pip-extras }}" | tr ',' ' ')
+            pip install -e ".[dev,${EXTRAS}]"
+        else
+            pip install -e ".[dev]"
+        fi

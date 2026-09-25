@@ -38,24 +38,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
       - name: Install nl2pbip + all extras
-        # The full dep set: runtime + dev + anthropic + finetune.
+        # The full dep set: runtime + dev + anthropic.
         # We want to catch any GPL that sneaks into any of these
         # surfaces, not just the runtime.
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,anthropic]"
-          # finetune has heavy ML deps (unsloth, trl, transformers)
-          # that aren't pip-installable on a stock ubuntu-latest
-          # runner. Skip it here — the unsloth install is the
-          # developer's responsibility, and GPL would be caught
-          # by a local run anyway.
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+          pip-extras: "anthropic"
 
       - name: pip-licenses --fail-on
         # ``--fail-on`` takes a comma-separated list. The regex

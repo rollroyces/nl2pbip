@@ -46,24 +46,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install nl2pbip + [mcp] + mypy + type stubs
+        # Mypy strict mode requires type stubs for untyped third-party
+        # libs. ``[mcp]`` is needed so mypy can resolve the FastMCP
+        # symbol behind TYPE_CHECKING in nl2pbip/mcp_server/server.py.
+        # We pass ``mcp`` through the composite action's ``pip-extras``
+        # input, then explicitly install ``mypy`` + the four types-*
+        # packages so the CI install is self-documenting in the logs.
+        uses: ./.github/actions/setup-python-env
         with:
           python-version: "3.12"
-          cache: pip
+          pip-extras: "mcp"
 
-      - name: Install nl2pbip + mypy + type stubs
-        # Mypy strict mode requires type stubs for untyped third-party
-        # libs. We install the ones nl2pbip actually imports.
+      - name: Install mypy + type stubs
         run: |
-          python -m pip install --upgrade pip
-          # Install [mcp] so mypy can resolve the FastMCP symbol
-          # behind TYPE_CHECKING in nl2pbip/mcp_server/server.py.
-          pip install -e ".[dev,mcp]"
-          # ``mypy`` and the type stubs are pinned in the
-          # ``[dev]`` extra (pyproject.toml); install them
-          # again here so the CI install is explicit.
-          python -m pip install \
+          python -m pip install --quiet \
               mypy \
               types-jsonschema \
               types-PyYAML \

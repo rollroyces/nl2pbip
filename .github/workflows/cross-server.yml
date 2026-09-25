@@ -48,20 +48,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
       - name: Install Python deps
         # ``[mcp]`` is required because the cross-server tests
         # themselves import from ``nl2pbip.mcp_server``. The test
         # file is *not* modified by this workflow — the import
         # chain pulls in FastMCP at module-load time.
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,mcp]"
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+          pip-extras: "mcp"
 
       - name: Install Node.js
         # Microsoft's ``powerbi-modeling-mcp`` npm package bundles

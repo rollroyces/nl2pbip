@@ -54,17 +54,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install nl2pbip + bandit
+        uses: ./.github/actions/setup-python-env
         with:
           python-version: "3.12"
-          cache: pip
-
-      - name: Install nl2pbip + bandit
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-          pip install bandit
+          pip-extras: "bandit"
 
       - name: Run Bandit
         # ``--ini`` reads the repo-level config so per-file
