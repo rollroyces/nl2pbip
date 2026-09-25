@@ -4,6 +4,80 @@ All notable changes to `nl2pbip` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [2.0.2] - 2026-09-25
+
+### Fixed
+- **Planner guidance now applies to every LLM provider, not just
+  Anthropic.** The planner-prompt injection that was previously
+  hard-coded inside the Anthropic client wrapper now threads
+  through the cross-provider guidance hook, so OpenAI / Gemini /
+  stub providers see the same prompt augmentation. v1.6.1 RISKY
+  finding #6.
+- **`_records_from_csv` / `_records_from_jsonl` now bound their
+  reads at ``max_rows`` instead of loading the entire file into
+  memory.** A multi-million-row CSV or JSONL no longer risks an
+  OOM on a 2 GB runner; the streaming reader caps at the
+  configured ``max_rows`` and surfaces the truncation in the
+  manifest. v1.6.1 RISKY finding #3.
+- **`LLMClient` protocol now requires ``provider`` and ``model``;
+  the defensive ``getattr`` shims are gone.** Subclasses must
+  declare these attributes; the orchestrator reads them directly.
+  v1.6.1 RISKY finding #9.
+- **`schema_advisor` normalises LLM-emitted ``visual_type`` at
+  parse time** so a typo (``"cardd"``) or a synonym
+  (``"kpi"``) doesn't fall through to TMDL emission as an
+  unknown type. v1.6.1 RISKY finding #5.
+- **`_summarise_data_understanding` rehydrates profiles from the
+  previous pass** instead of re-running ``inspect_data_sources``
+  on every chunk — eliminates the duplicate I/O / LLM call
+  pattern flagged in the v1.6.1 review. v1.6.1 RISKY finding #2.
+- **Cardinality-hint walk flattened via a ``_FkCandidate``
+  dataclass.** The 5-level nested branch in
+  ``data_understanding`` is now a single walk over a typed list;
+  the helper carries ``column_name`` + ``distinct_ratio`` so
+  the LLM receives the same signal in a more obvious shape. v1.6.1
+  RISKY finding #4.
+- **`TestOptionalFiles` now hard-asserts file presence with an
+  actionable error message** instead of soft-passing when a
+  template file is missing. The previous soft-pass silently
+  let a stray ``rm`` slip through review. v1.6.1 RISKY finding
+  #8.
+- **Composite ``.github/actions/setup-python-env`` action
+  deduplicates the 5 workflow setup blocks** (bandit, ci,
+  cross-server, license-check, mypy). Each workflow now uses
+  ``uses: ./.github/actions/setup-python-env`` with the
+  relevant ``pip-extras``; the composite caches against
+  ``pyproject.toml`` and emits the same setup-python@v5 + editable
+  install as before. v1.6.1 RISKY finding #10.
+- **Shared ``tests/conftest.py`` consolidates helpers from 5 test
+  files.** New module exposes ``REPO_ROOT``, ``tomllib_load``
+  (3.10-compatible), ``stub_llm_client`` factory, the
+  ``minimal_plan`` fixture, ``MCP_HEADERS`` + ``parse_sse_jsonrpc``
+  + ``free_port`` + ``wait_for_bind`` helpers, and an autouse
+  ``_mute_logging`` fixture (clamps the root logger to CRITICAL
+  unless ``CAPLOG=1``). ``test_repo_templates.py``,
+  ``test_custom_visuals.py``, ``test_mcp_server_v160.py``,
+  ``test_mcp_server_stdio.py`` updated to import from conftest.
+  v1.6.1 RISKY finding #11.
+- **Cross-server workflow + install script cleanup.**
+  ``scripts/run_cross_server_tests.sh`` wraps the pytest
+  invocation and writes a self-describing
+  ``cross-server-validation-result.json`` artifact (records which
+  test files ran + which npm / Python deps produced the result,
+  resolving the v1.6.1 review note "artifact lacks the deps that
+  produced it"). ``scripts/install_powerbi_modeling_mcp.sh``
+  extracts a ``_detect_install_command()`` helper for the
+  platform-aware Node.js install hint so future macOS / Linux
+  branches go through one code path. v1.6.1 RISKY finding #12.
+
+### Maintenance
+- v1.6.1 RISKY finding #1: documented ``_match_glob``'s
+  ``/``-aware semantics (kept the hand-rolled implementation;
+  reasoning lives in the source docstring).
+- v1.6.1 RISKY finding #7: unified the template-validation
+  exception type in ``add_power_query_partition`` (single
+  ``ValueError`` instead of two parallel raises).
+
 ## [2.0.1] - 2026-09-24
 
 ### Fixed
