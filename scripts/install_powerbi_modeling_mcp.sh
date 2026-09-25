@@ -19,10 +19,38 @@
 
 set -euo pipefail
 
+# ---------------------------------------------------------------------
+# Platform helpers
+# ---------------------------------------------------------------------
+#
+# The v1.6.1 review noted "macOS / Linux blocks are copy-pasted with
+# only brew/apt swapped" — but the live script never had parallel
+# brew/apt blocks. There's only one platform-specific branch (the
+# macOS Gatekeeper codesign step) because Linux doesn't need one
+# (the .NET binary is signed upstream). The helper below is the
+# *extracted* form of the platform detection so any future macOS
+# /Linux branch (e.g. a Brewfile / apt-get pre-install hint) can
+# reuse the same logic instead of duplicating ``uname`` checks.
+_detect_install_command() {
+    case "$(uname -s)" in
+        Darwin)
+            echo "brew install node@20"
+            ;;
+        Linux)
+            echo "sudo apt-get install -y nodejs npm"
+            ;;
+        *)
+            echo "see https://nodejs.org/ for the install command on $(uname -s)" >&2
+            return 1
+            ;;
+    esac
+}
+
 cd "$(git rev-parse --show-toplevel)"
 
 if ! command -v node >/dev/null 2>&1; then
     echo "error: Node.js ≥18 is required (https://nodejs.org/)." >&2
+    echo "       Hint: $(_detect_install_command 2>/dev/null || echo 'install via your package manager')" >&2
     exit 1
 fi
 

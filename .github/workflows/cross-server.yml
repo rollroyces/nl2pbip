@@ -76,17 +76,9 @@ jobs:
         run: bash scripts/install_powerbi_modeling_mcp.sh
 
       - name: Run cross-server tests
-        # Opt-in via NL2PBIP_RUN_CROSS_SERVER_TESTS=1 — without
-        # this env var the test module records clean
-        # ``pytest.skip`` (see the module docstring for details).
-        # Running pytest with -v gives us a per-test PASS/FAIL
-        # line in the Actions log; the test names mirror the
-        # ``tests/test_cross_server_validation.py`` module so
-        # callers can read the failure log directly.
         env:
           NL2PBIP_RUN_CROSS_SERVER_TESTS: "1"
-        run: |
-          python -m pytest tests/test_cross_server_validation.py -v
+        run: bash scripts/run_cross_server_tests.sh
 
       - name: Upload cross-server artifacts
         # Always run so the npm cache + vendor tree are available
@@ -104,5 +96,11 @@ jobs:
           path: |
             vendor/powerbi-modeling-mcp/package.json
             vendor/powerbi-modeling-mcp/node_modules/.package-lock.json
+            cross-server-validation-result.json
+            pytest-report.json
+            pytest.log
+          # The artifact now carries its own lineage metadata
+          # (see scripts/run_cross_server_tests.sh — the wrapper
+          # records which test files + deps produced this run).
           retention-days: 7
           if-no-files-found: ignore
