@@ -287,6 +287,9 @@ def test_generate_report_packages_pbip_via_wire(
     from nl2pbip.mcp_server import server as mcp_module
 
     class _StubClient:
+        provider = "stub"
+        model = "stub-model"
+
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 

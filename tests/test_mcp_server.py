@@ -49,6 +49,9 @@ class _StaticLLM:
     the same fixture plans work in both places.
     """
 
+    provider = "stub"
+    model = "stub-model"
+
     def __init__(self, plan: List[Dict[str, Any]]) -> None:
         self._plan = plan
         self.calls = 0
@@ -240,6 +243,9 @@ def test_generate_report_packages_pbip_folder(
     plan = _minimal_package_plan(tmp_path)
 
     class _StubClient:
+        provider = "stub"
+        model = "stub-model"
+
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 

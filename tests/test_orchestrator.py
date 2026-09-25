@@ -16,6 +16,9 @@ from nl2pbip.tmdl_engine import MODEL_PATH_KEY
 class _StaticLLM:
     """Deterministic LLM stub. Returns ``plan`` on every call."""
 
+    provider = "stub"
+    model = "stub-model"
+
     def __init__(self, plan: List[Dict[str, Any]]) -> None:
         self._plan = plan
         self.calls = 0
@@ -123,6 +126,9 @@ def test_orchestrator_runs_full_plan(tmp_path: Path) -> None:
 
 def test_orchestrator_rejects_non_json_plan() -> None:
     class _BadLLM:
+        provider = "stub"
+        model = "stub-model"
+
         def generate(self, _messages: List[Dict[str, str]]) -> str:
             return "not json at all"
 

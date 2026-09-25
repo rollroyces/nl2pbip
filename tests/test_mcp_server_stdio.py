@@ -560,6 +560,9 @@ def test_stdio_server_call_validate_pbip(
     plan = _make_minimal_plan(tmp_path, "ValidateStdio")
 
     class _StubClient:
+        provider = "stub"
+        model = "stub-model"
+
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 

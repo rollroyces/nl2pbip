@@ -323,6 +323,9 @@ def test_benchmark_orchestrator_end_to_end(tmp_path: Path) -> None:
     plan = build_sample_plan(artifact_dir)
 
     class StaticPlanLLM:
+        provider = "stub"
+        model = "stub-model"
+
         def __init__(self, plan: List[Dict[str, Any]]) -> None:
             self._plan = plan
 
@@ -384,10 +387,16 @@ def test_benchmark_orchestrator_with_reflection(tmp_path: Path) -> None:
     plan = build_sample_plan(artifact_dir)
 
     class StaticPlanLLM:
+        provider = "stub"
+        model = "stub-model"
+
         def generate(self, messages: List[Dict[str, str]]) -> str:  # type: ignore[override]
             return json.dumps(plan, indent=2)
 
     class HighScoreCritic:
+        provider = "stub"
+        model = "stub-critic"
+
         def generate(self, messages: List[Dict[str, str]]) -> str:  # type: ignore[override]
             return json.dumps(
                 {

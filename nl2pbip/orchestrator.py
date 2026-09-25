@@ -38,7 +38,18 @@ from nl2pbip.tmdl_linter import TMDLValidationError
 
 
 class LLMClient(Protocol):
-    """Minimal protocol the orchestrator expects from any LLM client wrapper."""
+    """Minimal protocol the orchestrator expects from any LLM client wrapper.
+
+    Both ``provider`` and ``model`` are required attributes (not optional
+    ``getattr`` lookups): span attributes, telemetry tags, and the budget
+    layer all read them, so a stub that omits them is a bug, not a feature.
+    Real clients — :class:`nl2pbip.llm_client.StructuredLLMClient` — set
+    both in ``__init__``. Test stubs that previously forgot them now must
+    set ``self.provider = "stub"`` and ``self.model = "stub-model"``.
+    """
+
+    provider: str
+    model: str
 
     def generate(self, messages: List[Dict[str, str]]) -> str:
         """Return the raw model response for the provided chat history."""
@@ -455,8 +466,8 @@ class Orchestrator:
             "prompt_version": int(meta.get("version", 0)),
             "max_cost_usd": self._max_cost_usd_safe(),
             "plan_chunk_size": int(self.plan_chunk_size),
-            "provider": getattr(self._llm, "provider", "unknown"),
-            "model": getattr(self._llm, "model", "unknown"),
+            "provider": str(self._llm.provider),
+            "model": str(self._llm.model),
         }
         with tracer.start_as_current_span("nl2pbip.run", attributes=root_attrs):
             trace = self._run_with_reflection_impl(

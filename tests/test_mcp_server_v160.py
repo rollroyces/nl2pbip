@@ -69,6 +69,9 @@ def test_artifact_off_by_default(
     plan = _make_minimal_plan(tmp_path, "NoArtifact")
 
     class _StubClient:
+        provider = "stub"
+        model = "stub-model"
+
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
@@ -101,6 +104,9 @@ def test_artifact_included_when_requested(
     plan = _make_minimal_plan(tmp_path, "WithArtifact")
 
     class _StubClient:
+        provider = "stub"
+        model = "stub-model"
+
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
@@ -147,6 +153,9 @@ def test_artifact_skipped_when_too_large(
     plan = _make_minimal_plan(tmp_path, "Big")
 
     class _StubClient:
+        provider = "stub"
+        model = "stub-model"
+
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
@@ -578,6 +587,9 @@ def test_streamable_http_invokes_generate_report_with_artifact(
     plan = _make_minimal_plan(tmp_path, "Http")
 
     class _StubClient:
+        provider = "stub"
+        model = "stub-model"
+
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 

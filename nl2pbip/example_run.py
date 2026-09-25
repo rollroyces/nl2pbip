@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 class StaticPlanLLM:
     """Deterministic LLM stub that always returns the provided plan."""
 
+    provider = "stub"
+    model = "stub-model"
+
     def __init__(self, plan: List[Dict[str, Any]]) -> None:
         self._plan = plan
 

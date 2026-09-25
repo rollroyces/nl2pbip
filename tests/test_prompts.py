@@ -417,6 +417,9 @@ class TestOrchestratorPromptIntegration:
         from nl2pbip.orchestrator import Orchestrator, register_builtin_tools
 
         class _Stub:
+            provider = "stub"
+            model = "stub-model"
+
             def generate(self, messages):
                 return '{"plan": []}'
 
@@ -430,6 +433,9 @@ class TestOrchestratorPromptIntegration:
         from nl2pbip.orchestrator import Orchestrator, register_builtin_tools
 
         class _Stub:
+            provider = "stub"
+            model = "stub-model"
+
             def generate(self, messages):
                 return '{"plan": []}'
 
@@ -445,6 +451,9 @@ class TestOrchestratorPromptIntegration:
         captured: dict = {}
 
         class _Stub:
+            provider = "stub"
+            model = "stub-model"
+
             def generate(self, messages):
                 captured["messages"] = messages
                 return '{"plan": []}'
@@ -462,6 +471,9 @@ class TestOrchestratorPromptIntegration:
         captured: dict = {}
 
         class _Stub:
+            provider = "stub"
+            model = "stub-model"
+
             def generate(self, messages):
                 captured["messages"] = messages
                 return '{"plan": []}'
@@ -479,6 +491,9 @@ class TestOrchestratorPromptIntegration:
         captured: dict = {}
 
         class _Stub:
+            provider = "stub"
+            model = "stub-model"
+
             def generate(self, messages):
                 captured["messages"] = messages
                 return '{"plan": []}'

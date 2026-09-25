@@ -664,6 +664,9 @@ def nl2pbip_pbipdir(tmp_path: Path) -> Path:
     output = tmp_path / "out"
 
     class _StubClient:
+        provider = "stub"
+        model = "stub-model"
+
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 

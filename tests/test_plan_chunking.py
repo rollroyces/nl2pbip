@@ -31,6 +31,9 @@ class _StaticLLM:
     chunking + budget interaction can be exercised end-to-end.
     """
 
+    provider = "stub"
+    model = "stub-model"
+
     def __init__(self, plan: List[Dict[str, Any]]) -> None:
         self._plan = plan
         self.calls = 0

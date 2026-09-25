@@ -44,6 +44,9 @@ class CapturingLLM:
     TMDL surface (we redirect output to a tmpdir via context).
     """
 
+    provider = "stub"
+    model = "stub-model"
+
     def __init__(self, plan: Optional[List[Dict[str, Any]]] = None) -> None:
         if plan is None:
             plan = [
@@ -202,6 +205,9 @@ class TestDefaultPolisherScrubs:
 class TestReflectionPolisherProvenance:
     def _stub_critic(self, score_json: str):
         class _Critic:
+            provider = "stub"
+            model = "stub-critic"
+
             def generate(self, messages):
                 return score_json
 

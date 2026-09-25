@@ -145,6 +145,9 @@ class _ScriptedLLM:
     response as a follow-on plan.
     """
 
+    provider = "stub"
+    model = "stub-model"
+
     def __init__(self, responses: List[str]) -> None:
         self._responses = list(responses)
         self.calls = 0

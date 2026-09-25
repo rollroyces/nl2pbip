@@ -52,6 +52,9 @@ from nl2pbip.tmdl_engine import MODEL_PATH_KEY
 class StaticLLM:
     """Returns a fixed string from ``generate``."""
 
+    provider = "stub"
+    model = "stub-model"
+
     def __init__(self, response: str) -> None:
         self._response = response
         self.call_count = 0
@@ -65,6 +68,9 @@ class StaticLLM:
 
 class SequenceLLM:
     """Returns successive responses from a queue (one per call)."""
+
+    provider = "stub"
+    model = "stub-model"
 
     def __init__(self, responses: List[str]) -> None:
         self._responses = list(responses)

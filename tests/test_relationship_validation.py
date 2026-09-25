@@ -38,6 +38,9 @@ from nl2pbip.tmdl_linter import TMDLValidationError
 class _StaticLLM:
     """Deterministic LLM stub for orchestrator tests."""
 
+    provider = "stub"
+    model = "stub-model"
+
     def __init__(self, plan: List[Dict[str, Any]]) -> None:
         self._plan = plan
         self.calls = 0
