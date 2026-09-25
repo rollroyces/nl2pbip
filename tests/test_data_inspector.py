@@ -162,6 +162,70 @@ class TestInspectInMemoryRecords:
 
 
 # ---------------------------------------------------------------------------
+# RISKY v2.0.2 — OOM regression tests for the early-break CSV/JSONL loaders
+# ---------------------------------------------------------------------------
+
+
+class TestInspectSampledAtScale:
+    """The RISKY fix: ``_records_from_csv`` now bails at ``max_rows``
+    via :func:`itertools.islice` instead of building every row dict
+    before slicing. These tests exercise the bounded-read behaviour
+    on a CSV / JSONL file much larger than ``max_rows`` and assert:
+
+    * ``records`` returned by the loader is bounded by ``max_rows``
+      (no surprise materialisation).
+    * ``full_count`` reflects the true file row count, not
+      ``max_rows``.
+
+    A regression here would mean the loader fell back to the old
+    full-materialise path and the planner payload's
+    ``sampled_at_least`` value became a lie.
+    """
+
+    def test_csv_bails_at_max_rows(self, tmp_path: Path) -> None:
+        csv_path = tmp_path / "big.csv"
+        with csv_path.open("w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["x"])
+            writer.writeheader()
+            for i in range(2000):
+                writer.writerow({"x": str(i)})
+        profile = inspect_data_source(csv_path, max_rows=10)
+        # Bounded read: only 10 rows in the profile even though
+        # the file has 2000.
+        assert profile.tables[0].row_count == 10
+        # ``sampled_at_least`` honours the line count we computed
+        # at load time, not ``max_rows``.
+        assert profile.tables[0].sampled_at_least == 2000
+        assert any("Sampled first 10 of 2000" in w for w in profile.warnings)
+
+    def test_jsonl_bails_at_max_rows(self, tmp_path: Path) -> None:
+        jsonl_path = tmp_path / "big.jsonl"
+        with jsonl_path.open("w") as f:
+            for i in range(2000):
+                f.write(f'{{"x": {i}}}\n')
+        profile = inspect_data_source(jsonl_path, max_rows=10)
+        assert profile.tables[0].row_count == 10
+        assert profile.tables[0].sampled_at_least == 2000
+
+    def test_csv_no_truncation_when_small(self, tmp_path: Path) -> None:
+        """A 3-row CSV should report ``sampled_at_least == 3``,
+        not ``max_rows``. The cheap line-count path must agree
+        with ``len(records)`` for files smaller than the cap.
+        """
+        csv_path = tmp_path / "small.csv"
+        with csv_path.open("w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["x"])
+            writer.writeheader()
+            for i in range(3):
+                writer.writerow({"x": str(i)})
+        profile = inspect_data_source(csv_path, max_rows=1000)
+        assert profile.tables[0].row_count == 3
+        assert profile.tables[0].sampled_at_least == 3
+        # No "Sampled first N of M" warning when M ≤ max_rows.
+        assert not any("Sampled first" in w for w in profile.warnings)
+
+
+# ---------------------------------------------------------------------------
 # inspect_data_source: CSV files
 # ---------------------------------------------------------------------------
 

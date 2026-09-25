@@ -46,8 +46,9 @@ import json
 import statistics
 from collections import Counter
 from dataclasses import asdict, dataclass, field
+from itertools import islice
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 # A registered data source can be a file path (CSV / JSON / JSONL /
 # Parquet if pandas is available), a callable returning a
@@ -159,8 +160,14 @@ class DataProfile:
 
 def _load_records(
     source: DataSource, source_name: str, max_rows: int
-) -> Tuple[List[Dict[str, Any]], str]:
-    """Return ``(records, kind)`` for any supported source.
+) -> Tuple[List[Dict[str, Any]], str, int]:
+    """Return ``(records, kind, full_count)`` for any supported source.
+
+    ``records`` is capped at ``max_rows`` (RISKY fix from
+    v1.6.1 4-pass review: previously a 50M-row CSV fully
+    materialised before slicing), and ``full_count`` is the
+    total number of data rows in the underlying file as
+    computed cheaply without materialising dicts.
 
     Raises ``ValueError`` for unsupported source types or unreadable
     files. The ``kind`` string is recorded in the profile so the
@@ -169,7 +176,11 @@ def _load_records(
     if callable(source):
         obj = source()
         records = _records_from_dataframe_like(obj, max_rows)
-        return records, "callable"
+        # ``_records_from_dataframe_like`` already truncates at
+        # ``max_rows``; we don't have a cheap way to know the
+        # original DataFrame size here, so report the sample size
+        # as ``full_count`` (callers see no truncation).
+        return records, "callable", len(records)
 
     if isinstance(source, (str, Path)):
         path = Path(source)
@@ -189,67 +200,150 @@ def _load_records(
         if inner_suffix in (".parquet", ".pq"):
             try:
                 records = _records_from_parquet(path, max_rows)
-                return records, "parquet"
+                return records, "parquet", len(records)
             except ImportError as exc:
                 raise ValueError(
                     f"Parquet support requires pandas (or pyarrow): {exc}"
                 ) from exc
         if inner_suffix == ".json":
-            return _records_from_json(path, source_name), "json"
+            records, full_count = _records_from_json(path, source_name)
+            return records, "json", full_count
         if inner_suffix in (".jsonl", ".ndjson"):
-            return _records_from_jsonl(path), "jsonl"
+            records, full_count = _records_from_jsonl(path, max_rows)
+            return records, "jsonl", full_count
         if inner_suffix == ".csv":
-            return _records_from_csv(path, opener), "csv"
+            records, full_count = _records_from_csv(path, opener, max_rows)
+            return records, "csv", full_count
         # Fallback: try CSV by extension, JSON otherwise.
         try:
-            return _records_from_csv(path, opener), "csv"
+            records, full_count = _records_from_csv(path, opener, max_rows)
+            return records, "csv", full_count
         except (UnicodeDecodeError, csv.Error):
-            return _records_from_json(path, source_name), "json"
+            records, full_count = _records_from_json(path, source_name)
+            return records, "json", full_count
 
     if isinstance(source, list):
-        return list(source), "records"
+        # Caller-provided list — full materialisation is intrinsic
+        # to the source, no sampling needed. ``full_count`` equals
+        # ``len(records)`` here.
+        records = list(source)
+        return records, "records", len(records)
 
     raise ValueError(f"Unsupported data source type: {type(source).__name__}")
 
 
-def _records_from_csv(path: Path, opener: Callable[..., Any]) -> List[Dict[str, Any]]:
+def _records_from_csv(
+    path: Path,
+    opener: Callable[..., Any],
+    max_rows: Optional[int] = None,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Read CSV rows from ``path`` (or .csv.gz via the gzip opener).
+
+    Returns ``(records, full_count)`` where ``records`` is a list of
+    row dicts (capped at ``max_rows`` when provided) and
+    ``full_count`` is the total number of data rows in the file.
+
+    .. note::
+       RISKY finding from v1.6.1 4-pass review: previously the
+       function materialised every row into a list before slicing
+       with ``records[:max_rows]``. A 50M-row CSV would build
+       50M dict objects in RAM before the caller ever saw the
+       first one, which OOMs on modest hardware. Now the read
+       bails out at ``max_rows`` via :func:`itertools.islice`,
+       and ``full_count`` is computed cheaply by counting lines
+       on a second reader pass rather than by ``len(records)``
+       (which would be the same OOM trap on its own).
+
+       Behaviour preserved for callers that don't pass
+       ``max_rows``: full materialisation, ``full_count`` is
+       the resulting list length.
+    """
     records: List[Dict[str, Any]] = []
+    # Cheap line count on a separate reader pass — no DictReader
+    # allocation, no dict materialisation. We open the file twice
+    # rather than carrying a parallel counter alongside the dict
+    # reader: csv.DictReader already buffers fields and the IO
+    # cost of one extra forward-only scan is dwarfed by the cost
+    # of building millions of row dicts we'd then throw away.
+    with opener(path, "rt", encoding="utf-8") as f_count:
+        full_count = sum(1 for _ in f_count) - 1  # -1 for header
+        if full_count < 0:
+            full_count = 0
     # The opener is either the builtin ``open`` or ``gzip.open``;
     # both accept ``encoding`` and ``newline`` keyword args, so we
     # pass them through.
     with opener(path, "rt", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
-        for row in reader:
+        if max_rows is not None:
+            # ``itertools.islice`` halts the underlying iteration
+            # at ``max_rows`` — no input is read past that point and
+            # no dict is built past that point.
+            sampled_iter: Iterable[Dict[str, Any]] = islice(reader, max_rows)
+        else:
+            sampled_iter = reader
+        for row in sampled_iter:
             records.append(row)
-    return records
+    return records, full_count
 
 
-def _records_from_json(path: Path, source_name: str) -> List[Dict[str, Any]]:
+def _records_from_json(
+    path: Path, source_name: str
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Read JSON / JSON-array, returning ``(records, full_count)``.
+
+    JSON is small-data only by contract (real production loads
+    stream JSONL/CSV), so full materialisation is the right trade
+    off here — no line-counting hack, just ``len(...)``.
+    """
     payload = json.loads(path.read_text(encoding="utf-8"))
+    records: List[Dict[str, Any]]
     if isinstance(payload, list):
-        return [dict(r) for r in payload if isinstance(r, dict)]
-    if isinstance(payload, dict):
+        records = [dict(r) for r in payload if isinstance(r, dict)]
+    elif isinstance(payload, dict):
         # Convention: a JSON file with a single key holding a list
         # of records (``{"records": [...]}`` or ``{"data": [...]}``).
+        records = []
+        matched = False
         for key in ("records", "data", "rows"):
             if key in payload and isinstance(payload[key], list):
-                return [dict(r) for r in payload[key] if isinstance(r, dict)]
-        # Treat the dict itself as a single record.
-        return [dict(payload)]
-    raise ValueError(
-        f"Unsupported JSON structure in {path}: expected list or object, got {type(payload).__name__}"
-    )
+                records = [dict(r) for r in payload[key] if isinstance(r, dict)]
+                matched = True
+                break
+        if not matched:
+            # Treat the dict itself as a single record.
+            records = [dict(payload)]
+    else:
+        raise ValueError(
+            f"Unsupported JSON structure in {path}: expected list or object,"
+            f" got {type(payload).__name__}"
+        )
+    return records, len(records)
 
 
-def _records_from_jsonl(path: Path) -> List[Dict[str, Any]]:
+def _records_from_jsonl(
+    path: Path, max_rows: Optional[int] = None
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Read newline-delimited JSON, returning ``(records, full_count)``.
+
+    Same OOM safety as :func:`_records_from_csv` — bail at
+    ``max_rows`` via :func:`itertools.islice` and count total
+    lines cheaply on a separate pass. Both protections are part
+    of the v2.0.2 RISKY fix (the JSONL loader inherited the same
+    full-materialisation pattern, even though JSONL streams tend
+    to be smaller than 50M-row CSVs in practice).
+    """
     records: List[Dict[str, Any]] = []
+    with open(path, "rt", encoding="utf-8") as f_count:
+        full_count = sum(1 for _ in f_count if _.strip())
     with open(path, "rt", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            records.append(json.loads(line))
-    return records
+        if max_rows is not None:
+            line_iter = (line for line in f if line.strip())
+            sampled_iter = (json.loads(line) for line in islice(line_iter, max_rows))
+        else:
+            sampled_iter = (json.loads(line) for line in f if line.strip())
+        for record in sampled_iter:
+            records.append(record)
+    return records, full_count
 
 
 def _records_from_parquet(path: Path, max_rows: int) -> List[Dict[str, Any]]:
@@ -451,9 +545,14 @@ def inspect_data_source(
         with strict data-residency rules.
     """
     resolved_name = name or _default_name(source)
-    records, kind = _load_records(source, resolved_name, max_rows)
+    records, kind, full_count = _load_records(source, resolved_name, max_rows)
+    # ``records`` is already capped at ``max_rows`` by the loaders
+    # (RISKY fix from v1.6.1 4-pass review: previously a 50M-row
+    # CSV fully materialised before slicing). ``full_count`` is
+    # the cheap line-count computed during load. The ``[:max_rows]``
+    # slice below is now a no-op but kept defensive in case a
+    # future loader forgets to cap.
     sampled = records[:max_rows]
-    full_count = len(records)
     warnings: List[str] = []
     if full_count > max_rows:
         warnings.append(
