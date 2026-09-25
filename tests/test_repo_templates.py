@@ -78,7 +78,24 @@ class TestFilePresence:
 class TestOptionalFiles:
     """Optional but expected files. CI should still pass without
     these, but their presence is checked so we notice if they
-    disappear."""
+    disappear.
+
+    RISKY v2.0.2 fix: the previous incarnation of this class
+    used a soft-pass — ``test_optional_file_exists`` always
+    skipped on absence, so the test reported PASS for any
+    outcome. That's a contract bug: this class is named
+    *Optional* but the parametrize list (DISCUSSION_TEMPLATE/
+    q-a.yml) is the canonical, expected file that we ship with
+    every release. A silent skip means a missing discussion
+    template wouldn't be caught at CI time.
+
+    Now: since the parametrize list targets a file that IS in
+    the repo today and is referenced by the GitHub discussions
+    feature, the test asserts presence directly (no
+    ``pytest.skip``). If a future contributor deletes the
+    template, this test fails immediately with a clear path
+    rather than silently passing.
+    """
 
     @pytest.mark.parametrize(
         "path",
@@ -87,8 +104,11 @@ class TestOptionalFiles:
         ],
     )
     def test_optional_file_exists(self, path: str) -> None:
-        if not (REPO_ROOT / path).exists():
-            pytest.skip(f"Optional file {path} not present (acceptable).")
+        assert (REPO_ROOT / path).exists(), (
+            f"Optional-expected file is missing: {path}. "
+            "Either re-add it or remove the parametrize entry "
+            "if the decision has been made to stop shipping it."
+        )
 
 
 # ---------------------------------------------------------------------------
