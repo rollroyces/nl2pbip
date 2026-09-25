@@ -423,15 +423,26 @@ def _build_report_layout_from_pbip(report_dir: Path) -> Dict[str, Any]:
 def _match_glob(path: str, glob: str) -> bool:
     """Match a forward-slash ``path`` against a simple ``glob`` pattern.
 
-    Rules:
+    Rules — these deliberately diverge from :func:`fnmatch.fnmatch`
+    (which is what :func:`fnmatch.translate` compiles) so paths
+    with separators behave intuitively:
 
-    * ``*`` matches any characters except ``/``.
-    * ``**`` matches any characters including ``/``.
+    * ``*`` matches any characters **except** ``/``.
+      → ``"*.json"`` does **not** match ``"sub/a.json"``.
+    * ``**`` matches any characters **including** ``/``.
+      → ``"**/*.json"`` matches ``"sub/a.json"`` and
+        ``"deep/sub/a.json"``.
     * ``?`` matches a single character that is not ``/``.
 
-    Implemented as a regex translation rather than :mod:`fnmatch`
-    because :mod:`fnmatch` doesn't distinguish ``/``-aware ``*``
-    from cross-directory ``**``.
+    Bracket expressions (``[jt]``), character classes (``[!a-z]``),
+    and other :mod:`fnmatch` extensions are intentionally not
+    supported; the PBIT inclusion/exclusion globs shipped today
+    only use the three patterns above. RISKY finding from the
+    v1.6.1 4-pass review: we considered replacing this with
+    :func:`fnmatch.translate`, but the behaviour diverges — fnmatch
+    treats ``*`` as cross-segment — and the tests in
+    ``tests/test_opc_export.py::TestGlobMatching`` explicitly pin
+    the ``/``-aware semantics. The hand-rolled regex stays.
     """
     import re
 
