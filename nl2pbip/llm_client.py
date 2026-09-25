@@ -125,19 +125,6 @@ _PROVIDER_CONFIGS: Dict[str, ProviderConfig] = {
 class StructuredLLMClient:
     """Concrete ``LLMClient`` that enforces plan JSON output."""
 
-    _SECURITY_GUIDANCE = (
-        "When prompts mention sensitive data, row-level filtering, role-based access, object-level hiding,"
-        " or phrases like 'hide salary column' or 'restrict access to employee table', plan security roles accordingly."
-        " Use add_rls_role for dynamic/static row filters (USERPRINCIPALNAME(), CUSTOMDATA(), dimension attributes)"
-        " and add_ols_role to hide entire tables or specific columns via metadataPermission: none so the objects disappear for assigned users."
-    )
-
-    _LANGUAGE_GUIDANCE = (
-        "Users may describe requirements in either English or Chinese. Generate steps, explanations,"
-        " and status messages in the user's language, but ALWAYS emit technical identifiers (table names,"
-        " columns, DAX measures, calculation groups, metadata fields) using clear English naming conventions."
-    )
-
     def __init__(
         self,
         provider: Optional[str] = None,
@@ -431,6 +418,21 @@ class StructuredLLMClient:
     def _split_messages(
         self, messages: List[Dict[str, str]]
     ) -> tuple[str, List[Dict[str, str]]]:
+        """Separate the system prompt from the chat turn for Anthropic.
+
+        Anthropic's API takes the system prompt as a separate ``system=``
+        field rather than as the first message in the ``messages=`` list,
+        so OpenAI/Azure-style interleaved ``[{"role": "system", ...}, ...]``
+        payloads need to be split before dispatching. The orchestrator
+        already appended the planner-level language + security guidance
+        to the system message before it reaches the LLM, so this method
+        is a pure structural split — it does not inject any provider-
+        specific guidance of its own. (RISKY finding from the v1.6.1
+        4-pass review: previously the class-level ``_LANGUAGE_GUIDANCE``
+        and ``_SECURITY_GUIDANCE`` strings were appended here, which
+        caused them to fire only for Anthropic and silently bypass
+        OpenAI/Azure plans.)
+        """
         system_chunks: List[str] = []
         forward: List[Dict[str, str]] = []
         for message in messages:
@@ -443,8 +445,6 @@ class StructuredLLMClient:
             base_prompt.extend(system_chunks)
         else:
             base_prompt.append("You are a helpful planner.")
-        base_prompt.append(self._LANGUAGE_GUIDANCE)
-        base_prompt.append(self._SECURITY_GUIDANCE)
         system_prompt = "\n\n".join(chunk for chunk in base_prompt if chunk)
         return system_prompt, forward
 

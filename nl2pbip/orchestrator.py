@@ -981,9 +981,13 @@ class Orchestrator:
         call. Callers that don't care about the report can unpack
         just the first element via ``response, _ = ...``.
         """
-        from nl2pbip.prompts import build_user_message, select_system_prompt
+        from nl2pbip.prompts import (
+            build_user_message,
+            planner_guidance,
+            select_system_prompt,
+        )
 
-        system_prompt = select_system_prompt(context)
+        system_prompt = select_system_prompt(context) + "\n\n" + planner_guidance()
         user_message = build_user_message(
             user_prompt, self._planner_payload(user_prompt, context)
         )

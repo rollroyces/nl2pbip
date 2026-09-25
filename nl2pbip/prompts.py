@@ -588,3 +588,49 @@ def prompt_metadata(
         "name": ("report-generation" if use_focused else "legacy-generic"),
         "focused_on_report_generation": use_focused,
     }
+
+
+# ---------------------------------------------------------------------------
+# Provider-portable planner guidance
+# ---------------------------------------------------------------------------
+#
+# These two guidance snippets used to live as class attributes on
+# ``nl2pbip.llm_client.StructuredLLMClient`` and were appended to
+# the Anthropic system prompt inside ``_split_messages``. The
+# orchestrator instantiates providers (OpenAI, Azure, Anthropic,
+# custom) and hands them the same system message — so guidance
+# fired only for Anthropic, silently bypassing language/security
+# rules for OpenAI/Azure plans. RISKY finding from the v1.6.1
+# 4-pass review moved both into this module so they are appended
+# uniformly to every provider's system prompt inside the
+# orchestrator's ``_request_plan``.
+PLANNER_LANGUAGE_GUIDANCE = (
+    "Users may describe requirements in either English or Chinese."
+    " Generate steps, explanations, and status messages in the"
+    " user's language, but ALWAYS emit technical identifiers"
+    " (table names, columns, DAX measures, calculation groups,"
+    " metadata fields) using clear English naming conventions."
+)
+
+PLANNER_SECURITY_GUIDANCE = (
+    "When prompts mention sensitive data, row-level filtering,"
+    " role-based access, object-level hiding, or phrases like"
+    " 'hide salary column' or 'restrict access to employee table',"
+    " plan security roles accordingly. Use add_rls_role for"
+    " dynamic/static row filters (USERPRINCIPALNAME(), CUSTOMDATA(),"
+    " dimension attributes) and add_ols_role to hide entire tables"
+    " or specific columns via metadataPermission: none so the"
+    " objects disappear for assigned users."
+)
+
+
+def planner_guidance() -> str:
+    """Return the standard guidance appended to every planner system prompt.
+
+    Returned as a single concatenated string so callers don't need to
+    know about the individual chunks. Kept as a function (not a module
+    constant) so future per-context variability — e.g. disabling
+    security guidance under a debug flag — is a one-line edit instead
+    of a search-and-replace.
+    """
+    return f"{PLANNER_LANGUAGE_GUIDANCE}\n\n{PLANNER_SECURITY_GUIDANCE}"
