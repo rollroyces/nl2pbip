@@ -100,9 +100,11 @@ class TestCustomVisualLoading:
     def test_malformed_toml_raises(self, tmp_path: Path) -> None:
         bad = tmp_path / "bad.toml"
         bad.write_text("[[visual]\nthis is not valid toml", encoding="utf-8")
-        # ``tomllib`` is imported at the conftest level so the test
-        # only needs ``TOMLDecodeError`` from it.
-        with pytest.raises(__import__("tomllib").TOMLDecodeError):
+        # ``tomllib`` is imported at the conftest level (Python 3.10
+        # falls back to ``tomli``), so we reach for the symbol via
+        # the conftest module instead of re-importing at runtime.
+        from conftest import tomllib as toml_lib  # noqa: F401
+        with pytest.raises(toml_lib.TOMLDecodeError):
             custom_visuals.load_custom_visual_specs(bad)
 
     def test_missing_name_skipped(self, tmp_path: Path) -> None:
