@@ -189,6 +189,74 @@ def _build_index(
     return out, distinct, counts
 
 
+@dataclass(frozen=True)
+class _FkCandidate:
+    """Pair of (FK-side, PK-side) columns that *may* join.
+
+    Named helper introduced for the v2.0.2 RISKY fix that
+    flattens the relationship-coverage walk in
+    :func:`analyze_data_understanding`. Before, the loop was five
+    loops deep and read as a wall-of-indent; now the candidate
+    list is materialised up front via
+    :func:`_enumerate_fk_candidates` so the verification pass
+    becomes a single for-loop.
+
+    Frozen so an FK pair never accidentally aliases another in
+    the deduplicated list.
+    """
+
+    from_table: str
+    from_column: str
+    to_table: str
+    to_column: str
+
+
+def _enumerate_fk_candidates(
+    profiles: Iterable[DataProfile],
+    pk_by_table: Dict[str, List[PrimaryKeyCandidate]],
+) -> List[_FkCandidate]:
+    """Materialise every plausible FK → PK pair across profiles.
+
+    Pairing rule: a column on table ``A`` matches a PK on table
+    ``B`` iff the column names are equal AND ``A != B``. The
+    rule intentionally mirrors what ``suggest_relationships``
+    uses upstream so the orchestrator's two relationship-hint
+    surfaces stay in sync.
+
+    Returns a list (not a generator) because the verification
+    pass downstream benefits from a stable iteration order when
+    test snapshots diff between runs.
+    """
+    seen: Set[Tuple[str, str, str, str]] = set()
+    out: List[_FkCandidate] = []
+    for profile in profiles:
+        for table in profile.tables:
+            for column in table.columns:
+                for pk_table, pks in pk_by_table.items():
+                    if pk_table == table.name:
+                        continue
+                    for pk in pks:
+                        if pk.column == column.name:
+                            pair = (
+                                table.name,
+                                column.name,
+                                pk_table,
+                                pk.column,
+                            )
+                            if pair in seen:
+                                continue
+                            seen.add(pair)
+                            out.append(
+                                _FkCandidate(
+                                    from_table=table.name,
+                                    from_column=column.name,
+                                    to_table=pk_table,
+                                    to_column=pk.column,
+                                )
+                            )
+    return out
+
+
 def verify_relationship_coverage(
     from_records: List[Dict[str, Any]],
     from_column: str,
@@ -526,30 +594,27 @@ def analyze_data_understanding(
     for pk in result.primary_keys:
         pk_by_table.setdefault(pk.table, []).append(pk)
 
-    for profile in profiles:
-        for table in profile.tables:
-            for column in table.columns:
-                # Look up matching PK on a different table (FK candidate).
-                for pk_table, pks in pk_by_table.items():
-                    if pk_table == table.name:
-                        continue
-                    for pk in pks:
-                        if pk.column == column.name:
-                            # Match. Compute coverage.
-                            records_fk = table_records.get(table.name, [])
-                            records_pk = table_records.get(pk_table, [])
-                            if not records_fk or not records_pk:
-                                continue
-                            coverage = verify_relationship_coverage(
-                                from_records=records_fk,
-                                from_column=column.name,
-                                to_records=records_pk,
-                                to_column=pk.column,
-                                from_table=table.name,
-                                to_table=pk_table,
-                            )
-                            if coverage is not None:
-                                result.relationship_coverage.append(coverage)
+    # Flatten the cartesian walk — RISKY v2.0.2: before, the
+    # relationship-coverage loop was profile → table → column →
+    # pk_table → pk (5 levels deep, no early exits, reads as a
+    # wall-of-indent). Now we materialise the FK candidate list
+    # first via small named helpers, then iterate once.
+    fk_candidates = _enumerate_fk_candidates(profiles, pk_by_table)
+    for fk_candidate in fk_candidates:
+        records_fk = table_records.get(fk_candidate.from_table, [])
+        records_pk = table_records.get(fk_candidate.to_table, [])
+        if not records_fk or not records_pk:
+            continue
+        coverage = verify_relationship_coverage(
+            from_records=records_fk,
+            from_column=fk_candidate.from_column,
+            to_records=records_pk,
+            to_column=fk_candidate.to_column,
+            from_table=fk_candidate.from_table,
+            to_table=fk_candidate.to_table,
+        )
+        if coverage is not None:
+            result.relationship_coverage.append(coverage)
 
     # 3) Numeric distribution + time range per column.
     for profile in profiles:
