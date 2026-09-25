@@ -1,5 +1,5 @@
 name: "Setup Python env"
-description: "Checkout, install a pinned Python version, and pip-install nl2pbip in editable mode with optional extras."
+description: "Checkout, install a pinned Python version, and pip-install nl2pbip in editable mode with optional extras + arbitrary pip packages."
 
 # Composite action used by every workflow that runs Python tests or
 # linters. Centralises:
@@ -14,9 +14,14 @@ description: "Checkout, install a pinned Python version, and pip-install nl2pbip
 #   python-version (default "3.12"): forwarded to ``setup-python``.
 #   cache-path (default "pyproject.toml"): path that ``cache-dependency-path``
 #     uses for the pip cache key hash.
-#   pip-extras (default ""): a comma-separated list of extras to install
-#     alongside the dev extras (e.g. "mcp" or "anthropic"). Empty means
-#     install only ``.[dev]``.
+#   pip-extras (default ""): a comma-separated list of *extras* to install
+#     alongside ``[dev]`` (e.g. "mcp" or "anthropic"). Names that don't
+#     match a defined extra are silently dropped — see ``pip-packages``
+#     for arbitrary pip packages.
+#   pip-packages (default ""): a comma-separated list of arbitrary pip
+#     packages to install *after* the editable install completes. Use
+#     this for tools that don't ship as extras (e.g. "bandit", "vulture",
+#     "pip-tools").
 #   working-directory (default "."): directory to run pip install in.
 #
 # Usage:
@@ -25,6 +30,7 @@ description: "Checkout, install a pinned Python version, and pip-install nl2pbip
 #     with:
 #       python-version: "3.12"
 #       pip-extras: "mcp"
+#       pip-packages: "bandit"
 
 inputs:
   python-version:
@@ -36,7 +42,11 @@ inputs:
     required: false
     default: "pyproject.toml"
   pip-extras:
-    description: "Comma-separated list of extras to install alongside [dev]. Empty = [dev] only."
+    description: "Comma-separated list of optional-dependency extras to install alongside [dev]. Empty = [dev] only."
+    required: false
+    default: ""
+  pip-packages:
+    description: "Comma-separated list of arbitrary pip packages to install after the editable install. Empty = no extras."
     required: false
     default: ""
   working-directory:
@@ -54,7 +64,7 @@ runs:
         cache: pip
         cache-dependency-path: ${{ inputs.cache-path }}
 
-    - name: Install nl2pbip (editable)
+    - name: Install nl2pbip (editable) + extras
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       run: |
@@ -67,4 +77,16 @@ runs:
             pip install -e ".[dev,${EXTRAS}]"
         else
             pip install -e ".[dev]"
+        fi
+
+    - name: Install extra pip packages
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      # Default ``continue-on-error: false`` means a missing
+      # package fails the workflow as expected.
+      run: |
+        set -euo pipefail
+        if [[ -n "${{ inputs.pip-packages }}" ]]; then
+            PACKAGES=$(echo "${{ inputs.pip-packages }}" | tr ',' ' ')
+            pip install --quiet ${PACKAGES}
         fi

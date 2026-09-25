@@ -58,7 +58,12 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           python-version: "3.12"
-          pip-extras: "bandit"
+          # ``bandit`` is a security linter, not a runtime
+          # dependency of nl2pbip itself, so it's installed as a
+          # plain pip package via the ``pip-packages`` input
+          # rather than as an extra (no ``[bandit]`` extra
+          # exists in pyproject.toml).
+          pip-packages: "bandit"
 
       - name: Run Bandit
         # ``--ini`` reads the repo-level config so per-file

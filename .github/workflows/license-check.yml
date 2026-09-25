@@ -46,6 +46,7 @@ jobs:
         with:
           python-version: "3.12"
           pip-extras: "anthropic"
+          pip-packages: "pip-tools"
 
       - name: pip-licenses --fail-on
         # ``--fail-on`` takes a comma-separated list. The regex
@@ -99,7 +100,6 @@ jobs:
         # little extra safety beyond the compile + hash step).
         run: |
           set -e
-          python -m pip install --quiet pip-tools
           pip-compile \
               --quiet \
               --generate-hashes \

@@ -104,6 +104,14 @@ exclude = ["tests*"]
 # ruff 0.16 sorts it after `pytest`. Force a deterministic order via
 # extra-standard-library so both local and CI ruff agree.
 extra-standard-library = ["httpx"]
+
+[tool.pytest.ini_options]
+# Adding "tests" to pythonpath makes ``from tests.conftest import ...`` work
+# from any invocation of pytest (matches what the v2.0.2 conftest refactor relies on).
+pythonpath = ["tests"]
+testpaths = ["tests"]
+addopts = "-ra"
+
 [tool.mypy]
 # Strict type-check settings. The codebase aims for zero
 # errors in CI; see .github/workflows/mypy.yml for the
