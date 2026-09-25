@@ -18,19 +18,12 @@ guard against the silent breakage of:
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Dict, List
 
 import pytest
 import yaml
 
-try:
-    import tomllib
-except ImportError:  # pragma: no cover - Python 3.10 fallback
-    import tomli as tomllib  # type: ignore[no-redef]
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-
+from tests.conftest import REPO_ROOT, tomllib_load
 
 # ---------------------------------------------------------------------------
 # File presence
@@ -204,10 +197,11 @@ class TestTOMLConfigShape:
         full = REPO_ROOT / path
         if not full.exists():
             pytest.skip(f"{path} not present.")
-        # ``tomllib`` is imported at module level (with the 3.10
-        # ``tomli`` fallback) so every test reuses the same import.
+        # ``tomllib_load`` is imported from tests/conftest.py
+        # (handles the 3.10 tomli fallback) so every test reuses
+        # the same import.
         with full.open("rb") as fh:
-            data = tomllib.load(fh)
+            data = tomllib_load(fh)
         assert data, f"{path} parsed as empty"
 
     @pytest.mark.parametrize(
@@ -434,7 +428,7 @@ class TestCIWorkflow:
         # ``tomllib`` is imported at module level (with the 3.10
         # ``tomli`` fallback) so every test reuses the same import.
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
-            data = tomllib.load(f)
+            data = tomllib_load(f)
         dev_deps = data["project"]["optional-dependencies"]["dev"]
         assert any(
             dep.lower().startswith("vulture") for dep in dev_deps
@@ -445,7 +439,7 @@ class TestCIWorkflow:
         so the license-check workflow runs in the same env as
         the test that asserts the workflow exists."""
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
-            data = tomllib.load(f)
+            data = tomllib_load(f)
         dev_deps = data["project"]["optional-dependencies"]["dev"]
         assert any(
             dep.lower().startswith("pip-licenses") for dep in dev_deps
@@ -562,7 +556,7 @@ class TestCIWorkflow:
         overrides the gate would suddenly fail with dozens
         of import errors."""
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
-            data = tomllib.load(f)
+            data = tomllib_load(f)
         overrides = data["tool"]["mypy"]["overrides"]
         excluded_modules: set[str] = set()
         for entry in overrides:
@@ -598,7 +592,7 @@ class TestCIWorkflow:
         would otherwise surface.
         """
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
-            data = tomllib.load(f)
+            data = tomllib_load(f)
         mypy_config = data["tool"]["mypy"]
         assert mypy_config.get("strict_equality") is True, (
             "[tool.mypy] must enable strict_equality=true to "

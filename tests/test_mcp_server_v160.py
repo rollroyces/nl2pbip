@@ -48,6 +48,12 @@ from nl2pbip.mcp_server.server import (
     _encode_pbip_artifact,
     _tool_generate_report,
 )
+from tests.conftest import (
+    MCP_HEADERS,
+    _build_minimal_plan,
+    free_port,
+    parse_sse_jsonrpc,
+)
 
 # ---------------------------------------------------------------------
 # Base64 artifact return — direct handler tests
@@ -66,7 +72,7 @@ def test_artifact_off_by_default(
 
     from nl2pbip.mcp_server import server as mcp_module
 
-    plan = _make_minimal_plan(tmp_path, "NoArtifact")
+    plan = _build_minimal_plan(tmp_path, "NoArtifact")
 
     class _StubClient:
         provider = "stub"
@@ -101,7 +107,7 @@ def test_artifact_included_when_requested(
 
     from nl2pbip.mcp_server import server as mcp_module
 
-    plan = _make_minimal_plan(tmp_path, "WithArtifact")
+    plan = _build_minimal_plan(tmp_path, "WithArtifact")
 
     class _StubClient:
         provider = "stub"
@@ -150,7 +156,7 @@ def test_artifact_skipped_when_too_large(
 
     from nl2pbip.mcp_server import server as mcp_module
 
-    plan = _make_minimal_plan(tmp_path, "Big")
+    plan = _build_minimal_plan(tmp_path, "Big")
 
     class _StubClient:
         provider = "stub"
@@ -176,50 +182,6 @@ def test_artifact_skipped_when_too_large(
     assert result["status"] == "ok"
     assert "artifact_zip_b64" not in result
     assert any("too large" in w for w in result["warnings"])
-
-
-def _make_minimal_plan(tmp_path: Path, project_name: str) -> List[Dict[str, Any]]:
-    """Build the minimum viable plan that produces a packaged
-    .pbipdir — same shape the v1.5.0 e2e test uses, factored out
-    so the three artifact tests can share it."""
-
-    return [
-        {
-            "tool": "add_report_page",
-            "args": {"page": "Main", "display_name": project_name},
-        },
-        {
-            "tool": "create_table",
-            "args": {
-                "table_name": "Sales",
-                "columns": [{"name": "Amount", "data_type": "decimal"}],
-            },
-        },
-        {
-            "tool": "add_measure",
-            "args": {
-                "table_name": "Sales",
-                "measure_name": "Rev",
-                "expression": "SUM(Sales[Amount])",
-            },
-        },
-        {
-            "tool": "add_visual",
-            "args": {
-                "page": "Main",
-                "visual_type": "card",
-                "bindings": {"Values": ["[Rev]"]},
-            },
-        },
-        {
-            "tool": "package_pbip",
-            "args": {
-                "output_path": str(tmp_path / f"{project_name}.pbipdir"),
-                "project_name": project_name,
-                "overwrite": True,
-            },
-        },
-    ]
 
 
 def test_encode_pbip_artifact_round_trip(tmp_path: Path) -> None:
@@ -256,57 +218,6 @@ def test_encode_pbip_artifact_missing_dir(tmp_path: Path) -> None:
     assert "missing" in warning.lower()
 
 
-# ---------------------------------------------------------------------
-# Streamable-HTTP transport — round-trip over a real HTTP server
-# ---------------------------------------------------------------------
-
-
-def _free_port() -> int:
-    """Ask the OS for an unused TCP port for the test server.
-
-    Avoids hard-coding a port that could collide with a
-    parallel CI run or a developer's local server.
-    """
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
-MCP_HEADERS = {
-    "Accept": "application/json, text/event-stream",
-    "Content-Type": "application/json",
-}
-
-
-def _parse_sse_jsonrpc(body: str) -> Dict[str, Any]:
-    """Pull the JSON-RPC payload out of a streamable-http SSE body.
-
-    The MCP streamable-http transport replies with
-    ``text/event-stream`` content. Each event is a ``data:``
-    line followed by a blank line; the JSON-RPC payload lives
-    on the ``data:`` line. Some events (notably the
-    ``notifications/initialized`` ack the server emits after
-    ``initialize``) carry no ``data:`` payload at all, so we
-    skip them.
-    """
-
-    for raw_line in body.splitlines():
-        line = raw_line.strip()
-        if not line or not line.startswith("data: "):
-            continue
-        payload = line[len("data: ") :].strip()
-        if not payload:
-            continue
-        try:
-            return json.loads(payload)
-        except json.JSONDecodeError:
-            # Not a JSON-RPC frame (e.g. a notification); keep
-            # scanning subsequent data: lines.
-            continue
-    raise AssertionError(f"no JSON-RPC frame in SSE body:\n{body[:500]}")
-
-
 def _initialize_session(client, base_url: str) -> Dict[str, str]:
     """Open an MCP session and return the ``initialize`` result.
 
@@ -315,7 +226,6 @@ def _initialize_session(client, base_url: str) -> Dict[str, str]:
     caller is responsible for closing the session; we don't
     bother because the test fixture kills the server anyway.
     """
-
     r = client.post(
         "/mcp",
         json={
@@ -355,7 +265,7 @@ def _tools_list(
         headers={**MCP_HEADERS, **session_headers, **(extra_headers or {})},
     )
     assert r.status_code == 200, r.text
-    body = _parse_sse_jsonrpc(r.text)
+    body = parse_sse_jsonrpc(r.text)
     return sorted(t["name"] for t in body["result"]["tools"])
 
 
@@ -387,7 +297,7 @@ def _tools_call(
     ) as response:
         assert response.status_code == 200, response.read()
         text = response.read().decode("utf-8")
-    body = _parse_sse_jsonrpc(text)
+    body = parse_sse_jsonrpc(text)
     if "error" in body:
         raise AssertionError(f"tool {name!r} returned JSON-RPC error: {body['error']}")
     assert "result" in body, body
@@ -411,7 +321,7 @@ def http_server(request):
     """
 
     bearer_token: Optional[str] = getattr(request, "param", None)
-    port = _free_port()
+    port = free_port()
     base_url = f"http://127.0.0.1:{port}"
     server = build_server(
         name="nl2pbip-http-test",
@@ -584,7 +494,7 @@ def test_streamable_http_invokes_generate_report_with_artifact(
 
     from nl2pbip.mcp_server import server as mcp_module
 
-    plan = _make_minimal_plan(tmp_path, "Http")
+    plan = _build_minimal_plan(tmp_path, "Http")
 
     class _StubClient:
         provider = "stub"
@@ -808,7 +718,7 @@ def test_http_bearer_token_compare_digest(
     # too, so the spy can't be bypassed via the cached name.
     monkeypatch.setattr(mcp_module.hmac, "compare_digest", spy_compare_digest)
 
-    port = _free_port()
+    port = free_port()
     base_url = f"http://127.0.0.1:{port}"
     server = build_server(
         name="nl2pbip-auth-spy",
@@ -861,7 +771,7 @@ def test_http_bearer_token_env_var_overrides_default(
     import subprocess
     import sys
 
-    port = _free_port()
+    port = free_port()
     env_token = "env-derived-secret-9876"
     env = os.environ.copy()
     env["NL2PBIP_MCP_BEARER_TOKEN"] = env_token

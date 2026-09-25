@@ -17,17 +17,11 @@ planner can pick them up. The tests cover:
 
 from __future__ import annotations
 
-import sys
 import textwrap
 from pathlib import Path
 from typing import List
 
 import pytest
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover - 3.10 fallback
-    import tomli as tomllib
 
 from nl2pbip import custom_visuals, visual_types
 
@@ -106,9 +100,9 @@ class TestCustomVisualLoading:
     def test_malformed_toml_raises(self, tmp_path: Path) -> None:
         bad = tmp_path / "bad.toml"
         bad.write_text("[[visual]\nthis is not valid toml", encoding="utf-8")
-        # ``tomllib`` is imported at module level; the test only
-        # uses ``TOMLDecodeError`` from it.
-        with pytest.raises(tomllib.TOMLDecodeError):
+        # ``tomllib`` is imported at the conftest level so the test
+        # only needs ``TOMLDecodeError`` from it.
+        with pytest.raises(__import__("tomllib").TOMLDecodeError):
             custom_visuals.load_custom_visual_specs(bad)
 
     def test_missing_name_skipped(self, tmp_path: Path) -> None:

@@ -37,6 +37,7 @@ import pytest
 pytest.importorskip("mcp", reason="MCP server tests require the [mcp] extra")
 
 from nl2pbip import __version__ as _NL2PBIP_VERSION
+from tests.conftest import _build_minimal_plan
 
 # ---------------------------------------------------------------------
 # Subprocess plumbing
@@ -319,56 +320,8 @@ def _stdio_call_tool(
 
 
 # ---------------------------------------------------------------------
-# Minimal plan fixture (copied shape from tests/test_mcp_server_v160.py)
+# Minimal plan fixture — imported from tests/conftest.py
 # ---------------------------------------------------------------------
-
-
-def _make_minimal_plan(tmp_path: Path, project_name: str) -> List[Dict[str, Any]]:
-    """Build the minimum viable plan that produces a packaged
-    ``.pbipdir`` — same 5-step shape the v1.6.0 round-trip tests
-    use, factored here so ``generate_report`` and
-    ``validate_pbip`` can share the artifact path.
-
-    Steps: ``add_report_page`` → ``create_table`` →
-    ``add_measure`` → ``add_visual`` → ``package_pbip``.
-    """
-    return [
-        {
-            "tool": "add_report_page",
-            "args": {"page": "Main", "display_name": project_name},
-        },
-        {
-            "tool": "create_table",
-            "args": {
-                "table_name": "Sales",
-                "columns": [{"name": "Amount", "data_type": "decimal"}],
-            },
-        },
-        {
-            "tool": "add_measure",
-            "args": {
-                "table_name": "Sales",
-                "measure_name": "Rev",
-                "expression": "SUM(Sales[Amount])",
-            },
-        },
-        {
-            "tool": "add_visual",
-            "args": {
-                "page": "Main",
-                "visual_type": "card",
-                "bindings": {"Values": ["[Rev]"]},
-            },
-        },
-        {
-            "tool": "package_pbip",
-            "args": {
-                "output_path": str(tmp_path / f"{project_name}.pbipdir"),
-                "project_name": project_name,
-                "overwrite": True,
-            },
-        },
-    ]
 
 
 # ---------------------------------------------------------------------
@@ -557,7 +510,7 @@ def test_stdio_server_call_validate_pbip(
     """
     from nl2pbip.mcp_server import server as mcp_module
 
-    plan = _make_minimal_plan(tmp_path, "ValidateStdio")
+    plan = _build_minimal_plan(tmp_path, "ValidateStdio")
 
     class _StubClient:
         provider = "stub"
