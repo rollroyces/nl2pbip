@@ -160,6 +160,70 @@ class TestSchemaAdvisorAdvise:
         assert len(result.visual_suggestions) == 2
         assert result.visual_suggestions[0].visual_type == "barChart"
 
+    def test_visual_type_is_canonicalised(self) -> None:
+        """RISKY fix: the parser must store canonical TMDL visual types.
+
+        ``barChart`` is canonical already, but ``linechart`` (lowercase
+        alias) and ``bar`` (a known alias) should resolve to the
+        canonical spelling so the planner payload is consistent.
+        """
+        payload = json.dumps(
+            {
+                **json.loads(VALID_LLM_RESPONSE),
+                "visuals": [
+                    {
+                        "visual_type": "linechart",
+                        "table": "Sales",
+                        "measure": "Total Revenue",
+                        "dimension": "Region",
+                        "rationale": "Lower-case alias.",
+                    },
+                    {
+                        "visual_type": "card",
+                        "table": "Sales",
+                        "measure": "Total Revenue",
+                        "dimension": None,
+                        "rationale": "Canonical stays canonical.",
+                    },
+                ],
+            }
+        )
+        advisor = SchemaAdvisor(_stub_llm(payload))
+        result = advisor.advise(_build_profiles())
+        assert result is not None
+        assert len(result.visual_suggestions) == 2
+        # Alias resolves to canonical camelCase spelling.
+        assert result.visual_suggestions[0].visual_type == "lineChart"
+        assert result.visual_suggestions[1].visual_type == "card"
+
+    def test_unknown_visual_type_warns_and_keeps_raw(self) -> None:
+        """An unknown ``visual_type`` from the LLM is preserved with a warning.
+
+        Without this, an LLM hallucination of ``pie3d`` for example
+        would propagate to consumers and break pbir_engine dispatch.
+        Now: the parser flags a warning and keeps the raw spelling so
+        the planner payload is unambiguous about what the LLM said.
+        """
+        payload = json.dumps(
+            {
+                **json.loads(VALID_LLM_RESPONSE),
+                "visuals": [
+                    {
+                        "visual_type": "definitelyNotARealVisual",
+                        "table": "Sales",
+                        "measure": "Total Revenue",
+                        "dimension": "Region",
+                        "rationale": "Made-up visual.",
+                    }
+                ],
+            }
+        )
+        advisor = SchemaAdvisor(_stub_llm(payload))
+        result = advisor.advise(_build_profiles())
+        assert result is not None
+        assert any("definitelyNotARealVisual" in w for w in result.warnings)
+        assert result.visual_suggestions[0].visual_type == ("definitelyNotARealVisual")
+
     def test_returns_none_when_llm_fails(self) -> None:
         class _Broken:
             def generate(self, messages):

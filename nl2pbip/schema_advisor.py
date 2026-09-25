@@ -385,14 +385,39 @@ class SchemaAdvisor:
         for entry in cast(Iterable[Dict[str, Any]], payload.get("visuals", []) or []):
             if not isinstance(entry, dict):
                 continue
-            visual_type = str(entry.get("visual_type", ""))
+            visual_type_raw = str(entry.get("visual_type", ""))
             # See ``col_table`` comment above.
             vs_table = str(entry.get("table", ""))
             measure = entry.get("measure")
             dimension = entry.get("dimension")
             rationale = str(entry.get("rationale", ""))
-            if not (visual_type and vs_table):
+            if not (visual_type_raw and vs_table):
                 continue
+            # RISKY finding from v1.6.1 4-pass review:
+            # ``visual_type`` is documented as "canonical TMDL
+            # visual type" but the parser used to store whatever
+            # the LLM emitted verbatim (case + aliases + typos). The
+            # downstream pbir_engine / pbir_validator paths both
+            # call :func:`normalize_visual_type` before they
+            # dispatch, so this was a silent passthrough — but the
+            # planner payload that the LLM itself sees still carried
+            # the raw spelling, and any future consumer that
+            # trusted the field literally would break. Normalize at
+            # parse time so ``visual_type`` truly is canonical.
+            try:
+                from nl2pbip.visual_types import normalize_visual_type
+
+                visual_type = normalize_visual_type(visual_type_raw)
+            except Exception:
+                # ``VisualTypeError`` (unknown) or anything else
+                # — keep the suggestion but flag a warning so the
+                # LLM payload mirrors the diagnostic instead of
+                # silently dropping the visual.
+                result.warnings.append(
+                    f"unrecognised visual_type {visual_type_raw!r}"
+                    f" for table {vs_table!r}"
+                )
+                visual_type = visual_type_raw
             result.visual_suggestions.append(
                 VisualSuggestion(
                     visual_type=visual_type,

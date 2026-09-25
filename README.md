@@ -11,7 +11,7 @@
 [![PyPI](https://img.shields.io/pypi/v/nl2pbip.svg)](https://pypi.org/project/nl2pbip/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#installation)
 [![License: Commercial](https://img.shields.io/badge/license-Commercial-orange.svg)](#license)
-[![Tests](https://img.shields.io/badge/tests-1037%20collected%2C%201025%20passing-brightgreen.svg)](#test-counts)
+[![Tests](https://img.shields.io/badge/tests-1043%20collected%2C%201026%20passing-brightgreen.svg)](#test-counts)
 [![CI](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/ci.yml)
 [![mypy --strict](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/mypy.yml)
 [![Bandit](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml/badge.svg)](https://github.com/rollroyces/nl2pbip/actions/workflows/bandit.yml)
@@ -902,7 +902,7 @@ nl2pbip/
 │   │   ├── dataset_generator.py  # instructor + OpenAI synthetic data
 │   │   └── train.py            # Unsloth + trl SFT + GGUF export
 │   └── mcp_server/             # Model Context Protocol server (4 tools)
-├── tests/                      # 1012 pytest cases across 34 test files
+├── tests/                      # 1018 pytest cases across 34 test files
 ├── artifacts/                  # example Run output (SalesInsights.pbipdir)
 ├── .github/                    # workflows, issue templates, CODEOWNERS,
 │                               # renovate.json, labeler.yml, SECURITY.md, etc.
@@ -916,7 +916,7 @@ nl2pbip/
 
 ## Test counts
 
-Pytest collects **1037 test cases across 35 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **1025 pass** on every supported Python version; the remaining 16 are skipped — 13 are benchmarks in `tests/test_performance.py` opt-in via `NL2PBIP_RUN_BENCHMARKS=1`, and 3 are the cross-server round-trip tests in `tests/test_cross_server_validation.py` opt-in via `NL2PBIP_RUN_CROSS_SERVER_TESTS=1` (the latter additionally require Microsoft's binary, installed by `scripts/install_powerbi_modeling_mcp.sh`). 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install -e ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
+Pytest collects **1043 test cases across 35 test files** in CI (Python 3.10 / 3.11 / 3.12). Of those, **1026 pass** on every supported Python version; the remaining 17 are skipped — 13 are benchmarks in `tests/test_performance.py` opt-in via `NL2PBIP_RUN_BENCHMARKS=1`, and 3 are the cross-server round-trip tests in `tests/test_cross_server_validation.py` opt-in via `NL2PBIP_RUN_CROSS_SERVER_TESTS=1` (the latter additionally require Microsoft's binary, installed by `scripts/install_powerbi_modeling_mcp.sh`). 3 additional tests in `tests/test_finetune.py` (not in the headline count) require the heavy `finetune` extra — install locally with `pip install -e ".[finetune]"` to run those 3. Run `pytest tests/ --no-header -q` to confirm locally.
 
 | Module | Cases |
 |---|---:|
@@ -938,7 +938,7 @@ Pytest collects **1037 test cases across 35 test files** in CI (Python 3.10 / 3.
 | `tests/test_data_understanding.py` | 24 |
 | `tests/test_relationship_validation.py` | 23 |
 | `tests/test_custom_visuals.py` | 16 |
-| `tests/test_schema_advisor.py` | 16 |
+| `tests/test_schema_advisor.py` | 18 |
 | `tests/test_cli_smoke.py` | 15 (subprocess-based CLI help smoke) |
 | `tests/test_partial_plan_recovery.py` | 15 |
 | `tests/test_mcp_server.py` | 13 (MCP tool surface + round-trip validation) |
