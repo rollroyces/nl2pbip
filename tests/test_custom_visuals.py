@@ -104,6 +104,7 @@ class TestCustomVisualLoading:
         # falls back to ``tomli``), so we reach for the symbol via
         # the conftest module instead of re-importing at runtime.
         from conftest import tomllib as toml_lib  # noqa: F401
+
         with pytest.raises(toml_lib.TOMLDecodeError):
             custom_visuals.load_custom_visual_specs(bad)
 
