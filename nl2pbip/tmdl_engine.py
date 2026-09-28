@@ -533,6 +533,22 @@ def _render_partition_microsoft(partition: Dict[str, Any]) -> str:
         expr_text = (expression or "").strip()
         lines.append(f"\texpression = {expr_text}")
         return "\n".join(lines) + "\n"
+    # R-N-11: warn on unknown partition modes instead of silently
+    # writing invalid TOM. Power BI validates the result at open
+    # time, not here — without the warning, a typo such as
+    # ``mode: "importt"`` only surfaced when the user opened the
+    # .pbip in Power BI Desktop.
+    _KNOWN_PARTITION_MODES = {"import", "directQuery", "dual", "push"}
+    if mode not in _KNOWN_PARTITION_MODES:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Unknown partition mode %r on partition %r — known modes: %s. "
+            "Output may not open in Power BI.",
+            mode,
+            name,
+            sorted(_KNOWN_PARTITION_MODES),
+        )
     if source:
         lines.append(f"\tmode: {mode}")
         lines.append("\tsource:")
