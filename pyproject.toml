@@ -80,6 +80,13 @@ dev = [
   # so httpx only matters when the operator has opted into
   # the MCP surface.
   "httpx>=0.27",
+  # ``pytest-json-report`` is consumed by
+  # ``scripts/run_cross_server_tests.sh`` to produce the
+  # ``pytest-report.json`` artifact for the label-gated
+  # cross-server workflow. Without it the wrapper exits with
+  # pytest's "internal error" code 4 and the workflow silently
+  # never exercises Microsoft's parser.
+  "pytest-json-report>=1.5",
 ]
 
 [project.scripts]

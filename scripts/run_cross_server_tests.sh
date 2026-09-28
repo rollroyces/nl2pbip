@@ -23,13 +23,24 @@ cd "$(git rev-parse --show-toplevel)"
 # Run pytest with a JSON report so we can embed per-test pass/fail
 # counts in the wrapper output. ``pytest-json-report`` is bundled
 # in the ``[dev]`` extra; if it's missing the test module's
-# ``--json-report`` flag will surface a clear error and we'll fall
-# back to text-only output.
+# ``--json-report`` flag would surface a clear error and the run
+# would exit with pytest's internal-error code 4. We detect that
+# case up front and re-run without the JSON report so the actual
+# tests always exercise the parser.
 set +e
-python -m pytest tests/test_cross_server_validation.py -v \
-    --json-report --json-report-file=pytest-report.json \
-    > pytest.log 2>&1
-EXIT=$?
+if python -m pytest tests/test_cross_server_validation.py -v \
+        --json-report --json-report-file=pytest-report.json \
+        > pytest.log 2>&1; then
+    EXIT=0
+else
+    EXIT=$?
+    if grep -q "unrecognized arguments: --json-report" pytest.log; then
+        echo "==> pytest-json-report not installed; re-running without it." >> pytest.log
+        python -m pytest tests/test_cross_server_validation.py -v \
+            >> pytest.log 2>&1
+        EXIT=$?
+    fi
+fi
 set -e
 
 # Write the self-describing result JSON. We use Python (not jq) so
