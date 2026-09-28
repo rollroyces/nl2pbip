@@ -18,6 +18,7 @@
 
 ## Contents
 
+- [What ships in v2.1.0](#what-ships-in-v210)
 - [What ships in v1.6.0](#what-ships-in-v160)
 - [5-minute demo](#5-minute-demo-no-llm-required)
 - [Install](#installation)
@@ -46,6 +47,15 @@
 - [License](#license)
 
 ---
+
+## What ships in v2.1.0
+
+| Capability | What it gives you |
+|---|---|
+| **Automatic foreign-key inference from sample data** (`--disable-fk-inference` to opt out) | The orchestrator runs `nl2pbip.fk_inference.infer_foreign_keys` over every registered data source's `ColumnProfile` and threads the surviving `CardinalityHint` objects into the planner payload as a new `inferred_foreign_keys` block (section header `## Likely foreign keys (auto-detected)`). The LLM still has the final say — it now sees concrete evidence per pair (name similarity + sample overlap + PK/PK type bonus) instead of guessing. Real-world win: a 50-table star-schema project gets 100+ FK candidates detected automatically without burning LLM tokens. Deterministic, no extra LLM cost. `FKInferenceConfig` exposes `min_confidence`, `name_similarity_threshold`, `sample_overlap_threshold`, and `max_pairs_evaluated`; all four are overridable via context keys. |
+
+| All v2.0.x capabilities | Below — left intact for posterity. |
+|---|---|
 
 ## What ships in v1.6.0
 
@@ -1212,12 +1222,12 @@ Inspecting the orchestrator's intermediate state is straightforward — `results
 
 ## Limitations
 
-What `nl2pbip` doesn't do well, as of v2.0.2:
+What `nl2pbip` doesn't do well, as of v2.1.0:
 
 | Limitation | Why | Workaround |
 |---|---|---|
 | **LLM can still invent bad column names.** Even with `model_state` and `data_profile` in the planner payload, models sometimes ignore them. | The orchestrator exposes the schema but doesn't force the LLM to use it. | Pin a known-good prompt version via `prompt_meta.version`; verify model state was sent by checking the planner payload dump |
-| **Foreign-key detection is heuristic.** `data_inspector.suggest_relationships()` ranks by overlap of top-5 distinct examples. | Sampling rather than full scan keeps the inspector fast. | Closed in v1.4.0 — see [CHANGELOG.md](./CHANGELOG.md). For critical FKs beyond tier-2 still requires more rows or hand-written relationships. |
+| **FK inference is sample-bounded.** `nl2pbip.fk_inference.infer_foreign_keys()` works from the inspector's top-N most-frequent distinct examples. The overlap ratio is therefore a **lower bound** on the true join coverage, and the FK hint's `evidence` string notes that explicitly. | None | For star-schema projects, the FK candidates that survive `min_confidence=0.5` are reliable. For long-tail / orphan-heavy relationships, increase `max_rows_per_source` or hand-write the relationship in TMDL. |
 | **No built-in RAG / retrieval.** Every plan re-emits the full payload, even for tables that already exist in the model. | The orchestrator is stateless across runs by design — PBIP is git-versioned. | Closed in v1.4.0 — see [CHANGELOG.md](./CHANGELOG.md). |
 | **Numeric distribution quantiles require ≥5 values.** A column with 3 rows returns no quantiles. | Quantiles on <5 values are statistically meaningless. | Provide more rows, or accept the empty `numeric_distributions` entry |
 | **`dax_library.json` is loaded once per CLI run.** | The catalog is a static file; no hot reload. | Closed in v1.4.0 — see [CHANGELOG.md](./CHANGELOG.md). For very large libraries the cache invalidation lag is up to 5s. |

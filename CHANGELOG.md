@@ -4,6 +4,56 @@ All notable changes to `nl2pbip` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-09-28
+
+### Added
+- **Automatic foreign-key inference from sample data.** The
+  orchestrator now runs a deterministic FK-detection pass over
+  every registered data source's ``ColumnProfile`` and threads
+  the surviving ``CardinalityHint`` objects into the planner
+  payload as a new `inferred_foreign_keys` block (section header
+  `## Likely foreign keys (auto-detected)`). The LLM still has
+  the final say on whether to wire up a relationship — it now
+  sees concrete evidence per pair instead of guessing. A real-world
+  win: a 50-table star-schema project gets 100+ FK candidates
+  detected automatically without spending tokens asking the LLM.
+- **New ``nl2pbip/fk_inference.py`` module** exposing
+  :func:`infer_foreign_keys`, :class:`FKInferenceConfig`, and
+  :class:`CardinalityHint`. Algorithm walks every (table, column)
+  pair, filters non-``is_potential_key`` pairs, scores survivors
+  on column-name similarity (after stripping ``_id`` / ``_key``
+  / ``_code`` suffixes + the bare-``id`` sentinel match),
+  distinct-value sample overlap, and a PK/PK type bonus.
+  Pairs below ``config.min_confidence`` are dropped; symmetric
+  duplicates collapse to the single higher-confidence direction.
+- **New ``--disable-fk-inference`` CLI flag** (default False;
+  inference runs by default). When set, the orchestrator skips
+  the call and the planner payload omits the FK section. Useful
+  for benchmarks and callers with verified FK coverage from
+  another source.
+- **Four new context overrides** to tune the FK-inference
+  thresholds from the caller side:
+  ``fk_inference_min_confidence``,
+  ``fk_inference_name_threshold``,
+  ``fk_inference_overlap_threshold``, and
+  ``fk_inference_max_pairs``. All default to the module's
+  conservative thresholds.
+- **36 new tests in ``tests/test_fk_inference.py``** covering
+  the FK-inference helpers, ``infer_foreign_keys`` end-to-end,
+  ``FKInferenceConfig`` validation, ``CardinalityHint.to_dict``,
+  and the orchestrator integration (positive case, ``--disable``
+  flag, no-data-sources, direct ``_planner_payload``).
+
+### Changed
+- **README capability matrix** gains a bullet for automatic FK
+  inference, and the test-counts headline + per-module table are
+  refreshed (1078 collected / 1061 passing / 36 test files).
+- **Limitation table** removes the v2.0.x row that called out
+  "Limited multi-table relationship detection" — the v2.1.0
+  FK-inference pass closes that gap for the auto-detected case
+  (the LLM still handles the long tail where the heuristic can't
+  reach).
+
 ## [Unreleased]
 
 ### Fixed
