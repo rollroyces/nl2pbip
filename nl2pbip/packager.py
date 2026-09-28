@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from nl2pbip.pbir_engine import REPORT_PATH_KEY
 from nl2pbip.tmdl_engine import (
     MODEL_PATH_KEY,
     TMDLModel,
+    TMDLRelationship,
+    TMDLTable,
     load_model,
     roles_workspace_dir,
 )
@@ -336,10 +339,31 @@ def _write_semantic_model(
     tables_dir.mkdir(parents=True, exist_ok=True)
 
     table_files: Dict[str, str] = {}
+    # v2.1: opt-in Microsoft TOM-parser-compatible TMDL syntax
+    # (TAB-indented, ``key: value``, no braces). Default OFF so
+    # v1.x / v2.0 artifacts keep loading. Enable with
+    # ``NL2PBIP_MICROSOFT_TMDL=1`` in the environment. The flag
+    # flips the per-table renderer + the relationships file format.
+    # ``database.tmdl``, ``model.tmdl`` refs, and the file layout
+    # are unaffected.
+    microsoft_tmdl = os.environ.get("NL2PBIP_MICROSOFT_TMDL", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+    def _render_table(table: TMDLTable) -> str:
+        if microsoft_tmdl:
+            return table.to_microsoft_tmdl()
+        return table.to_tmdl() + "\n"
+
+    def _render_rel(rel: TMDLRelationship) -> str:
+        if microsoft_tmdl:
+            return rel.to_microsoft_tmdl()
+        return rel.to_tmdl() + "\n"
+
     for table in model.tables.values():
         file_name = _safe_name(table.name) + ".tmdl"
         table_path = tables_dir / file_name
-        table_path.write_text(table.to_tmdl() + "\n", encoding="utf-8")
+        table_path.write_text(_render_table(table), encoding="utf-8")
         table_files[table.name] = str(table_path)
 
     model_path = definition_dir / "model.tmdl"
@@ -363,7 +387,14 @@ def _write_semantic_model(
     database_path.write_text(_render_database_tmdl(model), encoding="utf-8")
 
     relationships_path = definition_dir / "relationships.tmdl"
-    relationships_path.write_text(_render_relationships_block(model), encoding="utf-8")
+    if microsoft_tmdl:
+        relationships_path.write_text(
+            _render_relationships_block_microsoft(model), encoding="utf-8"
+        )
+    else:
+        relationships_path.write_text(
+            _render_relationships_block(model), encoding="utf-8"
+        )
 
     roles_dir = _ensure_roles_directory(definition_dir)
     role_paths: Dict[str, str] = {}
@@ -395,6 +426,37 @@ def _render_relationships_block(model: TMDLModel) -> str:
     if not model.relationships:
         return ""
     return "\n\n".join(rel.to_tmdl() for rel in model.relationships) + "\n"
+
+
+def _render_relationships_block_microsoft(model: TMDLModel) -> str:
+    """Render ``relationships.tmdl`` in Microsoft TOM-parser syntax.
+
+    Format::
+
+        ref table Sales
+        ref table Date
+
+        relationship SalesToDate
+            fromColumn: Sales.Date
+            toColumn: Date.Date
+
+    ``ref table`` declarations come first (matching the canonical
+    fixture under ``tests/_fixtures/cross_server/Canonical.SemanticModel/``).
+    Each relationship follows, separated by blank lines.
+    """
+    if not model.relationships:
+        # Even with no relationships, emit the ``ref table`` block
+        # so Microsoft can resolve table references.
+        return "\n".join(f"ref table {name}" for name in model.tables) + "\n"
+    parts: List[str] = [f"ref table {name}" for name in model.tables]
+    parts.append("")
+    for rel in model.relationships:
+        parts.append(rel.to_microsoft_tmdl().rstrip("\n"))
+        parts.append("")
+    while parts and parts[-1] == "":
+        parts.pop()
+    parts.append("")
+    return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------

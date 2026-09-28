@@ -72,34 +72,41 @@ def _cross_server_opted_in() -> bool:
 def _binary_path() -> Optional[Path]:
     """Best-effort resolve of the platform-native ``powerbi-modeling-mcp`` binary.
 
-    Order:
-      1. ``vendor/powerbi-modeling-mcp/...`` — populated by
-         ``scripts/install_powerbi_modeling_mcp.sh`` (recommended).
-      2. ``~/.npm/_npx/...`` — npx cache fallback for ad-hoc installs.
-
-    Returns ``None`` when neither is found, in which case the calling
-    test should ``pytest.skip(...)`` with an actionable message.
+    Supports macOS (``darwin-arm64`` / ``darwin-x64``) and Linux
+    (``linux-arm64`` / ``linux-x64``). Windows is included for
+    completeness. Returns ``None`` when none of the candidates
+    resolve; the calling test should ``pytest.skip(...)``.
     """
+    arch_raw = os.uname().machine if hasattr(os, "uname") else ""
+    arch_token = "arm64" if arch_raw in ("arm64", "aarch64") else "x64"
+
+    package_dir: Optional[str] = None
+    if sys.platform == "darwin":
+        package_dir = f"powerbi-modeling-mcp-darwin-{arch_token}"
+    elif sys.platform.startswith("linux"):
+        package_dir = f"powerbi-modeling-mcp-linux-{arch_token}"
+    elif sys.platform.startswith("win"):
+        package_dir = f"powerbi-modeling-mcp-win32-{arch_token}"
 
     candidates: List[Path] = []
-    if sys.platform == "darwin":
-        arch = "arm64" if os.uname().machine == "arm64" else "x64"
+    if package_dir:
         candidates.append(
             Path(__file__).parent.parent
             / "vendor"
             / "powerbi-modeling-mcp"
             / "node_modules"
             / "@microsoft"
-            / f"powerbi-modeling-mcp-darwin-{arch}"
+            / package_dir
             / "dist"
             / "powerbi-modeling-mcp"
         )
-        candidates.append(Path.home() / ".npm" / "_npx")
+        if sys.platform.startswith("win"):
+            candidates[-1] = candidates[-1].with_suffix(".exe")
+    candidates.append(Path.home() / ".npm" / "_npx")
     for c in candidates:
         if c.is_file():
             return c
         if c.is_dir():
-            # Search one level deeper for the resolved binary shape.
             for nested in c.rglob("dist/powerbi-modeling-mcp"):
                 if nested.is_file():
                     return nested

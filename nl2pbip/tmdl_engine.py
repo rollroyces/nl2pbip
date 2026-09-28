@@ -125,6 +125,36 @@ class TMDLColumn:
         lines.append(f"{prefix}}}")
         return "\n".join(lines)
 
+    def to_microsoft_tmdl(self, indent_tabs: int = 2) -> str:
+        """Emit the column in Microsoft TMDL syntax."""
+        prefix = "\t" * indent_tabs
+        sub = prefix + "\t"
+        name_str = self.name
+        if any(not c.isalnum() and c != "_" for c in name_str):
+            name_str = f"'{name_str}'"
+        lines: List[str] = [f"{prefix}column {name_str}"]
+        lines.append(f"{sub}dataType: {self.data_type}")
+        if self.data_type in ("int64", "decimal", "double", "currency"):
+            lines.append(f"{sub}summarizeBy: sum")
+        else:
+            lines.append(f"{sub}summarizeBy: none")
+        if self.format_string:
+            lines.append(f"{sub}formatString: {self.format_string}")
+        if self.source_column:
+            sc = self.source_column
+            if any(not c.isalnum() and c != "_" for c in sc):
+                sc = f"'{sc}'"
+            lines.append(f"{sub}sourceColumn: {sc}")
+        if self.sort_by_column:
+            lines.append(f"{sub}sortByColumn: {self.sort_by_column}")
+        if self.is_name_inferred:
+            lines.append(f"{sub}isNameInferred")
+        if self.is_hidden:
+            lines.append(f"{sub}isHidden")
+        if self.description:
+            lines.append(f"{sub}description: {_escape(self.description)}")
+        return "\n".join(lines) + "\n"
+
     @staticmethod
     def _escape(value: str) -> str:
         return value.replace("\\", "\\\\").replace('"', '\\"')
@@ -154,6 +184,21 @@ class TMDLMeasure:
             lines.append(f"{prefix}  }}")
         lines.append(f"{prefix}}}")
         return "\n".join(lines)
+
+    def to_microsoft_tmdl(self, indent_tabs: int = 2) -> str:
+        """Emit the measure in Microsoft TMDL syntax."""
+        prefix = "\t" * indent_tabs
+        sub = prefix + "\t"
+        name_str = self.name
+        if any(not c.isalnum() and c != "_" for c in name_str):
+            name_str = f"'{name_str}'"
+        lines: List[str] = [f"{prefix}measure {name_str}"]
+        lines.append(f"{sub}expression = {self.expression}")
+        if self.format_string:
+            lines.append(f"{sub}formatString: {self.format_string}")
+        if self.description:
+            lines.append(f"{sub}description: {_escape(self.description)}")
+        return "\n".join(lines) + "\n"
 
 
 def _format_expression(expression: str, indent: int) -> str:
@@ -217,6 +262,20 @@ class TMDLCalculationItem:
                 f"formatStringDefinition = {fs_block}"
             )
         return "\n".join(lines)
+
+    def to_microsoft_tmdl(self, indent_tabs: int = 2) -> str:
+        """Emit the calculation item in Microsoft TMDL syntax."""
+        prefix = "\t" * indent_tabs
+        lines: List[str] = [
+            f"{prefix}calculationItem '{self.name}' = {self.expression.strip()}",
+        ]
+        if self.format_string_definition:
+            lines.append(
+                f"{prefix}calculationItem '{self.name}' "
+                f"formatStringDefinition = "
+                f"{self.format_string_definition.strip()}"
+            )
+        return "\n".join(lines) + "\n"
 
 
 @dataclass
@@ -321,6 +380,68 @@ class TMDLTable:
         lines.append("}")
         return "\n".join(lines)
 
+    def to_microsoft_tmdl(self) -> str:
+        """Emit the table in Microsoft TMDL syntax."""
+        if self.is_calculation_group:
+            return self._to_calculation_group_microsoft_tmdl()
+        name = self.name
+        if any(not c.isalnum() and c != "_" for c in name):
+            name = f"'{name}'"
+        lines: List[str] = [f"table {name}", ""]
+        if self.description:
+            lines.append(f"\tdescription: {_escape(self.description)}")
+        if self.is_parameter_table:
+            lines.append("\tisParameterTable")
+        if self.partitions:
+            for partition in self.partitions:
+                lines.append("")
+                lines.append(_render_partition_microsoft(partition))
+        elif self.is_parameter_table and self.parameter_partition_expression:
+            synth_partition = {
+                "name": self.name,
+                "mode": "calculated",
+                "expression": self.parameter_partition_expression,
+            }
+            lines.append("")
+            lines.append(_render_partition_microsoft(synth_partition))
+        if self.columns:
+            lines.append("")
+            for col in self.columns.values():
+                lines.append(col.to_microsoft_tmdl(indent_tabs=1))
+                lines.append("")
+        if self.measures:
+            lines.append("")
+            for m in self.measures.values():
+                lines.append(m.to_microsoft_tmdl(indent_tabs=1))
+                lines.append("")
+        while lines and lines[-1] == "":
+            lines.pop()
+        lines.append("")
+        return "\n".join(lines)
+
+    def _to_calculation_group_microsoft_tmdl(self) -> str:
+        """Render a calculation-group table in Microsoft TMDL syntax."""
+        name = self.name
+        if any(not c.isalnum() and c != "_" for c in name):
+            name = f"'{name}'"
+        lines: List[str] = [f"table {name}", ""]
+        lines.append("\tcalculationGroup")
+        if self.precedence is not None:
+            lines.append(f"\t\tprecedence: {self.precedence}")
+        if self.calculation_items:
+            lines.append("")
+            for item in self.calculation_items:
+                lines.append(item.to_microsoft_tmdl(indent_tabs=2))
+        if self.columns:
+            lines.append("")
+            for col in self.columns.values():
+                lines.append(col.to_microsoft_tmdl(indent_tabs=1))
+                lines.append("")
+        while lines and lines[-1] == "":
+            lines.pop()
+        lines.append("")
+        return "\n".join(lines)
+
     def _to_calculation_group_tmdl(self) -> str:
         """Render a calculation-group table in canonical TMDL.
 
@@ -394,6 +515,45 @@ def _render_partition(partition: Dict[str, Any]) -> str:
     return f'"{name}" = mode: {mode}'
 
 
+def _render_partition_microsoft(partition: Dict[str, Any]) -> str:
+    """Render a partition in Microsoft TMDL syntax."""
+    name = (
+        partition.get("name")
+        or partition.get("source", {}).get("entityName")
+        or "Partition"
+    )
+    mode = partition.get("mode") or "import"
+    source = partition.get("source") or {}
+    expression = partition.get("expression")
+    if any(not c.isalnum() and c != "_" for c in name):
+        name = f"'{name}'"
+    lines: List[str] = [f"partition {name}"]
+    if mode == "calculated" or expression is not None:
+        lines.append("\tmode: calculated")
+        expr_text = (expression or "").strip()
+        lines.append(f"\texpression = {expr_text}")
+        return "\n".join(lines) + "\n"
+    if source:
+        lines.append(f"\tmode: {mode}")
+        lines.append("\tsource:")
+        for key, value in source.items():
+            if key in ("type", "expressionSource"):
+                continue
+            if isinstance(value, str):
+                v = value.strip()
+                if "\n" in v or len(v) > 60:
+                    lines.append(f"\t\t{key} =")
+                    for ln in v.splitlines():
+                        lines.append(f"\t\t\t{ln}")
+                else:
+                    lines.append(f"\t\t{key} = {v}")
+            else:
+                lines.append(f"\t\t{key} = {value}")
+        return "\n".join(lines) + "\n"
+    lines.append(f"\tmode: {mode}")
+    return "\n".join(lines) + "\n"
+
+
 def _render_source(source: Dict[str, Any]) -> str:
     """Render a TMDL source expression block (compact).
 
@@ -454,6 +614,35 @@ class TMDLRelationship:
         lines.append(f"  isActive = {str(self.is_active).lower()}")
         lines.append("}")
         return "\n".join(lines)
+
+    def to_microsoft_tmdl(self) -> str:
+        """Emit the relationship in Microsoft TMDL syntax."""
+        lines: List[str] = [f"relationship {self.name}"]
+        prefix = "\t"
+        ref_from = f"{self.from_table}.{self.from_column}"
+        ref_to = f"{self.to_table}.{self.to_column}"
+
+        def _quote(ref: str) -> str:
+            if any(not c.isalnum() and c != "_" and c != "." for c in ref):
+                return f"'{ref}'"
+            return ref
+
+        from_str = _quote(ref_from)
+        to_str = _quote(ref_to)
+        lines.append(f"{prefix}fromColumn: {from_str}")
+        lines.append(f"{prefix}toColumn: {to_str}")
+        if self.cardinality != "manyToOne":
+            lines.append(f"{prefix}cardinality: {self.cardinality}")
+        if self.cross_filter_direction != "single":
+            lines.append(
+                f"{prefix}crossFilteringBehavior: {self.cross_filter_direction}"
+            )
+        if not self.is_active:
+            lines.append(f"{prefix}isActive: false")
+        if self.from_cardinality and self.to_cardinality:
+            lines.append(f"{prefix}fromCardinality: {self.from_cardinality}")
+            lines.append(f"{prefix}toCardinality: {self.to_cardinality}")
+        return "\n".join(lines) + "\n"
 
 
 @dataclass
