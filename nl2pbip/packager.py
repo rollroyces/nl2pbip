@@ -347,7 +347,10 @@ def _write_semantic_model(
     # ``database.tmdl``, ``model.tmdl`` refs, and the file layout
     # are unaffected.
     microsoft_tmdl = os.environ.get("NL2PBIP_MICROSOFT_TMDL", "").strip().lower() in {
-        "1", "true", "yes", "on",
+        "1",
+        "true",
+        "yes",
+        "on",
     }
 
     def _render_table(table: TMDLTable) -> str:
