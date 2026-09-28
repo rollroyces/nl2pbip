@@ -4,6 +4,150 @@ All notable changes to `nl2pbip` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [2.1.1] - 2026-09-28
+
+### Fixed
+- **FK inference cardinality case mismatch (R-N-06).** The
+  `fk_inference` module emitted snake_case cardinality labels
+  (`"many_to_one"`, `"one_to_many"`, `"one_to_one"`, `"many_to_many"`)
+  but `define_relationship_handler`, `RelationshipCoverage`, the
+  orchestrator's planner payload, and the example_run.py all use
+  camelCase (`"manyToOne"` etc.). Every FK-hinted planner run had
+  to translate case between fields and burned a retry on every
+  relationship write. The `CARDINALITY_*` module constants are
+  now camelCase strings; tests use the constants directly.
+- **`_classify_cardinality` wrong branch + test lock-in (R-N-01,
+  R-N-21).** The `(small_is_pk=True, large_is_pk=False)` case was
+  labelled `many_to_many` (orphan-heavy); the correct label is
+  `manyToOne` (the non-PK side has duplicates and is "many").
+  Both "exactly one side is PK" branches now collapse to
+  `manyToOne`. `test_cardinality_many_to_many` was renamed
+  and updated to assert the correct contract.
+- **Sample-coverage confidence scaling (R-N-02).** A pair whose
+  small side has 5 distinct values out of 5M (sample coverage
+  0.0001) used to emit a ~0.95-confidence hint because overlap
+  was computed against only the top-N examples. Multiply
+  confidence by `(examples / distinct_count)` before emitting;
+  drop the pair entirely if the scaled confidence falls below
+  `min_confidence`.
+- **`_is_potential_key` helper centralised on ColumnProfile
+  (R-N-04).** The "unique AND non-null" rule was duplicated in
+  `fk_inference._is_potential_key`. Added a public
+  `ColumnProfile.is_potential_key(row_count)` method so the
+  two heuristics can never drift.
+- **Orchestrator rehydrated profiles once per planner request
+  (R-N-05).** `_planner_payload` previously called
+  `_rehydrate_profiles` four times in one pass. The caller now
+  hydrates once and passes the typed profiles list to the three
+  downstream summarise methods (AI schema advisor, data
+  understanding, FK inference).
+- **`_summarise_fk_inference` error shape (R-N-07).** Returned
+  `{"error": ...}` on bad config while sibling options return
+  `None`. Now logs a warning and silently skips.
+- **Orchestrator no longer overwrites caller-supplied `context`
+  arg (R-N-08).** A tool with a parameter literally named
+  `context` would have been silently stomped by the orchestrator
+  injecting its own shared context. Now only injects when the
+  caller hasn't supplied one.
+- **Dead `_run_impl` method removed (R-N-09).** ~70 lines
+  duplicating partial-recovery / validation-error / `last_error`
+  logic that hadn't been called since the v2.0.x reflection
+  rewrite.
+- **`LLMClient` Protocol accepts duck-typed stubs (R-N-10).**
+  `provider: str` / `model: str` were required attributes on
+  the Protocol, crashing every test stub that omitted them. Now
+  optional; the orchestrator reads them via `getattr(_, "unknown")`.
+- **Unknown partition mode warns (R-N-11).** A typo such as
+  `mode: "importt"` produced TOM it rejected at open time in
+  Power BI Desktop. Now logs a warning listing the valid
+  vocabulary.
+- **`formatStringDefinition` emitted as sub-property
+  (R-N-12).** `TMDLCalculationItem.to_microsoft_tmdl` re-emitted
+  the `calculationItem '<name>'` prefix on the format string
+  line — silently dropped at parse time. Emit
+  `formatStringDefinition` on the same item, indented one
+  extra tab.
+- **Stub `DataModelSchema` warns (R-N-15).** `add_pbip_folder`
+  emitted a minimal template shell when no payload provided.
+  Power BI Desktop opened it as a template. Now logs a warning
+  so CLI users see the data-source prompt is expected.
+- **`validate_visual` no longer mutates input (R-N-16).** The
+  alias rewrite (`"table"` → `"tableEx"`) was applied to the
+  caller's dict. Orchestrator's planner pool and the
+  `pbir_engine`'s report cache share visual dicts across
+  re-validations; the in-place mutation silently changed the
+  canonical spelling on re-runs. Deep-copy at the top of the
+  method.
+- **`_profile_column` no longer walks values twice
+  (R-N-17).** The 95%-numeric lock-in rule called
+  `_try_numeric` on every value a second time. Now reuses
+  the `type_counts` Counter from the first walk and only
+  iterates the string subset.
+- **`_build_index` doesn't waste records list (R-N-18).** Both
+  callers used only the distinct-values set. Added
+  `_build_distinct_and_counts` and migrated the two call
+  sites.
+- **int32 rejection message explains WHY (R-N-20).** "Unknown
+  dataType" didn't tell users the silent-coercion policy.
+  Surface a WHY explanation naming the Power BI Desktop
+  coercion and the accepted alternative.
+- **Soft-pass test assertions made numeric (R-N-22, R-N-23).**
+  `test_max_pairs_evaluated_caps_work` only asserted
+  `isinstance(hints, list)`. `test_skips_non_matching_types`
+  asserted "no hint matches this pair" (equivalent to
+  "this hint isn't in the output"). Both now assert
+  numeric counts / empty list of matching hints.
+- **`_mute_logging` autouse fixture preserves WARNING+ (R-N-24).**
+  Previously set the root logger to CRITICAL, silencing
+  WARNING too. caplog-based assertions saw empty streams.
+  Now sets WARNING as the floor — INFO/DEBUG are still
+  quieted (test output stays readable) but warnings remain
+  visible.
+- **`tomllib_load` doesn't re-open file handles (R-N-25).**
+  When given an open handle the helper previously
+  re-opened by name, losing encoding/mode and racing with
+  concurrent truncations. Now passes the handle straight
+  through to `tomllib.load`.
+- **Cross-reference VERSION pins in scripts (R-N-26).**
+  `install_powerbi_modeling_mcp.sh` and
+  `run_cross_server_tests.sh` both hard-code
+  `@microsoft/powerbi-modeling-mcp@0.5.0-beta.13`. Comments
+  cross-reference the sync point.
+- **`legacy_to_canonical.py` uses public alias (R-N-27).**
+  Was importing the underscore-prefixed
+  `_persist_model_canonical` directly. Added a public
+  `persist_model_canonical` wrapper and migrated the script.
+- **CI smoke test cleans `artifacts/SalesInsights.pbipdir`
+  (R-N-28).** The pre-existing committed PBIP dir satisfied
+  the `test -f` checks even when `example_run` was broken.
+  Wipe before re-running.
+- **CI `pip-extras` validated against `pyproject.toml`
+  (R-N-29).** Unknown extras were silently dropped by pip;
+  a typo (`mcc` instead of `mcp`) left CI green while
+  MCP tests were skipped. Validate against the declared
+  optional-dependency set; fail the workflow with a
+  clear error on a mismatch.
+
+### Performance
+- **`planner_guidance` memoised (R-R-01).** The concatenated
+  guidance string was rebuilt on every planner attempt. Cache
+  behind a module-level constant.
+- **`ReflectiveTrace.to_dict` preserves exception type
+  (R-R-03).** Only emitted the stringified `final_error`;
+  lost the exception class. Also emit
+  `final_exception_type`.
+- **IPv6 regex tightened (R-R-06).** Matched identifier-like
+  runs (`abc123:def456`) as IPv6. Require 7 full groups OR
+  a `::` zero-shorthand, anchored on colons.
+- **`load_model` legacy fallback warns (R-R-07).** Partial-
+  migration artifacts (empty `tables/` but no `database.tmdl`)
+  silently produced an empty model.
+- **`_validate_query_ref` / `_validate_measure_ref` log
+  when checks skipped (R-R-12).** When no TMDL model is
+  bound the helpers silently returned; projection errors
+  bypassed validation. Now log a message naming the projection
+  role and the unresolved reference.
+
 ## [2.1.0] - 2026-09-28
 
 ### Added
