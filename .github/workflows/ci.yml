@@ -51,7 +51,14 @@ jobs:
         # Smoke test for the top-level entry point — runs the
         # bundled example and confirms the output directory
         # exists with the expected files.
+        # R-N-28: the previous step didn't clean artifacts/ first,
+        # so the test passed even when example_run was broken —
+        # the pre-existing committed PBIP dir satisfied the
+        # ``test -f`` checks. Wipe the .pbipdir (the example
+        # output target) before re-running so a green smoke test
+        # genuinely means the example produced the artifact.
         run: |
+          rm -rf artifacts/SalesInsights.pbipdir
           python -m nl2pbip.example_run
           test -f artifacts/SalesInsights.pbipdir/SalesInsights.pbip
           test -f artifacts/SalesInsights.pbipdir/SalesInsights.SemanticModel/definition/model.tmdl
