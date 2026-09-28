@@ -15,8 +15,8 @@ Test matrix
 * **Sample overlap** — overlap drives confidence above the
   min-confidence floor; zero overlap pulls it below.
 * **Cardinality classification** — both sides ``is_potential_key``
-  → ``one_to_one``; only the smaller side is PK → ``many_to_one``;
-  neither PK → ``many_to_many``.
+  → ``oneToOne``; exactly one side PK → ``manyToOne`` (the
+  non-PK side is "many" because it has duplicates).
 * **Threshold filtering** — low-confidence pairs are dropped when
   ``min_confidence`` is raised.
 * **Symmetric dedup** — both directions of a pair collapse to one.
@@ -380,16 +380,27 @@ class TestInferForeignKeys:
         assert hints[0].from_table == "orders"
         assert hints[0].to_table == "customers"
 
-    def test_cardinality_many_to_many(self) -> None:
-        """Only smaller side PK → emits ``many_to_many`` (orphan-heavy case)."""
-        # ``customers.tag`` is the smaller-cardinality side AND PK
-        # (5 distinct / 5 rows). ``orders.tag`` is larger but NOT PK
-        # (5 distinct / 3 rows — but row_count < distinct_count which
-        # is impossible, so we need a different setup). Use 4
-        # distinct / 5 rows on orders to make it NOT PK, but then
-        # it becomes the SMALLER side. To get "smaller PK + larger
-        # not-PK" we need orders to have a higher distinct_count
-        # than customers AND orders not to be PK.
+    def test_cardinality_small_pk_only(self) -> None:
+        """Only smaller-distinct side PK → emits ``manyToOne`` (R-N-01).
+
+        The old helper labelled this case ``many_to_many`` (R-N-01)
+        because the larger side had duplicates but its distinct
+        count was higher — a degenerate setup. The corrected
+        helper (R-N-01) collapses both "exactly one side is PK"
+        cases to ``manyToOne``: the non-PK side is "many" because
+        it has duplicates, the PK side is "one" regardless of
+        which physical column carries fewer distinct values.
+
+        The ``from_table`` of the emitted hint is still the
+        smaller-distinct side (``customers``), matching the
+        pre-existing ``test_cardinality_many_to_one`` pattern —
+        callers use the dedup key (sorted ``from``/``to``)
+        rather than ``from`` alone for relationship wiring.
+        """
+        # ``customers.tag`` is the smaller-distinct side AND PK
+        # (5 distinct / 5 rows). ``orders.tag`` is larger (10
+        # distinct) but NOT PK (15 rows > 10 distinct — has
+        # duplicates, so the FK side).
         profile = _profile(
             "src",
             [
@@ -419,9 +430,10 @@ class TestInferForeignKeys:
         )
         hints = infer_foreign_keys([profile])
         assert hints
-        assert hints[0].cardinality == CARDINALITY_MANY_TO_MANY
-        # Smaller-distinct side (customers, 5 distinct) is PK; larger
-        # side (orders, 10 distinct, 15 rows) is not.
+        # Smaller-distinct side (customers, 5 distinct) is PK;
+        # larger side (orders, 10 distinct / 15 rows) has
+        # duplicates → FK. Cardinality is manyToOne.
+        assert hints[0].cardinality == CARDINALITY_MANY_TO_ONE
         assert hints[0].from_table == "customers"
         assert hints[0].to_table == "orders"
 

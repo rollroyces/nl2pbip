@@ -316,31 +316,29 @@ def _sample_overlap(col_small: ColumnProfile, col_large: ColumnProfile) -> float
 def _classify_cardinality(small_is_pk: bool, large_is_pk: bool) -> Cardinality:
     """Classify the relationship based on PK status of each side.
 
-    The "small" side is the column with fewer distinct values —
-    typically the foreign-key side in a many-to-one relationship.
+    The "small" side is the column with fewer distinct values.
 
     Rules
     -----
-    * Both ``is_potential_key`` → ``"one_to_one"`` (bijective join).
-    * Only the larger side is PK (i.e. the PK side has MORE
-      distinct values than the FK side) → ``"many_to_one"``: this
-      is the classic star-schema FK → dimension-PK pattern where
-      the FK column has duplicates but every value still
-      resolves to a single PK.
-    * Only the smaller side is PK → ``"many_to_many"``
-      (orphan-heavy / unusual: the FK column has more distinct
-      values than the PK column it points at, suggesting many
-      of the FK values don't resolve).
+    * Both ``is_potential_key`` → ``"oneToOne"`` (bijective join).
+    * Exactly one side is PK → ``"manyToOne"``: the PK column
+      is the "one" side and the non-PK column is the "many"
+      side (it has duplicates — the classic star-schema FK →
+      dim-PK pattern, regardless of which physical side has
+      fewer rows). This used to be split into ``many_to_one``
+      when the larger side was PK and ``many_to_many`` when
+      the smaller side was PK (R-N-01); the latter was wrong —
+      it mislabelled an orphan-free many-to-one join as
+      many-to-many and caused downstream LLM calls to add
+      a useless bridge table.
     * Neither side PK is unreachable here: the caller has
       already filtered those pairs out per the v2.1.0 spec
       (no point checking non-unique columns on both sides).
     """
     if small_is_pk and large_is_pk:
         return CARDINALITY_ONE_TO_ONE
-    if large_is_pk:
+    if small_is_pk or large_is_pk:
         return CARDINALITY_MANY_TO_ONE
-    if small_is_pk:
-        return CARDINALITY_MANY_TO_MANY
     # Caller guarantees at least one side is PK; defensive default.
     return CARDINALITY_MANY_TO_ONE
 
