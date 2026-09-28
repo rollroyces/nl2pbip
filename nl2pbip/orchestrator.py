@@ -1074,8 +1074,15 @@ class Orchestrator:
         for call in plan:
             spec = self._tools.get(call.tool)
             spec.validate_payload(call.args)
-            # inject shared context when desired by the handler
-            payload = {**call.args, "context": context}
+            # Inject shared context when desired by the handler.
+            # R-N-08: previously the orchestrator always overwrote
+            # any caller-supplied "context" key — adding a tool
+            # with a parameter literally named "context" would
+            # silently corrupt the value. Now we only inject when
+            # the caller didn't.
+            payload = {**call.args}
+            if "context" not in payload:
+                payload["context"] = context
             output = spec.handler(**payload)
             results.append(ToolResult(tool=call.tool, args=call.args, output=output))
         return results
@@ -1123,7 +1130,14 @@ class Orchestrator:
                 for call in chunk:
                     spec = self._tools.get(call.tool)
                     spec.validate_payload(call.args)
-                    payload = {**call.args, "context": context}
+                    # R-N-08: only inject the orchestrator's shared
+                    # context when the caller hasn't already
+                    # supplied one — prevents silent overwrites
+                    # when a tool's parameter is literally
+                    # named "context".
+                    payload = {**call.args}
+                    if "context" not in payload:
+                        payload["context"] = context
                     output = spec.handler(**payload)
                     results.append(
                         ToolResult(tool=call.tool, args=call.args, output=output)
