@@ -374,22 +374,6 @@ def _call_tool(
     return _parse_tool_payload(response)
 
 
-def _call_tool_soft(
-    server: _McpServer, name: str, arguments: Dict[str, Any]
-) -> Dict[str, Any]:
-    """Like :func:`_call_tool` but tolerates ``isError`` responses.
-
-    Used by tests that *expect* the tool to return an error
-    (e.g. gap reports that assert Microsoft's parser rejects a
-    specific layout). Always returns a dict; never raises.
-    """
-
-    response = server.request("tools/call", {"name": name, "arguments": arguments})
-    if "error" in response:
-        return {"_jsonrpc_error": response["error"]}
-    return _parse_tool_payload(response)
-
-
 def _parse_tool_payload(response: Dict[str, Any]) -> Dict[str, Any]:
     """Unwrap a Microsoft tool response into a plain dict.
 
@@ -451,9 +435,10 @@ def test_microsoft_powerbi_modeling_mcp_reads_canonical_pbip(
 
     Any divergence in the format we ship from what Microsoft's parser
     ingests surfaces here. The companion test
-    ``test_microsoft_powerbi_modeling_mcp_flags_nl2pbip_monolithic_layout``
-    documents the current divergence (nl2pbip's monolithic ``model.tmdl``
-    is rejected) and is a follow-up target.
+    ``test_microsoft_powerbi_modeling_mcp_reads_nl2pbip_output`` reads
+    an artifact produced by the *nl2pbip writer itself* (the same
+    pipeline end users hit), proving that the v2.0 canonical-default
+    change closed the v1.5 cross-server gap end-to-end.
     """
 
     server = _spawn_server()
@@ -612,9 +597,10 @@ def nl2pbip_pbipdir(tmp_path: Path) -> Path:
 
     Uses the same ``_StubClient`` pattern as
     ``tests/test_mcp_server.py`` so the pipeline runs without any
-    network. The output is what nl2pbip ships to end users — a
-    *monolithic* ``model.tmdl`` with all tables inlined, which is
-    NOT the canonical layout Microsoft's parser expects.
+    network. The output is what nl2pbip ships to end users — as
+    of v2.0.0 the default writer emits the canonical multi-file
+    TMDL layout (``database.tmdl`` + per-table files +
+    ``ref table X`` declarations + ``relationships.tmdl``).
 
     This fixture is opt-in via the same ``[mcp]`` extra as the
     MCP tests because ``nl2pbip.mcp_server.server`` is what
@@ -699,44 +685,69 @@ def nl2pbip_pbipdir(tmp_path: Path) -> Path:
 
 
 @_CROSS_SERVER_SKIP
-def test_microsoft_powerbi_modeling_mcp_flags_nl2pbip_monolithic_layout(
+def test_microsoft_powerbi_modeling_mcp_reads_nl2pbip_output(
     nl2pbip_pbipdir: Path,
 ) -> None:
-    """Honest gap report: nl2pbip v1.6.x's monolithic TMDL is
-    **not** currently readable by Microsoft's parser.
+    """Positive round-trip: spawn Microsoft's ``powerbi-modeling-mcp``
+    and prove it can read a ``.SemanticModel`` produced by the *nl2pbip
+    writer itself* (the same pipeline end users hit).
 
-    nl2pbip's TMDL writer emits a single ``model.tmdl`` with
-    every ``table {...}`` block inlined. Microsoft's TOM-based
-    TMDL parser expects the canonical Power BI Project layout
-    (a ``database.tmdl`` + one ``tables/*.tmdl`` per table +
-    ``ref table X`` declarations in ``model.tmdl``).
+    What this proves:
 
-    This test asserts that the ``ConnectFolder`` call reaches
-    the parser and is rejected with a TMDL-format error — proving
-    the cross-server plumbing works while surfacing the writer
-    divergence honestly. When nl2pbip's writer is refactored to
-    emit the canonical layout, this test will start passing
-    silently and the assertion below should be promoted to a
-    real schema roundtrip check (drop the
-    ``_isError`` expectation and assert the table / measure list).
+      * The MCP ``initialize`` handshake works against a Microsoft
+        server with a real clientInfo tuple (not the canned fixture).
+      * ``connection_operations.ConnectFolder`` accepts nl2pbip's
+        v2.0 canonical output end-to-end. The v1.5 cross-server gap
+        is closed — Microsoft's TOM parser ingests what nl2pbip
+        writes, by default.
+      * ``table_operations.List`` returns the expected tables
+        (Sales + Date in the orchestrator's two-table fixture).
+      * ``measure_operations.List`` returns the expected measure
+        (``Sales.Total Revenue``).
+
+    Companion to :func:`test_microsoft_powerbi_modeling_mcp_reads_canonical_pbip`,
+    which validates the same wire protocol against a hand-built
+    canonical fixture. Both tests should pass on any environment where
+    the Microsoft binary is installed and nl2pbip is on v2.0+.
     """
 
     server = _spawn_server()
     try:
-        server.request(
+        # 1. initialize
+        init = server.request(
             "initialize",
             {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
                 "clientInfo": {
-                    "name": "nl2pbip-cross-server-gap-report",
-                    "version": "0.0.1",
+                    "name": "nl2pbip-cross-server-roundtrip",
+                    "version": "2.0.0",
                 },
             },
         )
+        assert "result" in init, init
+        server_info = init["result"].get("serverInfo", {})
+        assert (
+            server_info.get("name") == "powerbi-modeling-mcp"
+        ), f"unexpected server identity: {server_info}"
+
         server.request("notifications/initialized", {})
 
-        connect = _call_tool_soft(
+        # 2. tools/list — sanity: server is alive.
+        tools_resp = server.request("tools/list", {})
+        advertised = {t["name"] for t in tools_resp.get("result", {}).get("tools", [])}
+        for required in {
+            "connection_operations",
+            "table_operations",
+            "measure_operations",
+        }:
+            assert required in advertised, (
+                f"Microsoft's MCP is missing expected tool {required!r}; "
+                f"advertised: {sorted(advertised)}"
+            )
+
+        # 3. ConnectFolder — nl2pbip output must be accepted as-is.
+        connect = _call_tool(
             server,
             "connection_operations",
             {
@@ -746,87 +757,53 @@ def test_microsoft_powerbi_modeling_mcp_flags_nl2pbip_monolithic_layout(
                 }
             },
         )
-
-        # The subprocess + JSON-RPC plumbing *works* (the call
-        # returned a structured response, not EOF or a
-        # BrokenPipeError). The parser rejected the layout —
-        # that's the cross-server finding.
-        assert connect.get("_isError"), (
-            "expected Microsoft's parser to reject nl2pbip's monolithic "
-            "TMDL layout, but ConnectFolder succeeded. If nl2pbip's TMDL "
-            "writer has been refactored to emit the canonical layout, "
-            "promote this test to a real schema roundtrip instead of "
-            "asserting the rejection."
+        assert not connect.get("_isError"), (
+            f"ConnectFolder rejected nl2pbip's canonical v2.0 output: " f"{connect}"
+        )
+        connect_data = connect.get("data", {})
+        # The orchestrator fixture defines two tables (Sales + Date)
+        # and one measure (Sales.Total Revenue). No relationships.
+        assert connect_data.get("tablesLoaded") == 2, (
+            f"expected 2 tables loaded from nl2pbip output, got "
+            f"{connect_data.get('tablesLoaded')} (full payload: {connect})"
+        )
+        assert connect_data.get("measuresLoaded") == 1, (
+            f"expected 1 measure loaded from nl2pbip output, got "
+            f"{connect_data.get('measuresLoaded')} (full payload: {connect})"
         )
 
-        message = _extract_error_message(connect)
-        # Be permissive about exact wording but require a
-        # TMDL-shaped error (not e.g. an XML/A endpoint failure
-        # from a totally different code path).
+        # 4. List tables — Sales + Date.
+        tables = _call_tool(
+            server, "table_operations", {"request": {"operation": "List"}}
+        )
+        assert not tables.get("_isError"), f"List tables failed: {tables}"
+        table_list = tables.get("data", [])
+        names = {t["name"] for t in table_list}
+        assert names == {
+            "Sales",
+            "Date",
+        }, f"expected tables {{Sales, Date}}, got {names}"
+
+        # 5. List measures — Sales.Total Revenue.
+        measures = _call_tool(
+            server, "measure_operations", {"request": {"operation": "List"}}
+        )
+        assert not measures.get("_isError"), f"List measures failed: {measures}"
+        measure_data = measures.get("data", [])
         assert any(
-            needle in message.lower()
-            for needle in (
-                "tmdl",
-                "database.tmdl",
-                "invalid",
-                "parsing",
-                "format error",
-                "import",
-            )
-        ), f"unexpected ConnectFolder error: {message!r}"
+            m["tableName"] == "Sales"
+            and any(x["name"] == "Total Revenue" for x in m.get("measures", []))
+            for m in measure_data
+        ), f"Total Revenue measure missing from {measure_data}"
+
     finally:
         server.stop()
 
 
-def _extract_error_message(connect_payload: Dict[str, Any]) -> str:
-    """Dig a representative error message out of a Microsoft tool
-    response that returned ``{"_isError": True, "raw": ...}``.
-
-    Microsoft's ``isError: true`` responses can carry the user-facing
-    message in three different places:
-
-    * ``raw._meta.error.message`` (structured error envelope, common)
-    * ``raw.content[0].text`` (a JSON-encoded ``{"message": ...}``
-      body — we parse it once and pull the ``message`` field)
-    * a top-level ``message`` (fallback)
-
-    Returns ``""`` when nothing matches; the caller treats that
-    as a test failure.
-    """
-
-    raw = connect_payload.get("raw", {})
-    candidates: List[str] = []
-
-    meta_error = raw.get("_meta", {}).get("error", {})
-    if isinstance(meta_error, dict):
-        candidates.append(str(meta_error.get("message", "")))
-
-    for entry in raw.get("content") or []:
-        if not isinstance(entry, dict) or entry.get("type") != "text":
-            continue
-        text = entry.get("text", "")
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            candidates.append(text)
-            continue
-        if isinstance(parsed, dict):
-            candidates.append(str(parsed.get("message", "")))
-            candidates.append(str(parsed.get("error", "")))
-        else:
-            candidates.append(str(parsed))
-
-    # First non-empty candidate wins.
-    for c in candidates:
-        if c.strip():
-            return c
-    return str(connect_payload.get("message", ""))
-
-
-# ---------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Install-script sanity (runs unconditionally — install script lives
 # in the repo and should not silently rot).
-# ---------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 _INSTALL_SCRIPT = (
     Path(__file__).parent.parent / "scripts" / "install_powerbi_modeling_mcp.sh"
