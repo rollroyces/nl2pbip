@@ -74,6 +74,26 @@ runs:
         # we replace commas with spaces inside the brackets.
         if [[ -n "${{ inputs.pip-extras }}" ]]; then
             EXTRAS=$(echo "${{ inputs.pip-extras }}" | tr ',' ' ')
+            # R-N-29: validate every requested extra exists in
+            # pyproject.toml's [project.optional-dependencies]
+            # table. Previously a typo (``mcc`` instead of
+            # ``mcp``) was silently dropped — the install
+            # succeeded but the workflow's MCP tests were
+            # skipped because the import failed at runtime.
+            # Fail the workflow here with a clear message.
+            python - <<'PYEOF'
+        import sys
+        import tomllib
+        with open("pyproject.toml", "rb") as fh:
+            cfg = tomllib.load(fh)
+        declared = set((cfg.get("project", {}).get("optional-dependencies") or {}).keys())
+        requested = [e.strip() for e in "${{ inputs.pip-extras }}".split(",") if e.strip()]
+        unknown = [e for e in requested if e not in declared]
+        if unknown:
+            print(f"::error::pip-extras contains unknown names: {unknown}", file=sys.stderr)
+            print(f"Declared extras: {sorted(declared)}", file=sys.stderr)
+            sys.exit(1)
+        PYEOF
             pip install -e ".[dev,${EXTRAS}]"
         else
             pip install -e ".[dev]"
