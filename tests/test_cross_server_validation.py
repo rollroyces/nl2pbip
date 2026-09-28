@@ -639,6 +639,16 @@ def nl2pbip_pbipdir(tmp_path: Path) -> Path:
             },
         },
         {
+            "tool": "create_table",
+            "args": {
+                "table_name": "Date",
+                "columns": [
+                    {"name": "Date", "data_type": "dateTime"},
+                    {"name": "Year", "data_type": "int64"},
+                ],
+            },
+        },
+        {
             "tool": "add_measure",
             "args": {
                 "table_name": "Sales",
