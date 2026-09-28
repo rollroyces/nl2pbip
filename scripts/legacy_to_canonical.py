@@ -31,9 +31,13 @@ if str(_REPO_ROOT) not in sys.path:
 
 from nl2pbip.tmdl_engine import (  # noqa: E402  (path-mutated import)
     MODEL_PATH_KEY,
-    _persist_model_canonical,
     load_model,
+    persist_model_canonical,
 )
+
+# R-N-27: replaced the private ``_persist_model_canonical``
+# import with its public alias. Same behaviour, no underscore-
+# prefixed call site.
 
 
 def _looks_like_canonical(model_dir: Path) -> bool:
@@ -112,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
         print("dry-run: pass --commit to apply the migration")
         return 0
 
-    _persist_model_canonical({MODEL_PATH_KEY: str(model_tmdl)})
+    persist_model_canonical({MODEL_PATH_KEY: str(model_tmdl)})
     print(f"canonicalised: {model_dir}")
     return 0
 

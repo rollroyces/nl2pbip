@@ -1966,6 +1966,21 @@ def _render_relationships_tmdl(model: TMDLModel) -> str:
     return ("\n".join(parts).strip() + "\n") if any(parts) else ""
 
 
+def persist_model_canonical(
+    context: Dict[str, Any],
+    model: Optional[TMDLModel] = None,
+) -> Path:
+    """Public alias for :func:`_persist_model_canonical`.
+
+    Added in v2.1.1 (R-N-27) so external callers (the
+    ``scripts/legacy_to_canonical.py`` migration script and
+    any future third-party tooling) don't need to import an
+    underscore-prefixed "private" symbol. Behaviour is
+    identical.
+    """
+    return _persist_model_canonical(context, model=model)
+
+
 def _persist_model_canonical(
     context: Dict[str, Any],
     model: Optional[TMDLModel] = None,
