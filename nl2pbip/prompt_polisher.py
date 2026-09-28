@@ -165,7 +165,18 @@ _PII_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"[\s\-.()]?\d{2,4}(?:[\s\-.()]?\d{1,5})?(?![A-Za-z0-9_])"
     ),  # phone (intl-ish)
     re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),  # IPv4
-    re.compile(r"\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b"),  # IPv6 (lenient)
+    # R-R-06: IPv6 — anchor on a colon at either end so a bare
+    # hex string like 'abcd:1234' (no colon-bounded neighbours)
+    # is NOT treated as IPv6. Require the pattern to either
+    # look like ``xxxx:xxxx:...:xxxx`` (full form, 7 groups) or
+    # contain the ``::`` zero-run shorthand. The lenient
+    # {2,7} bound was catching common identifier-like runs
+    # (``abc123:def456``) as IPv6.
+    re.compile(
+        r"(?<![\w:])(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}(?![\w:])"
+        r"|(?<![\w:])(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}(?![\w:])"
+        r"|(?<![\w:]):(?::[0-9a-fA-F]{1,4}){1,7}(?![\w:])"
+    ),  # IPv6 (full or shorthand)
 )
 
 #: Control characters other than common whitespace (\n \r \t).
