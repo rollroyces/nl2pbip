@@ -1,0 +1,9 @@
+{"version":3,"term":{"cols":80,"rows":24},"timestamp":1790598899,"idle_time_limit":5.0,"command":".venv/bin/python assets/llm_demo_script.py","env":{"SHELL":"/bin/zsh"}}
+[0.311, "o", "# nl2pbip — LLM-driven demo (run_id: 101c0a3d)\r\n# workspace:  /Users/hermes/work/nl2pbip/artifacts/llm_workspace\r\n# output:     /Users/hermes/work/nl2pbip/artifacts/SalesInsights.pbipdir\r\n# provider:   stub\r\n# model:      gpt-4o-mini-mock\r\n\r\n"]
+[1.205, "o", "# prompt: 'Customer satisfaction dashboard by region with YoY trend'\r\n# invoking orchestrator.run_with_reflection(…)\r\n\r\n"]
+[1.498, "o", "trace.attempts=1\r\ntrace.succeeded=True\r\n\r\n"]
+[0.404, "o", "# final artifact paths:\r\n"]
+[0.000, "o", "semantic model:  /Users/hermes/work/nl2pbip/artifacts/llm_workspace/model.tmdl  (89 bytes)\r\n"]
+[0.000, "o", "report surface:  /Users/hermes/work/nl2pbip/artifacts/llm_workspace/report_workspace.json  (2584 bytes)\r\n"]
+[0.001, "o", "PBIP package:    /Users/hermes/work/nl2pbip/artifacts/SalesInsights.pbipdir  (18 files)\r\n"]
+[1.428, "x", "0"]
