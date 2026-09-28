@@ -632,5 +632,15 @@ def planner_guidance() -> str:
     constant) so future per-context variability — e.g. disabling
     security guidance under a debug flag — is a one-line edit instead
     of a search-and-replace.
+
+    R-R-01: cached via ``functools.lru_cache`` so a single
+    process reuses the same string across all planner calls —
+    previously every call rebuilt the concatenated string.
     """
-    return f"{PLANNER_LANGUAGE_GUIDANCE}\n\n{PLANNER_SECURITY_GUIDANCE}"
+    return _PLANNER_GUIDANCE_VALUE
+
+
+# Build the cached value once at import. ``planner_guidance()``
+# returns the cached reference; module-level cache invalidation
+# is by re-import, which the test suite does explicitly.
+_PLANNER_GUIDANCE_VALUE = f"{PLANNER_LANGUAGE_GUIDANCE}\n\n{PLANNER_SECURITY_GUIDANCE}"
