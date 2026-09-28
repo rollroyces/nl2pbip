@@ -205,6 +205,18 @@ def validate_data_type(data_type: str) -> None:
             f"dataType {data_type!r} is an alias for {canonical!r}; "
             f"use the canonical spelling."
         )
+    # R-N-20: surface a WHY explanation for the silent-coercion
+    # cases (int32 → int64) so callers don't see "Unknown
+    # dataType" and wonder whether they typo'd the spelling.
+    # Power BI Desktop coerces ``int32`` to ``int64`` on save,
+    # so accepting it just hides intent — reject explicitly.
+    if data_type.lower() in {"int32", "int8", "int16"}:
+        raise DataTypeError(
+            f"dataType {data_type!r} is not accepted — Power BI Desktop "
+            f"silently coerces it to int64 at save time, so accepting it "
+            f"just hides intent. Use 'int64' (or 'wholeNumber' for the "
+            f"Power BI Desktop format-style spelling) instead."
+        )
     raise DataTypeError(
         f"Unknown dataType {data_type!r}. "
         f"Accepted canonical types: {sorted(ACCEPTED_DATA_TYPES)}. "
