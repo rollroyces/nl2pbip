@@ -111,12 +111,13 @@ to [Semantic Versioning](https://semver.org/).
   (``table "Sales" { columns = [...] }``) while Microsoft's TOM
   parser expects TMDL-native syntax (``table Sales`` followed by
   indented ``column SaleId`` blocks). Microsoft returns
-  ``"Parsing error type - InvalidLineType — Unexpected line type:
-  Other!"``. Closing this requires rewriting
-  ``TMDLTable.to_tmdl()``, ``TMDLColumn.to_tmdl()``,
-  ``TMDLMeasure.to_tmdl()``, and ``TMDLRelationship.to_tmdl()`` to
-  emit TAB-indented TMDL — substantial refactor, breaking-change
-  territory. Tracked as the next item after this release.
+  return ``"Parsing error type - InvalidLineType — Unexpected line type:
+    Other!"`` — *fixed in v2.1.0 (this entry)*. New ``to_microsoft_tmdl()``
+    methods on all 5 TMDL dataclasses plus the opt-in
+    ``NL2PBIP_MICROSOFT_TMDL=1`` env var (default OFF) emit
+    TAB-indented TMDL-native syntax that the TOM parser accepts.
+    Verified by direct ``_write_semantic_model`` call against the
+    canonical fixture.
 
 ## [2.0.2] - 2026-09-25
 
