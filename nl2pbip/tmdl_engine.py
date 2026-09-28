@@ -270,9 +270,17 @@ class TMDLCalculationItem:
             f"{prefix}calculationItem '{self.name}' = {self.expression.strip()}",
         ]
         if self.format_string_definition:
+            # R-N-12: emit the formatStringDefinition on the SAME
+            # calculationItem line, indented one level deeper so it
+            # reads as a sub-property. The previous version
+            # re-emitted ``calculationItem '{name}'`` on the
+            # sibling line — which TMDL parsed as a new
+            # calculationItem, silently losing the format string
+            # at open time. The legacy ``to_tmdl`` output (above)
+            # is correct: see ``tests/test_calculation_groups.py``
+            # ``test_emit_calculation_group``.
             lines.append(
-                f"{prefix}calculationItem '{self.name}' "
-                f"formatStringDefinition = "
+                f"{prefix}\tformatStringDefinition = "
                 f"{self.format_string_definition.strip()}"
             )
         return "\n".join(lines) + "\n"
