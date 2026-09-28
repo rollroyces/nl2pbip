@@ -267,22 +267,48 @@ def _name_similarity(a: str, b: str) -> float:
     return difflib.SequenceMatcher(a=na, b=nb).ratio()
 
 
-def _is_potential_key(col: ColumnProfile, row_count: int) -> bool:
-    """Return True when ``col`` looks like a primary key.
+def _score_pair(
+    small_col: ColumnProfile,
+    large_col: ColumnProfile,
+    name_score: float,
+    overlap_score: float,
+    small_is_pk: bool,
+    large_is_pk: bool,
+) -> Tuple[float, str]:
+    """Compute the composite confidence score + evidence string.
 
-    Criteria: distinct_count equals row_count AND the column has
-    no nulls. This is the same rule the inspector uses when it
-    sets ``is_potential_key`` (the field isn't always populated
-    by every code path, so we re-derive it here from the
-    raw counts).
+    Returns ``(confidence, evidence)`` where ``confidence`` is
+    ``0.5 * name_score + 0.4 * overlap_score + 0.1 * type_bonus``
+    clamped to ``[0.0, 1.0]``.
+
+    The ``type_bonus`` is ``1.0`` when both sides share the same
+    ``inferred_type`` AND both are ``is_potential_key`` (a strong
+    signal that we're matching two PK columns of foreign keys),
+    ``0.0`` otherwise.
+
+    The ``evidence`` string is a human-readable one-liner listing
+    the contributing signals so the LLM doesn't have to re-derive
+    them from the hint.
     """
-    if row_count <= 0:
-        return False
-    if col.distinct_count != row_count:
-        return False
-    if col.null_rate > 0.0:
-        return False
-    return True
+    type_bonus = 0.0
+    if (
+        small_is_pk
+        and large_is_pk
+        and small_col.inferred_type == large_col.inferred_type
+    ):
+        type_bonus = 1.0
+    raw = 0.5 * name_score + 0.4 * overlap_score + 0.1 * type_bonus
+    confidence = max(0.0, min(1.0, raw))
+    bits: List[str] = []
+    if name_score > 0:
+        bits.append(f"name similarity {name_score:.2f}")
+    if overlap_score > 0:
+        bits.append(f"sample overlap {overlap_score:.2f}")
+    if type_bonus > 0:
+        bits.append("both sides marked potential key with matching types")
+    if not bits:
+        bits.append("no signal beyond column-name proximity")
+    return confidence, "; ".join(bits)
 
 
 def _column_examples(col: ColumnProfile) -> List[str]:
@@ -374,50 +400,6 @@ def _eligible_type(inferred_type: str) -> bool:
     return inferred_type in {"numeric", "text", "date"}
 
 
-def _score_pair(
-    small_col: ColumnProfile,
-    large_col: ColumnProfile,
-    name_score: float,
-    overlap_score: float,
-    small_is_pk: bool,
-    large_is_pk: bool,
-) -> Tuple[float, str]:
-    """Compute the composite confidence score + evidence string.
-
-    Returns ``(confidence, evidence)`` where ``confidence`` is
-    ``0.5 * name_score + 0.4 * overlap_score + 0.1 * type_bonus``
-    clamped to ``[0.0, 1.0]``.
-
-    The ``type_bonus`` is ``1.0`` when both sides share the same
-    ``inferred_type`` AND both are ``is_potential_key`` (a strong
-    signal that we're matching two PK columns of foreign keys),
-    ``0.0`` otherwise.
-
-    The ``evidence`` string is a human-readable one-liner listing
-    the contributing signals so the LLM doesn't have to re-derive
-    them from the hint.
-    """
-    type_bonus = 0.0
-    if (
-        small_is_pk
-        and large_is_pk
-        and small_col.inferred_type == large_col.inferred_type
-    ):
-        type_bonus = 1.0
-    raw = 0.5 * name_score + 0.4 * overlap_score + 0.1 * type_bonus
-    confidence = max(0.0, min(1.0, raw))
-    bits: List[str] = []
-    if name_score > 0:
-        bits.append(f"name similarity {name_score:.2f}")
-    if overlap_score > 0:
-        bits.append(f"sample overlap {overlap_score:.2f}")
-    if type_bonus > 0:
-        bits.append("both sides marked potential key with matching types")
-    if not bits:
-        bits.append("no signal beyond column-name proximity")
-    return confidence, "; ".join(bits)
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -497,8 +479,8 @@ def infer_foreign_keys(
             else:
                 small_col, small_table, small_rc = c2, t2, rc2
                 large_col, large_table, large_rc = c1, t1, rc1
-            small_is_pk = _is_potential_key(small_col, small_rc)
-            large_is_pk = _is_potential_key(large_col, large_rc)
+            small_is_pk = small_col.is_potential_key(small_rc)
+            large_is_pk = large_col.is_potential_key(large_rc)
             # Spec: skip pairs where neither column is a potential
             # key. Non-PK-vs-non-PK joins are usually the LLM's
             # problem, not ours — the heuristic is meant to catch

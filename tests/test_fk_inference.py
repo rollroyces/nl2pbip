@@ -45,7 +45,6 @@ from nl2pbip.fk_inference import (
     CardinalityHint,
     FKInferenceConfig,
     _flatten_columns,
-    _is_potential_key,
     _name_similarity,
     _normalise_column_name,
     _sample_overlap,
@@ -163,15 +162,15 @@ class TestNameSimilarity:
 class TestIsPotentialKey:
     def test_unique_no_nulls(self) -> None:
         col = _col("id", distinct_count=5, row_count=5)
-        assert _is_potential_key(col, row_count=5) is True
+        assert col.is_potential_key(row_count=5) is True
 
     def test_duplicates_not_pk(self) -> None:
         col = _col("id", distinct_count=4, row_count=5)
-        assert _is_potential_key(col, row_count=5) is False
+        assert col.is_potential_key(row_count=5) is False
 
     def test_nulls_exclude_pk(self) -> None:
         col = _col("id", distinct_count=5, row_count=5, null_rate=0.1)
-        assert _is_potential_key(col, row_count=5) is False
+        assert col.is_potential_key(row_count=5) is False
 
 
 class TestSampleOverlap:

@@ -84,6 +84,24 @@ class ColumnProfile:
     # ``redact_distinct_values=True`` is passed to the profiler.
     distinct_examples: List[Any] = field(default_factory=list)
 
+    def is_potential_key(self, row_count: int) -> bool:
+        """Return True when this column looks like a primary key.
+
+        Centralises the rule that ``fk_inference._is_potential_key``
+        previously re-derived (R-N-04) so the two heuristics can
+        never drift. Strict uniqueness: ``distinct_count ==
+        row_count`` AND zero nulls. Use
+        :func:`data_understanding.identify_primary_keys` for a
+        softer ("likely" / "weak") tiered classification.
+        """
+        if row_count <= 0:
+            return False
+        if self.distinct_count != row_count:
+            return False
+        if self.null_rate > 0.0:
+            return False
+        return True
+
     def to_json(self, *, redact_distinct_values: bool = False) -> Dict[str, Any]:
         """Render as a JSON-safe dict."""
         payload = asdict(self)
