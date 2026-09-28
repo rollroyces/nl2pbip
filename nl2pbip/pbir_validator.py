@@ -431,6 +431,20 @@ class PBIRValidator:
                 f"Projection '{role}' has malformed queryRef '{query_ref}'.",
             )
         if not self._model:
+            # R-R-12: log a debug message when projection checks
+            # are skipped because no TMDL model is bound, so the
+            # caller knows the validator didn't actually verify
+            # the projection. Without this, callers can spend
+            # hours wondering why an obviously-bad queryRef
+            # didn't fail validation.
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "Projection checks skipped: no TMDL model bound to "
+                "validator (projection role=%r, queryRef=%r).",
+                role,
+                query_ref,
+            )
             return
         columns = self._column_lookup.get(table)
         if not columns or column not in columns:
@@ -446,6 +460,14 @@ class PBIRValidator:
                 f"Projection '{role}' has invalid measureRef '{measure_ref}'.",
             )
         if not self._model:
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "Projection checks skipped: no TMDL model bound to "
+                "validator (projection role=%r, measureRef=%r).",
+                role,
+                measure_ref,
+            )
             return
         if measure_ref not in self._measure_set:
             raise PBIRValidationError(
