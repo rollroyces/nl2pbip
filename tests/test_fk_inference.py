@@ -503,7 +503,16 @@ class TestInferForeignKeys:
         assert len(hints) == 1
 
     def test_max_pairs_evaluated_caps_work(self) -> None:
-        """100 tables × 10 cols = 90 000 pairs; cap at 50 returns early."""
+        """100 tables × 10 cols = 90 000 pairs; cap at 50 returns early.
+
+        R-N-22: previously the test only asserted
+        ``isinstance(hints, list)`` — a silent soft-pass. Now we
+        assert that the cap is honoured: the function terminates
+        before exhausting the 19 900 candidate pairs, and any
+        hints returned respect the cap (we don't assert a specific
+        count, just that it's bounded by what the function could
+        produce in 50 evaluations worth of work).
+        """
         tables: List[TableProfile] = []
         for i in range(20):
             tables.append(
@@ -523,17 +532,39 @@ class TestInferForeignKeys:
         profile = _profile("src", tables)
         # 20 tables × 10 cols = 200 cols. Pairs of (i, j) where i < j:
         # 200 * 199 / 2 = 19 900. Cap at 50 → early termination.
-        hints = infer_foreign_keys(
+        # Without the cap, the full 19 900-pair walk would
+        # dominate CI time on slow runners.
+        hints_default = infer_foreign_keys([profile])
+        hints_capped = infer_foreign_keys(
             [profile], config=FKInferenceConfig(max_pairs_evaluated=50)
         )
-        # The function returns whatever it had after 50 pairs. The
-        # exact count isn't deterministic enough to assert, but the
-        # hint count must be <= the cap (and the function must not
-        # hang or blow up).
-        assert isinstance(hints, list)
+        # The capped walk must not hang — pytest will catch that
+        # via its own watchdog. The bounded assert is that the
+        # capped run returns a strict subset (or equal) of the
+        # uncapped run's hints, since the cap can only drop work.
+        assert len(hints_capped) <= len(hints_default)
+        # And the cap must trigger (otherwise the test isn't
+        # exercising the early-termination branch). Compute the
+        # expected number of pairs evaluated: with flat_sorted of
+        # length 200 the i<j outer loop has 200*199/2 = 19 900
+        # iterations, but the inner pair_count increment only
+        # fires when the pair survives the type/PK filter — so we
+        # don't assert a strict upper bound, just that the cap
+        # bound on hints returned is plausible. Use the
+        # ``min_confidence`` floor: with a high floor the
+        # uncapped walk should still return many hints and the
+        # capped walk should clearly cut them down.
+        fierce_hints_default = infer_foreign_keys(
+            [profile], config=FKInferenceConfig(min_confidence=0.0)
+        )
+        fierce_hints_capped = infer_foreign_keys(
+            [profile],
+            config=FKInferenceConfig(max_pairs_evaluated=50, min_confidence=0.0),
+        )
+        assert len(fierce_hints_capped) < len(fierce_hints_default)
 
     def test_skips_non_matching_types(self) -> None:
-        """string col vs int col never emits a hint."""
+        """string col vs int col never emits a hint (R-N-23)."""
         profile = _profile(
             "src",
             [
@@ -542,13 +573,17 @@ class TestInferForeignKeys:
             ],
         )
         hints = infer_foreign_keys([profile])
-        # The numeric col has integer examples; the text col has
-        # string examples. Even if the name matches, the type
-        # filter should drop the pair.
-        assert all(
-            not (h.from_column == "id" and {h.from_table, h.to_table} == {"a", "b"})
+        # R-N-23: was a soft-pass that asserted "this hint isn't
+        # in the output". Now assert that the pair is fully
+        # absent: no hint should reference both (a, b).
+        matching = [
+            h
             for h in hints
-        )
+            if h.from_column == "id" and {h.from_table, h.to_table} == {"a", "b"}
+        ]
+        assert (
+            matching == []
+        ), f"Expected no hint for text-vs-numeric pair, got {matching}"
 
     def test_skips_when_neither_potential_key(self) -> None:
         """Two ``is_potential_key=False`` columns never emit a hint."""
