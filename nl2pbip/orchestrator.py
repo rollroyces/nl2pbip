@@ -280,6 +280,15 @@ class ReflectiveTrace:
                 len(self.final_results) if self.final_results else 0
             ),
             "final_error": self.final_error,
+            # R-R-03: persist the exception type alongside the
+            # stringified ``final_error`` so postmortems can
+            # distinguish TMDLValidationError from PBIRValidationError
+            # from RuntimeError — the string form lost that info.
+            "final_exception_type": (
+                type(self.final_exception).__name__
+                if self.final_exception is not None
+                else None
+            ),
             "critic_score": (
                 {
                     "correctness": self.critic_score.correctness,
