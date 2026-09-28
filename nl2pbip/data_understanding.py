@@ -175,6 +175,21 @@ def _build_index(
     Returns the records list, the set of distinct non-null values
     for ``key``, and a counter of value → occurrences (used to
     detect the right-side distinct count).
+
+    .. note::
+       R-N-18: both callers currently use
+       ``_build_index(records, key)[1]`` (just the distinct set)
+       and discard the records list. Building ``out`` was 50k+
+       unnecessary dict references per planner request. Kept for
+       back-compat but the records walk now happens AFTER the
+       set/counter walk so the function short-circuits as soon
+       as possible — actually no, the records walk is necessary
+       to enumerate distinct values, so the optimisation is to
+       drop the out list entirely when callers ignore it.
+       Added :func:`_build_distinct_and_counts` as the
+       no-records variant and migrated the two call sites to it.
+       _build_index remains for any future caller that does
+       need the records.
     """
     out: List[Dict[str, Any]] = []
     distinct: Set[str] = set()
@@ -187,6 +202,24 @@ def _build_index(
         distinct.add(value)
         counts[value] += 1
     return out, distinct, counts
+
+
+def _build_distinct_and_counts(
+    records: Iterable[Dict[str, Any]], key: str
+) -> Tuple[Set[str], Counter[str]]:
+    """R-N-18: lightweight variant of :func:`_build_index` that
+    skips the records-list walk when callers only need the
+    distinct-values set and the per-value counter.
+    """
+    distinct: Set[str] = set()
+    counts: Counter[str] = Counter()
+    for record in records:
+        value = record.get(key)
+        if value is None or value == "":
+            continue
+        distinct.add(value)
+        counts[value] += 1
+    return distinct, counts
 
 
 @dataclass(frozen=True)
@@ -274,8 +307,8 @@ def verify_relationship_coverage(
     if not from_records or not to_records:
         return None
 
-    _, from_distinct, _ = _build_index(from_records, from_column)
-    _, to_distinct, _ = _build_index(to_records, to_column)
+    from_distinct, _ = _build_distinct_and_counts(from_records, from_column)
+    to_distinct, _ = _build_distinct_and_counts(to_records, to_column)
     if not from_distinct or not to_distinct:
         # One side is empty — FK covers 0 rows.
         return RelationshipCoverage(
