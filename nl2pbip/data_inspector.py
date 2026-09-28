@@ -471,6 +471,7 @@ def _profile_column(name: str, values: List[Any], top_n: int = 5) -> ColumnProfi
 
     # Type inference from the non-null sample.
     inferred = "text"
+    type_counts: Counter[str] = Counter()
     if non_null:
         type_counts = Counter(_infer_value_type(v) for v in non_null)
         # Drop ``null`` — that's a measure of presence, not a type.
@@ -479,10 +480,25 @@ def _profile_column(name: str, values: List[Any], top_n: int = 5) -> ColumnProfi
             inferred = type_counts.most_common(1)[0][0]
     # If the dominant type is ``numeric`` but at least 95% of
     # values parse as numeric, lock the inference to numeric even
-    # if a handful of strings slipped in.
-    numeric_count = sum(1 for v in non_null if _try_numeric(v) is not None)
-    if numeric_count and numeric_count / non_null_count >= 0.95:
-        inferred = "numeric"
+    # if a handful of strings slipped in. R-N-17: avoid the second
+    # ``_try_numeric`` walk over every value — instead, reuse the
+    # ``type_counts`` Counter above. Strings already failed
+    # ``_infer_value_type``'s numeric check (which only fires for
+    # native int/float) but ``_try_numeric`` accepts stringified
+    # numbers like ``"1.5"``. Count those once: walk the strings
+    # subset and tally the parses.
+    if inferred in ("numeric", "text") and non_null_count:
+        string_count = type_counts.get("text", 0)
+        if string_count:
+            numeric_string_count = sum(
+                1 for v in non_null if isinstance(v, str) and _try_numeric(v) is not None
+            )
+            if (
+                type_counts.get("numeric", 0) + numeric_string_count
+            ) / non_null_count >= 0.95:
+                inferred = "numeric"
+        elif type_counts.get("numeric", 0) / non_null_count >= 0.95:
+            inferred = "numeric"
 
     # Single pass: build both the distinct-count set and the
     # frequency Counter in one walk over ``non_null`` so we don't
