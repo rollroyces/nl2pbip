@@ -1182,13 +1182,21 @@ class Orchestrator:
         data_summary = self._summarise_data_sources(context)
         if data_summary is not None:
             payload["data_profile"] = data_summary
+            # Rehydrate the typed profile list ONCE per planner
+            # request (R-N-05). The three downstream summarise
+            # methods (AI schema advisor, data understanding,
+            # FK inference) all need it; rebuilding it in each
+            # of them quadrupled per-call cost.
+            rehydrated_profiles = self._rehydrate_profiles(data_summary)
             # When an LLM client is available AND the caller hasn't
             # opted out, also ask the LLM to enrich the deterministic
             # profile with column-semantics, measure, and visual
             # suggestions. The deterministic summary above is
             # always kept — the AI advisor only ADDS hints, never
             # replaces the structural facts.
-            ai_summary = self._summarise_ai_schema(context, data_summary)
+            ai_summary = self._summarise_ai_schema(
+                context, data_summary, rehydrated_profiles
+            )
             if ai_summary is not None:
                 payload["ai_schema_hints"] = ai_summary
             # Curated ontology (schema.org + PROV-O) — maps common
@@ -1205,7 +1213,9 @@ class Orchestrator:
             # cardinality hints, numeric distributions, time
             # ranges. The LLM uses these to design relationships
             # and measures with concrete numbers, not guesses.
-            understanding = self._summarise_data_understanding(context, data_summary)
+            understanding = self._summarise_data_understanding(
+                context, rehydrated_profiles
+            )
             if understanding is not None:
                 payload["data_understanding"] = understanding
             # Auto-detected foreign-key candidates (v2.1.0). Built
@@ -1213,7 +1223,7 @@ class Orchestrator:
             # understanding blocks use, so we don't re-run
             # ``inspect_data_sources`` (the v1.6.1 RISKY fix noted
             # that pattern).
-            fk_hints = self._summarise_fk_inference(context, data_summary)
+            fk_hints = self._summarise_fk_inference(context, rehydrated_profiles)
             if fk_hints is not None:
                 payload["inferred_foreign_keys"] = fk_hints
         if self._dax_catalog:
@@ -1223,7 +1233,7 @@ class Orchestrator:
     def _summarise_data_understanding(
         self,
         context: Dict[str, Any],
-        data_summary: Dict[str, Any],
+        profiles: List[Any],
     ) -> Optional[Dict[str, Any]]:
         """Cross-table data understanding for the planner payload.
 
@@ -1233,26 +1243,22 @@ class Orchestrator:
 
         Disabled by ``context["data_understanding_enabled"] = False``.
 
-        Returns ``None`` when ``data_sources`` isn't set (the
-        data needed to compute the stats isn't available).
+        Returns ``None`` when ``profiles`` is empty (no data
+        available to compute stats on).
 
         .. note::
-           RISKY finding from the v1.6.1 4-pass review: previously
-           this method re-ran ``inspect_data_sources(sources)`` even
-           though the orchestrator had already called it (via
-           :meth:`_summarise_data_sources`) in the same
-           ``_planner_payload`` pass — every planner request
-           re-read every source file from disk + profiled every
-           column twice. Now the profiles are rehydrated from the
-           ``data_summary`` dict instead (same path as
-           :meth:`_summarise_ai_schema`).
+           R-N-05: previously this method (and
+           :meth:`_summarise_ai_schema`, :meth:`_summarise_fk_inference`)
+           each called ``_rehydrate_profiles(data_summary)``
+           independently — every planner request rebuilt the
+           same :class:`DataProfile` list three times. The
+           caller now hydrates once and passes the list down.
         """
         if context.get("data_understanding_enabled", True) is False:
             return None
         # Re-import here to keep the cold-start path slim.
         from nl2pbip.data_understanding import analyze_data_understanding
 
-        profiles = self._rehydrate_profiles(data_summary)
         if not profiles:
             return None
         sources = context.get("data_sources") or {}
@@ -1262,33 +1268,25 @@ class Orchestrator:
     def _summarise_fk_inference(
         self,
         context: Dict[str, Any],
-        data_summary: Dict[str, Any],
+        profiles: List[Any],
     ) -> Optional[Dict[str, Any]]:
         """Auto-detected foreign-key candidates for the planner payload.
 
         Runs :func:`nl2pbip.fk_inference.infer_foreign_keys` against
-        the same rehydrated profiles the AI schema + data
-        understanding blocks use, then emits a JSON-serialisable
-        block with one ``ConfidenceHint`` per surviving pair under
-        the ``hints`` key plus the per-table cardinality summary
-        under ``by_table``.
+        the profiles the caller already rehydrated (R-N-05) and
+        emits a JSON-serialisable block with one ``CardinalityHint``
+        per surviving pair under the ``hints`` key.
 
         Returns ``None`` when:
 
         * ``context["fk_inference_enabled"]`` is explicitly ``False``
           (caller opted out via ``--disable-fk-inference``).
-        * ``data_sources`` isn't set (no profile to infer from).
+        * ``profiles`` is empty (no profile to infer from).
         * No hints survived the threshold filter (clean project,
           nothing to suggest).
 
         Disabled by default in CI / benchmarks via the standard
         ``fk_inference_enabled`` context flag.
-
-        .. note::
-           Rehydrates profiles from ``data_summary`` rather than
-           re-running :func:`nl2pbip.data_inspector.inspect_data_sources`
-           — the v1.6.1 RISKY fix flagged this exact re-read pattern
-           as a CI-time-cost problem on every planner request.
         """
         if context.get("fk_inference_enabled", True) is False:
             return None
@@ -1297,7 +1295,6 @@ class Orchestrator:
             infer_foreign_keys,
         )
 
-        profiles = self._rehydrate_profiles(data_summary)
         if not profiles:
             return None
         # Allow the caller to override thresholds via context keys.
@@ -1315,7 +1312,15 @@ class Orchestrator:
                 max_pairs_evaluated=int(context.get("fk_inference_max_pairs", 2000)),
             )
         except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
-            return {"error": f"fk_inference config invalid: {exc}"}
+            # R-N-07: surface as a logger warning; sibling summarise
+            # methods all return None on error rather than
+            # {"error": ...}, and we keep the contract consistent.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "fk_inference config invalid: %s — skipping hints", exc
+            )
+            return None
         hints = infer_foreign_keys(profiles, config=cfg)
         if not hints:
             # No candidates to suggest — drop the block so the
@@ -1364,6 +1369,7 @@ class Orchestrator:
         self,
         context: Dict[str, Any],
         data_summary: Dict[str, Any],
+        profiles: List[Any],
     ) -> Optional[Dict[str, Any]]:
         """Run the AI schema advisor over the deterministic profile.
 
@@ -1371,13 +1377,17 @@ class Orchestrator:
 
         * ``context["data_inspector_ai_enabled"]`` is explicitly
           ``False`` (caller opted out).
-        * ``context["data_sources"]`` isn't set (no profile to
-          enrich — handled by the caller, but defensive here).
+        * ``profiles`` is empty (no profile to enrich).
         * The LLM call fails or returns unparseable output.
 
         The advisor's input is the deterministic profile only —
         not raw row data — so the planner payload stays bounded
         by the number of *columns*, not the number of *rows*.
+
+        .. note::
+           R-N-05: ``profiles`` is now passed in by the caller
+           (built once in :meth:`_planner_payload`) instead of
+           being rehydrated here.
         """
         if context.get("data_inspector_ai_enabled", True) is False:
             return None
@@ -1385,11 +1395,6 @@ class Orchestrator:
         # callers don't use data sources and never reach this.
         from nl2pbip.schema_advisor import SchemaAdvisor
 
-        # Rebuild the typed profiles from the summary so the
-        # advisor can iterate columns without re-inspecting the
-        # raw source. The deterministic profile carries everything
-        # the advisor needs.
-        profiles = self._rehydrate_profiles(data_summary)
         if not profiles:
             return None
         advisor = SchemaAdvisor(self._llm)
