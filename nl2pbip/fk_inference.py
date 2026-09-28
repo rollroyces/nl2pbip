@@ -225,11 +225,15 @@ def _normalise_column_name(name: str) -> str:
     # Recursively peel matching FK suffixes until the string is
     # stable. The recursive peel catches the ``customerid`` →
     # ``customer`` case in addition to the underscored variants.
+    # The condition ``len(cleaned) >= len(suffix)`` lets the bare
+    # ``"id"`` / ``"key"`` / ``"code"`` cases normalise to the
+    # empty string (which is a useful sentinel — see
+    # :func:`_name_similarity`).
     changed = True
     while changed and cleaned:
         changed = False
         for suffix in _FK_SUFFIXES:
-            if cleaned.endswith(suffix) and len(cleaned) > len(suffix):
+            if cleaned.endswith(suffix) and len(cleaned) >= len(suffix):
                 cleaned = cleaned[: -len(suffix)]
                 changed = True
                 break
@@ -239,14 +243,25 @@ def _normalise_column_name(name: str) -> str:
 def _name_similarity(a: str, b: str) -> float:
     """Return ``SequenceMatcher.ratio`` of two normalised column names.
 
-    Returns ``0.0`` when either side normalises to an empty
-    string (e.g. comparing ``id`` to anything else after the
-    suffix strip leaves nothing to compare).
+    Returns ``0.0`` when both sides normalise to an empty string
+    (e.g. comparing ``id`` to ``key``). When exactly one side
+    normalises to empty (the canonical ``id`` / ``key`` / ``code``
+    sentinel), returns ``1.0`` if the other side is non-empty —
+    this matches the common ``customer_id`` ↔ ``id``
+    FK-naming convention where the bare suffix is a wildcard
+    for any primary-key column.
     """
     na = _normalise_column_name(a)
     nb = _normalise_column_name(b)
-    if not na or not nb:
+    if not na and not nb:
         return 0.0
+    if not na or not nb:
+        # One side is the bare PK sentinel (e.g. ``id``),
+        # the other is a prefix-bearing FK column (e.g.
+        # ``customer_id``). Treat this as a perfect match — the
+        # FK column already encodes the table name in its
+        # prefix.
+        return 1.0
     return difflib.SequenceMatcher(a=na, b=nb).ratio()
 
 
@@ -299,19 +314,33 @@ def _sample_overlap(col_small: ColumnProfile, col_large: ColumnProfile) -> float
 def _classify_cardinality(small_is_pk: bool, large_is_pk: bool) -> Cardinality:
     """Classify the relationship based on PK status of each side.
 
+    The "small" side is the column with fewer distinct values —
+    typically the foreign-key side in a many-to-one relationship.
+
     Rules
     -----
     * Both ``is_potential_key`` → ``"one_to_one"`` (bijective join).
-    * Only the smaller side is PK → ``"many_to_one"`` (FK points
-      into the PK side).
-    * Otherwise → ``"many_to_many"`` (no guarantee either side is
-      unique).
+    * Only the larger side is PK (i.e. the PK side has MORE
+      distinct values than the FK side) → ``"many_to_one"``: this
+      is the classic star-schema FK → dimension-PK pattern where
+      the FK column has duplicates but every value still
+      resolves to a single PK.
+    * Only the smaller side is PK → ``"many_to_many"``
+      (orphan-heavy / unusual: the FK column has more distinct
+      values than the PK column it points at, suggesting many
+      of the FK values don't resolve).
+    * Neither side PK is unreachable here: the caller has
+      already filtered those pairs out per the v2.1.0 spec
+      (no point checking non-unique columns on both sides).
     """
     if small_is_pk and large_is_pk:
         return CARDINALITY_ONE_TO_ONE
-    if small_is_pk:
+    if large_is_pk:
         return CARDINALITY_MANY_TO_ONE
-    return CARDINALITY_MANY_TO_MANY
+    if small_is_pk:
+        return CARDINALITY_MANY_TO_MANY
+    # Caller guarantees at least one side is PK; defensive default.
+    return CARDINALITY_MANY_TO_ONE
 
 
 def _flatten_columns(
