@@ -21,6 +21,52 @@ to [Semantic Versioning](https://semver.org/).
   ``{Sales, Date}``, and ``Sales.Total Revenue`` measure exists.
   The ``_call_tool_soft`` and ``_extract_error_message`` helpers
   are now dead code; both removed.
+- **`pytest-json-report` now declared in the `[dev]` extra.**
+  The cross-server workflow invokes pytest with ``--json-report
+  --json-report-file=pytest-report.json`` to populate the workflow
+  artifact. The wrapper script's docstring claimed
+  ``pytest-json-report`` was "bundled in the [dev] extra" but it
+  wasn't declared anywhere in ``pyproject.toml``. Result: the
+  workflow exited with pytest's "internal error" code 4 instead of
+  actually exercising Microsoft's parser. Added the dep, plus
+  hardened ``scripts/run_cross_server_tests.sh`` to detect a
+  missing ``pytest-json-report`` and re-run the tests without the
+  JSON output instead of failing.
+- **Packager now emits ``database.tmdl``.**
+  Microsoft's ``connection_operations.ConnectFolder`` checks
+  ``<SemanticModel>/database.tmdl`` first, then falls back to
+  ``<SemanticModel>/definition/database.tmdl``. Without this file
+  the parser returned ``"'database.tmdl' not found in '...'"``
+  even when everything else was canonical. ``nl2pbip/packager.py``
+  now writes it alongside ``model.tmdl`` + ``relationships.tmdl``
+  in the ``definition/`` subdir using the existing
+  ``_render_database_tmdl`` helper.
+
+### Known remaining gap
+- **Cross-server tests skip on Linux runners.**
+  `_binary_path()` in `tests/test_cross_server_validation.py` only
+  resolves the binary path on `sys.platform == "darwin"`. On
+  Linux (`ubuntu-latest`) the candidate list is empty, so the
+  3 `_CROSS_SERVER_SKIP` tests skip with "powerbi-modeling-mcp
+  binary not installed" even though the install script just
+  successfully ran in the same job. Fixing requires adding the
+  Linux binary path resolution (and probably a Windows one for
+  completeness). Same surface area as the Mac path — needs
+  `darwin-arm64` / `darwin-x64` / `linux-arm64` / `linux-x64` /
+  `win32-x64` enumeration. Tracked as a follow-up.
+- **The table body syntax is still wrong for Microsoft.** After the
+  ``database.tmdl`` fix the parser actually parses ``model.tmdl`` +
+  ``relationships.tmdl`` + the per-table ``tables/*.tmdl`` files,
+  but ``TMDLTable.to_tmdl()`` emits JSON-style syntax
+  (``table "Sales" { columns = [...] }``) while Microsoft's TOM
+  parser expects TMDL-native syntax (``table Sales`` followed by
+  indented ``column SaleId`` blocks). Microsoft returns
+  ``"Parsing error type - InvalidLineType — Unexpected line type:
+  Other!"``. Closing this requires rewriting
+  ``TMDLTable.to_tmdl()``, ``TMDLColumn.to_tmdl()``,
+  ``TMDLMeasure.to_tmdl()``, and ``TMDLRelationship.to_tmdl()`` to
+  emit TAB-indented TMDL — substantial refactor, breaking-change
+  territory. Tracked as the next item after this release.
 
 ## [2.0.2] - 2026-09-25
 

@@ -351,6 +351,17 @@ def _write_semantic_model(
     refs_text = "\n".join(f"ref table {name}" for name in model.tables)
     model_path.write_text(refs_text + ("\n" if refs_text else ""), encoding="utf-8")
 
+    # v2.0: also emit ``database.tmdl`` — Microsoft ``powerbi-modeling-mcp``
+    # checks for this in ``<SemanticModel>/`` first, then in
+    # ``<SemanticModel>/definition/`` (see its
+    # ``connection_operations.ConnectFolder`` help text). Without it
+    # the ConnectFolder call returns ``"database.tmdl" not found``.
+    # Power BI Desktop writes this file alongside the model.
+    from nl2pbip.tmdl_engine import _render_database_tmdl
+
+    database_path = definition_dir / "database.tmdl"
+    database_path.write_text(_render_database_tmdl(model), encoding="utf-8")
+
     relationships_path = definition_dir / "relationships.tmdl"
     relationships_path.write_text(_render_relationships_block(model), encoding="utf-8")
 
