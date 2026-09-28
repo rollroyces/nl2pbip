@@ -272,18 +272,25 @@ def free_port() -> int:
 
 @pytest.fixture(autouse=True)
 def _mute_logging() -> Generator[None, None, None]:
-    """Mute the root logger for the duration of each test.
+    """Mute the root logger's INFO/DEBUG for the duration of each test.
 
-    The orchestrator, TMDL handler, providers, and telemetry modules
-    log at INFO during normal operation. Test runs are much easier to
-    read without 1k lines of "Loaded PBIP model …" interspersed with
-    assertion failures. Set ``CAPLOG=1`` in the env to re-enable.
+    R-N-24: previously the fixture set the root level to CRITICAL,
+    which silenced WARNING too. Tests that wanted to assert on
+    log content (via ``caplog`` or by capturing stderr) saw an
+    empty stream — the autouse fixture overrode what the test
+    intended. Now only INFO/DEBUG are quieted; WARNING and
+    ERROR remain visible so caplog-based assertions can still
+    see them. Set ``CAPLOG=1`` in the env to disable the
+    fixture entirely.
     """
     if os_environ_truthy("CAPLOG"):
         return  # leave logging alone for tests that need it
     root = logging.getLogger()
     original_level = root.level
-    root.setLevel(logging.CRITICAL)
+    # Set WARNING as the floor so INFO/DEBUG are muted but
+    # WARNING+ (which caplog typically captures) is preserved.
+    if root.level == logging.NOTSET or root.level > logging.WARNING:
+        root.setLevel(logging.WARNING)
     try:
         yield
     finally:
