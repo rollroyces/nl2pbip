@@ -83,7 +83,17 @@ runs:
             # Fail the workflow here with a clear message.
             python - <<'PYEOF'
         import sys
-        import tomllib
+        try:
+            import tomllib
+        except ModuleNotFoundError:
+            try:
+                import tomli as tomllib
+            except ModuleNotFoundError:
+                # Last-resort: install tomli on-the-fly via the pip
+                # that's already on PATH; fall through if it fails.
+                import subprocess
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "tomli"])
+                import tomli as tomllib
         with open("pyproject.toml", "rb") as fh:
             cfg = tomllib.load(fh)
         declared = set((cfg.get("project", {}).get("optional-dependencies") or {}).keys())
