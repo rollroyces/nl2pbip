@@ -59,15 +59,17 @@ from typing import Any, Iterable, List, Optional, Tuple
 
 from nl2pbip.data_inspector import ColumnProfile, DataProfile
 
-# Cardinality label literals. Snake_case to match the existing
+# Cardinality label literals. camelCase to match the existing
 # ``RelationshipCoverage.cardinality_hint`` field (``"manyToOne"``
-# etc.), so the two hints stay shape-compatible in the planner
-# payload.
-Cardinality = str  # Literal["one_to_one", "one_to_many", "many_to_one", "many_to_many"]
-CARDINALITY_ONE_TO_ONE = "one_to_one"
-CARDINALITY_ONE_TO_MANY = "one_to_many"
-CARDINALITY_MANY_TO_ONE = "many_to_one"
-CARDINALITY_MANY_TO_MANY = "many_to_many"
+# etc.) AND ``define_relationship_handler``'s accepted values
+# (see ``nl2pbip/tmdl_engine.py`` ``valid_cardinalities``). Keeping
+# the two hints shape-compatible in the planner payload avoids the
+# LLM having to translate case between fields (R-N-06, R-N-19).
+Cardinality = str  # Literal["oneToOne", "oneToMany", "manyToOne", "manyToMany"]
+CARDINALITY_ONE_TO_ONE = "oneToOne"
+CARDINALITY_ONE_TO_MANY = "oneToMany"
+CARDINALITY_MANY_TO_ONE = "manyToOne"
+CARDINALITY_MANY_TO_MANY = "manyToMany"
 
 # Column-name suffixes we treat as foreign-key content during the
 # normaliser. Stripping these lets ``orders.customer_id`` align
@@ -93,8 +95,8 @@ class CardinalityHint:
         to_column: str
             Referenced primary-key column on ``to_table``.
         cardinality: Cardinality
-            One of ``"one_to_one"``, ``"one_to_many"``,
-            ``"many_to_one"``, ``"many_to_many"``.
+            One of ``"oneToOne"``, ``"oneToMany"``,
+            ``"manyToOne"``, ``"manyToMany"``.
         confidence: float
             Score in [0.0, 1.0]. Composite of name similarity, sample
             overlap, and a type-bonus. Use this to rank hints before
