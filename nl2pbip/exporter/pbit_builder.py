@@ -148,9 +148,22 @@ class PbitArchiveBuilder:
 
         ``payload`` is the TMSL document. If omitted, a minimal
         shell is generated that Power BI Desktop will accept as a
-        template.
+        template — but R-N-15: callers (notably
+        :meth:`add_pbip_folder`) currently pass no payload and
+        fall through to the stub. Power BI Desktop will then
+        open the file as a template and prompt for a data source.
+        We now log a warning so CLI users don't think they got
+        a usable PBIT.
         """
         if payload is None:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "add_data_model_schema called without a payload — emitting a "
+                "template shell. Power BI Desktop will open this as a "
+                "template and prompt for a data source. Pass the TMSL "
+                "payload (or skip this part) to suppress."
+            )
             payload = make_minimal_data_model_schema(name=self.template_name)
         self.add_json_part("DataModelSchema", payload)
 
