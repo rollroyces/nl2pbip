@@ -23,19 +23,21 @@ deterministic data inspection + a curated `schema.org` ontology + an
 OPC-compliant `.pbit` exporter, fronted by a CLI, a Python API, and a
 fully MCP-compatible stdio server.
 
-## Three surfaces, three recordings
+## One terminal demo + one architecture walkthrough
 
-Each recording is a real terminal session captured via
-[asciinema](https://asciinema.org/) and rendered to GIF + MP4 by
-[agg](https://github.com/asciinema/agg). No API key, no network — every
-recording is reproducible from `scripts/record_demo.sh`.
+Two recordings cover every public surface of `nl2pbip`. The terminal
+recording shows the headline no-LLM flow end-to-end; the architecture
+walkthrough pans over the static pipeline diagram so you can see the
+moving parts at a glance. Both are real — no animation tricks, no
+fabricated screenshots.
 
-### 1 · No-LLM demo — `python -m nl2pbip.example_run`
+### 1 · No-LLM terminal demo — `python -m nl2pbip.example_run`
 
 The zero-friction entry point. Runs an 11-step deterministic plan
 (TMDL tables, DAX measure, relationship, calculation group, field
 parameter, OLS role, clustered column chart, `.pbip` packaging) in
-~1 second against a built-in mock LLM:
+~1 second against a built-in mock LLM. Captured via [asciinema](https://asciinema.org/),
+rendered to GIF + MP4 by [agg](https://github.com/asciinema/agg):
 
 <p align="center">
   <a href="assets/demo.mp4"><img src="assets/demo.gif" alt="no-LLM demo: 11-step plan in ~1s" width="900"></a>
@@ -51,58 +53,44 @@ parameter, OLS role, clustered column chart, `.pbip` packaging) in
 
 </details>
 
-### 2 · LLM-driven Python API — `Orchestrator.run_with_reflection(…)`
+### 2 · Architecture walkthrough — camera pan over the pipeline diagram
 
-The path you take in production. Drives the same orchestrator the CLI
-internally uses, with a tiny `StructuredLLMClient`-compatible mock
-swappable for a real provider (OpenAI / Anthropic / Azure / OpenRouter /
-DeepSeek / Qwen / Zhipu / Moonshot / custom):
+The same pipeline as a static dark-themed diagram, then a 6-second
+camera pan over it (overview → caller → CLI/API/MCP → orchestrator →
+inspection layer → writers → CI gates). Hover any component in
+`assets/architecture.html` to see its purpose; click
+<a href="assets/architecture.mp4"><code>architecture.mp4</code></a> for the
+walkthrough recording:
 
 <p align="center">
-  <a href="assets/llm_demo.mp4"><img src="assets/llm_demo.gif" alt="LLM-driven demo: orchestrator with mock client" width="900"></a>
+  <a href="assets/architecture.mp4"><img src="assets/architecture.png" alt="nl2pbip architecture diagram: caller → CLI/API/MCP → Orchestrator → inspectors → writers → consumer" width="1100"></a>
 </p>
 
 <details>
-<summary>What the recording shows</summary>
+<summary>What the walkthrough shows</summary>
 
-1. Header — `provider: stub`, `model: gpt-4o-mini-mock`. Swap for
-   `StructuredLLMClient` to point at a real provider.
-2. `Orchestrator.run_with_reflection(user_prompt, context=…)` —
-   the same call `nl2pbip.cli` issues under `--provider openai`.
-3. `trace.attempts=1`, `trace.succeeded=True` — single-shot success,
-   no retries needed.
-4. Final artefact paths: semantic model (89 B TMDL), report surface
-   (2.5 KB PBIR JSON), `.pbip` package (18 files).
-
-</details>
-
-### 3 · MCP server stdio exchange — `nl2pbip-mcp` over JSON-RPC
-
-The path your IDE agent (Claude Code, Cursor, Copilot CLI) takes. The
-recording spawns the `nl2pbip-mcp` console script over stdio and
-exchanges the MCP handshake plus two zero-LLM tool calls. The wire
-traffic you see here is what `claude mcp add` actually opens:
-
-<p align="center">
-  <a href="assets/mcp_demo.mp4"><img src="assets/mcp_demo.gif" alt="MCP stdio: initialize → tools/list → version → validate_pbip" width="900"></a>
-</p>
-
-<details>
-<summary>What the recording shows</summary>
-
-1. `initialize` handshake — server returns `protocolVersion`,
-   `capabilities`, `serverInfo: { name: "nl2pbip", version: "1.30.0" }`.
-2. `notifications/initialized` — no response (notification, not request).
-3. `tools/list` — 4 tools exposed: `generate_report`, `validate_pbip`,
-   `inspect_dataset`, `version`.
-4. `tools/call version` → `library_version: "2.1.1"`, `transport: "stdio"`.
-5. `tools/call validate_pbip` → `pages_validated: 1`,
-   `visuals_validated: 1`, `errors: 0`. Pure CI-safe validator,
-   no LLM involved.
+1. **Overview.** Full diagram at 100% — caller, three entry points,
+   orchestrator, inspection layer, writers, CI gates, LLM provider,
+   data sources, consumer.
+2. **Caller.** Zoom into the left boundary — shell + IDE agent.
+3. **CLI / Python API / MCP server.** Pan to the three entry points
+   inside the nl2pbip package.
+4. **Orchestrator.** The green core with retry loop, reflection
+   critic, and token budget guardrails.
+5. **Inspection layer.** FK inference, data profiler, schema.org
+   ontology, prompt polisher — all run before any LLM call.
+6. **Writers + CI.** TMDL writer (with `NL2PBIP_MICROSOFT_TMDL=1` opt-in),
+   PBIR engine, OPC packager → `ruff / black / mypy --strict /
+   vulture / pytest 1082 / cross-server` gates.
 
 </details>
 
-Refresh all three with one command:
+The static diagram is also shipped as `assets/architecture.html`
+(open in any browser) and `assets/architecture.png` (1280px-wide
+PNG for issue / PR comments). Both hover tooltips and details
+panels come from the HTML version.
+
+Refresh both recordings with one command:
 
 ```bash
 bash scripts/record_demo.sh
@@ -110,10 +98,9 @@ bash scripts/record_demo.sh
 
 ## Contents
 
-- [Three surfaces, three recordings](#three-surfaces-three-recordings)
-  - [1 · No-LLM demo](#1--no-llm-demo----python--m-nl2pbipexample_run)
-  - [2 · LLM-driven Python API](#2--llm-driven-python-api----orchestratorrun_with_reflection-)
-  - [3 · MCP server stdio exchange](#3--mcp-server-stdio-exchange----nl2pbip-mcp-over-json-rpc)
+- [One terminal demo + one architecture walkthrough](#one-terminal-demo--one-architecture-walkthrough)
+  - [1 · No-LLM terminal demo](#1--no-llm-terminal-demo----python--m-nl2pbipexample_run)
+  - [2 · Architecture walkthrough](#2--architecture-walkthrough--camera-pan-over-the-pipeline-diagram)
 - [What ships in v2.1.0](#what-ships-in-v210)
 - [What ships in v1.6.0](#what-ships-in-v160)
 - [Install](#installation)
@@ -190,7 +177,7 @@ deterministic 11-step pipeline (TMDL + PBIR + package) using a built-in
 mock LLM, writes to `artifacts/SalesInsights.pbipdir`, and finishes in
 ~1 second with **no API key and no network**. Open the result in Power
 BI Desktop (`File → Open → *.pbip`) for a working bar chart on top of a
-star schema. The recording above ([1 · No-LLM demo](#1--no-llm-demo----python--m-nl2pbipexample_run)) shows the same flow as a terminal capture.
+star schema. The recording above ([1 · No-LLM terminal demo](#1--no-llm-terminal-demo----python--m-nl2pbipexample_run)) shows the same flow as a terminal capture.
 
 ---
 
@@ -223,10 +210,11 @@ ls artifacts/SalesInsights.pbipdir/SalesInsights.pbip
 
 ## Quickstart & Core Usage
 
-The recordings above ([No-LLM](#1--no-llm-demo----python--m-nl2pbipexample_run) ·
-[LLM-driven](#2--llm-driven-python-api----orchestratorrun_with_reflection-) ·
-[MCP](#3--mcp-server-stdio-exchange----nl2pbip-mcp-over-json-rpc)) show the three
-end-to-end paths. This section is the reference for each one.
+The recording above ([1 · No-LLM](#1--no-llm-terminal-demo----python--m-nl2pbipexample_run))
+shows the headline no-LLM pipeline. The architecture walkthrough
+([2 · Architecture](#2--architecture-walkthrough--camera-pan-over-the-pipeline-diagram))
+shows the moving parts. This section is the reference for each
+of the three entry points.
 
 ### CLI: cloud-hosted LLMs
 
@@ -249,9 +237,11 @@ python -m nl2pbip.cli generate \
 
 ### Python API: programmatic generation with LLM context
 
-The recording above ([2 · LLM-driven](#2--llm-driven-python-api----orchestratorrun_with_reflection-))
-shows the same orchestrator code path the snippet below runs — using a
-swappable `StructuredLLMClient` against a real provider:
+For an end-to-end walkthrough, see the architecture recording above
+([2 · Architecture walkthrough](#2--architecture-walkthrough--camera-pan-over-the-pipeline-diagram))
+— the Python API is the green Orchestrator box. The snippet below
+runs the same code path using a swappable `StructuredLLMClient`
+against a real provider:
 
 ```python
 from nl2pbip.orchestrator import Orchestrator, register_builtin_tools
@@ -334,10 +324,10 @@ add_visual_handler(page="Main", visual_type="pie",    ...)  # → pieChart
 
 ### Use from an MCP-compatible agent (Claude Code, Cursor, Copilot CLI)
 
-The recording above ([3 · MCP server](#3--mcp-server-stdio-exchange----nl2pbip-mcp-over-json-rpc))
-shows the wire traffic `claude mcp add` opens — initialize handshake,
-`tools/list`, and a zero-LLM `validate_pbip` round-trip. Reference
-config and tool inventory below.
+The MCP server is one of the three entry points in the architecture
+diagram ([2 · Architecture walkthrough](#2--architecture-walkthrough--camera-pan-over-the-pipeline-diagram),
+the cyan `MCP server` box at the top right of the nl2pbip package).
+Reference config + tool inventory below.
 
 Install the `[mcp]` extra and register the server with your client:
 
