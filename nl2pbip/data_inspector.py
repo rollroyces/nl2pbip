@@ -491,7 +491,9 @@ def _profile_column(name: str, values: List[Any], top_n: int = 5) -> ColumnProfi
         string_count = type_counts.get("text", 0)
         if string_count:
             numeric_string_count = sum(
-                1 for v in non_null if isinstance(v, str) and _try_numeric(v) is not None
+                1
+                for v in non_null
+                if isinstance(v, str) and _try_numeric(v) is not None
             )
             if (
                 type_counts.get("numeric", 0) + numeric_string_count
