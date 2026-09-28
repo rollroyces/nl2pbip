@@ -75,6 +75,10 @@ fi
 
 # Pin the version so repeated installs are reproducible. Bump in
 # step with Power BI Modeling MCP releases.
+# R-N-26: this string MUST stay in sync with the embedded value
+# in scripts/run_cross_server_tests.sh (``npm_package`` field).
+# A drift causes install + report-validation runs to disagree
+# about which MCP build produced the result.
 VERSION="0.5.0-beta.13"
 
 echo "==> npm install @microsoft/powerbi-modeling-mcp@$VERSION"

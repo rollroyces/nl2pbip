@@ -70,6 +70,11 @@ result = {
     "dependencies": {
         "package_manager": "npm",
         "npm_package": "@microsoft/powerbi-modeling-mcp@0.5.0-beta.13",
+        # R-N-26: the install script pins VERSION="0.5.0-beta.13"
+        # and the result JSON embeds the same string. Bumping one
+        # without the other desyncs them — keep them in sync.
+        # (Validated by scripts/install_powerbi_modeling_mcp.sh
+        # line 78.)
         "python_extras": "[dev,mcp]",
         "install_script": "scripts/install_powerbi_modeling_mcp.sh",
         "wrapper_script": "scripts/run_cross_server_tests.sh",
