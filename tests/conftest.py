@@ -72,22 +72,29 @@ except ModuleNotFoundError:  # pragma: no cover — Python 3.10 path
     import tomli as tomllib  # type: ignore[no-redef]
 
 
-def tomllib_load(path: Union[str, Path]) -> Dict[str, Any]:
+def tomllib_load(path: Union[str, Path, Any]) -> Dict[str, Any]:
     """Read a TOML file into a dict.
 
     Accepts either a :class:`pathlib.Path` / ``str`` path *or* an
     already-open binary file handle (the stdlib
     :func:`tomllib.load` accepts only the latter). Used by
     ``test_repo_templates.py`` and ``test_custom_visuals.py``.
+
+    R-N-25: when given a file handle, just hand it to
+    ``tomllib.load`` — don't re-open by name. Re-opening drops
+    the caller's encoding/mode (the handle may have been opened
+    with text mode + the right encoding) and races with anything
+    that truncated the file between the two opens.
     """
-    # ``BinaryIO`` has a ``.name`` attribute; if we got one, reuse
-    # it (the stdlib ``tomllib.load`` only takes a binary file).
-    fh_name = getattr(path, "name", None)
-    if fh_name is not None:
-        with open(fh_name, "rb") as fh:
+    # ``BinaryIO`` has a ``.name`` attribute; if we got a path
+    # (``str`` or ``Path``), convert to a path string and open.
+    # An already-open file handle has ``.read`` and ``.mode``
+    # but no string path; pass it through directly.
+    if isinstance(path, (str, Path)):
+        with open(path, "rb") as fh:
             return tomllib.load(fh)
-    with open(path, "rb") as fh:
-        return tomllib.load(fh)
+    # Treat anything else as an open file handle.
+    return tomllib.load(path)
 
 
 # ---------------------------------------------------------------------
