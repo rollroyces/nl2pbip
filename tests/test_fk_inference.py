@@ -23,11 +23,17 @@ Test matrix
 * **``max_pairs_evaluated`` cap** — early termination on huge inputs.
 * **Type filter** — incompatible inferred types never produce hints.
 * **Non-PK filter** — pairs where neither side is PK never produce hints.
+* **Orchestrator integration** — the planner payload includes the
+  FK section when data sources are registered, and the section is
+  omitted when ``fk_inference_enabled=False`` (or when the CLI's
+  ``--disable-fk-inference`` flag is set).
 """
 
 from __future__ import annotations
 
-from typing import List
+import json
+from pathlib import Path
+from typing import Any, Dict, List
 
 import pytest
 
@@ -45,6 +51,9 @@ from nl2pbip.fk_inference import (
     _sample_overlap,
     infer_foreign_keys,
 )
+from nl2pbip.orchestrator import Orchestrator
+from nl2pbip.pbir_engine import REPORT_PATH_KEY
+from nl2pbip.tmdl_engine import MODEL_PATH_KEY
 
 # ---------------------------------------------------------------------------
 # Builders
@@ -603,3 +612,151 @@ class TestEdgeCases:
         assert d["cardinality"] == CARDINALITY_MANY_TO_ONE
         assert d["confidence"] == 0.85
         assert d["evidence"]
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator integration
+# ---------------------------------------------------------------------------
+
+
+class _StaticFKLLM:
+    """LLM stub that captures the planner payload it was sent.
+
+    Records every ``messages`` list it receives on ``self.captured``
+    so the integration test can assert what the orchestrator
+    surfaced to the LLM (rather than asserting on the full
+    ``_planner_payload`` dict).
+    """
+
+    provider = "stub"
+    model = "stub-fk-model"
+
+    def __init__(self) -> None:
+        self.captured: List[List[Dict[str, Any]]] = []
+
+    def generate(self, messages: List[Dict[str, str]]) -> str:  # type: ignore[override]
+        self.captured.append(list(messages))
+        return json.dumps({"plan": []})
+
+
+class TestOrchestratorIntegration:
+    def _make_ctx(
+        self,
+        tmp_path: Path,
+        sources: Dict[str, Any],
+        fk_enabled: bool = True,
+    ) -> Dict[str, Any]:
+        return {
+            MODEL_PATH_KEY: str(tmp_path / "model.tmdl"),
+            REPORT_PATH_KEY: str(tmp_path / "report.json"),
+            "data_sources": sources,
+            "fk_inference_enabled": fk_enabled,
+        }
+
+    def test_orchestrator_includes_fk_section_in_plan_prompt(
+        self, tmp_path: Path
+    ) -> None:
+        """A 2-table project surfaces the FK section in the planner payload."""
+        llm = _StaticFKLLM()
+        orchestrator = Orchestrator(llm_client=llm)
+        sources = {
+            "orders": [
+                {"customer_id": "c1"},
+                {"customer_id": "c2"},
+                {"customer_id": "c1"},
+                {"customer_id": "c3"},
+                {"customer_id": "c2"},
+            ],
+            "customers": [
+                {"id": "c1"},
+                {"id": "c2"},
+                {"id": "c3"},
+            ],
+        }
+        ctx = self._make_ctx(tmp_path, sources)
+        orchestrator.run("Build a sample report", context=ctx)
+        assert llm.captured, "LLM stub never invoked"
+        # When ``run()`` fails (no tools registered) it retries
+        # the planner; the LLM is therefore called more than once
+        # and the FK section appears in every retry's payload.
+        # Assert on the last call's user message so we catch the
+        # state the LLM actually saw before the run bailed.
+        user_msg = llm.captured[-1][-1]["content"]
+        assert "inferred_foreign_keys" in user_msg, (
+            "Planner payload must include the FK section header "
+            "when data sources are registered"
+        )
+        assert "Likely foreign keys (auto-detected)" in user_msg
+        # At least one hint pair should appear (the
+        # orders.customer_id ↔ customers.id link is the obvious
+        # one — distinct_count matches, name suffix strip
+        # normalises, sample values overlap).
+        assert "orders.customer_id" in user_msg or "customers.id" in user_msg
+
+    def test_disable_flag_omits_fk_section(self, tmp_path: Path) -> None:
+        """``fk_inference_enabled=False`` (CLI flag) drops the section."""
+        llm = _StaticFKLLM()
+        orchestrator = Orchestrator(llm_client=llm)
+        sources = {
+            "orders": [{"customer_id": "c1"}, {"customer_id": "c2"}],
+            "customers": [{"id": "c1"}, {"id": "c2"}],
+        }
+        ctx = self._make_ctx(tmp_path, sources, fk_enabled=False)
+        orchestrator.run("Build a sample report", context=ctx)
+        assert llm.captured
+        # Same retry caveat as the positive test — assert on the
+        # last captured message so we catch the state the LLM
+        # actually saw.
+        user_msg = llm.captured[-1][-1]["content"]
+        assert "inferred_foreign_keys" not in user_msg, (
+            "FK section must be omitted when "
+            "context['fk_inference_enabled'] is False"
+        )
+
+    def test_orchestrator_omits_fk_section_without_data_sources(
+        self, tmp_path: Path
+    ) -> None:
+        """No data sources → no FK section (nothing to inspect)."""
+        llm = _StaticFKLLM()
+        orchestrator = Orchestrator(llm_client=llm)
+        ctx = self._make_ctx(tmp_path, sources={})
+        orchestrator.run("Build a sample report", context=ctx)
+        assert llm.captured
+        user_msg = llm.captured[-1][-1]["content"]
+        assert "inferred_foreign_keys" not in user_msg
+
+    def test_fk_section_present_in_planner_payload_directly(
+        self, tmp_path: Path
+    ) -> None:
+        """Direct ``_planner_payload`` call surfaces the FK block.
+
+        Exercises the orchestrator's payload builder without
+        running the LLM-driven retry loop — gives a deterministic
+        view of what the planner would see on the first
+        iteration.
+        """
+        orchestrator = Orchestrator(llm_client=_StaticFKLLM())
+        sources = {
+            "orders": [
+                {"customer_id": "c1"},
+                {"customer_id": "c2"},
+                {"customer_id": "c1"},
+            ],
+            "customers": [
+                {"id": "c1"},
+                {"id": "c2"},
+            ],
+        }
+        ctx = self._make_ctx(tmp_path, sources)
+        payload = orchestrator._planner_payload("Build a report", ctx)
+        assert "inferred_foreign_keys" in payload
+        block = payload["inferred_foreign_keys"]
+        assert block["section_header"] == "## Likely foreign keys (auto-detected)"
+        assert block["count"] >= 1
+        assert any(
+            h["from_column"] == "id"
+            and h["to_column"] == "customer_id"
+            or h["from_column"] == "customer_id"
+            and h["to_column"] == "id"
+            for h in block["hints"]
+        )

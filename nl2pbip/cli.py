@@ -173,6 +173,18 @@ def _build_generate_parser() -> argparse.ArgumentParser:
             "results to a queue)."
         ),
     )
+    parser.add_argument(
+        "--disable-fk-inference",
+        action="store_true",
+        help=(
+            "Skip the deterministic foreign-key inference pass (v2.1.0+). "
+            "When set, the orchestrator will not inject the 'Likely foreign "
+            "keys (auto-detected)' block into the planner payload — the LLM "
+            "must infer relationships on its own. Useful when the caller "
+            "already has verified FK coverage from another source, or when "
+            "benchmarking the planner without the inference overhead."
+        ),
+    )
     return parser
 
 
@@ -215,6 +227,11 @@ def _handle_generate(args: argparse.Namespace) -> None:
         "package_path": str(output_dir),
         "project_name": args.project_name,
         "overwrite": args.overwrite,
+        # ``--disable-fk-inference`` flips the orchestrator's
+        # ``fk_inference_enabled`` context flag. Default True
+        # (inference runs); opt-out for benchmarks / hand-written
+        # FK coverage.
+        "fk_inference_enabled": not bool(args.disable_fk_inference),
     }
 
     catalog = DAXCatalog.from_file(args.dax_library)

@@ -1208,6 +1208,14 @@ class Orchestrator:
             understanding = self._summarise_data_understanding(context, data_summary)
             if understanding is not None:
                 payload["data_understanding"] = understanding
+            # Auto-detected foreign-key candidates (v2.1.0). Built
+            # from the same rehydrated summary the AI schema + data
+            # understanding blocks use, so we don't re-run
+            # ``inspect_data_sources`` (the v1.6.1 RISKY fix noted
+            # that pattern).
+            fk_hints = self._summarise_fk_inference(context, data_summary)
+            if fk_hints is not None:
+                payload["inferred_foreign_keys"] = fk_hints
         if self._dax_catalog:
             payload["dax_catalog"] = self._dax_catalog.prompt_payload()
         return payload
@@ -1250,6 +1258,74 @@ class Orchestrator:
         sources = context.get("data_sources") or {}
         understanding = analyze_data_understanding(profiles, records_by_source=sources)
         return understanding.to_json()
+
+    def _summarise_fk_inference(
+        self,
+        context: Dict[str, Any],
+        data_summary: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Auto-detected foreign-key candidates for the planner payload.
+
+        Runs :func:`nl2pbip.fk_inference.infer_foreign_keys` against
+        the same rehydrated profiles the AI schema + data
+        understanding blocks use, then emits a JSON-serialisable
+        block with one ``ConfidenceHint`` per surviving pair under
+        the ``hints`` key plus the per-table cardinality summary
+        under ``by_table``.
+
+        Returns ``None`` when:
+
+        * ``context["fk_inference_enabled"]`` is explicitly ``False``
+          (caller opted out via ``--disable-fk-inference``).
+        * ``data_sources`` isn't set (no profile to infer from).
+        * No hints survived the threshold filter (clean project,
+          nothing to suggest).
+
+        Disabled by default in CI / benchmarks via the standard
+        ``fk_inference_enabled`` context flag.
+
+        .. note::
+           Rehydrates profiles from ``data_summary`` rather than
+           re-running :func:`nl2pbip.data_inspector.inspect_data_sources`
+           — the v1.6.1 RISKY fix flagged this exact re-read pattern
+           as a CI-time-cost problem on every planner request.
+        """
+        if context.get("fk_inference_enabled", True) is False:
+            return None
+        from nl2pbip.fk_inference import (
+            FKInferenceConfig,
+            infer_foreign_keys,
+        )
+
+        profiles = self._rehydrate_profiles(data_summary)
+        if not profiles:
+            return None
+        # Allow the caller to override thresholds via context keys.
+        # All four knobs are optional; missing values fall back to
+        # :class:`FKInferenceConfig` defaults.
+        try:
+            cfg = FKInferenceConfig(
+                min_confidence=float(context.get("fk_inference_min_confidence", 0.5)),
+                name_similarity_threshold=float(
+                    context.get("fk_inference_name_threshold", 0.6)
+                ),
+                sample_overlap_threshold=float(
+                    context.get("fk_inference_overlap_threshold", 0.3)
+                ),
+                max_pairs_evaluated=int(context.get("fk_inference_max_pairs", 2000)),
+            )
+        except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
+            return {"error": f"fk_inference config invalid: {exc}"}
+        hints = infer_foreign_keys(profiles, config=cfg)
+        if not hints:
+            # No candidates to suggest — drop the block so the
+            # LLM doesn't see an empty section header.
+            return None
+        return {
+            "section_header": "## Likely foreign keys (auto-detected)",
+            "hints": [h.to_dict() for h in hints],
+            "count": len(hints),
+        }
 
     def _summarise_ontology(
         self, data_summary: Dict[str, Any]
