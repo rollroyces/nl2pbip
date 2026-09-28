@@ -4,6 +4,24 @@ All notable changes to `nl2pbip` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Cross-server gap report flipped to a positive round-trip test.**
+  v2.0.0 closed the v1.5 cross-server gap end-to-end (nl2pbip emits
+  the canonical TMDL layout by default, so Microsoft's TOM parser
+  ingests it). The docstring-as-gap-report test
+  ``test_microsoft_powerbi_modeling_mcp_flags_nl2pbip_monolithic_layout``
+  was honest for the v1.x era but asserted *failure* on every
+  artifact nl2pbip ships today. Renamed to
+  ``test_microsoft_powerbi_modeling_mcp_reads_nl2pbip_output``;
+  now spawns Microsoft's MCP server, calls ``ConnectFolder`` on the
+  orchestrator-produced artifact, and asserts ``tablesLoaded == 2``,
+  ``measuresLoaded == 1``, ``table_operations.List`` returns
+  ``{Sales, Date}``, and ``Sales.Total Revenue`` measure exists.
+  The ``_call_tool_soft`` and ``_extract_error_message`` helpers
+  are now dead code; both removed.
+
 ## [2.0.2] - 2026-09-25
 
 ### Fixed
