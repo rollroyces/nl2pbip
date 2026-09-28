@@ -605,9 +605,12 @@ def nl2pbip_pbipdir(tmp_path: Path) -> Path:
     Uses the same ``_StubClient`` pattern as
     ``tests/test_mcp_server.py`` so the pipeline runs without any
     network. The output is what nl2pbip ships to end users — as
-    of v2.0.0 the default writer emits the canonical multi-file
-    TMDL layout (``database.tmdl`` + per-table files +
-    ``ref table X`` declarations + ``relationships.tmdl``).
+    of v2.1.0 this fixture flips the packager into Microsoft's
+    TOM-parser-compatible TMDL syntax (``NL2PBIP_MICROSOFT_TMDL=1``)
+    so the test verifies end-to-end that Microsoft's MCP server
+    actually accepts what nl2pbip produces. The default canonical
+    layout (database.tmdl + per-table files + ref table
+    declarations + relationships.tmdl) is preserved.
 
     This fixture is opt-in via the same ``[mcp]`` extra as the
     MCP tests because ``nl2pbip.mcp_server.server`` is what
@@ -668,6 +671,15 @@ def nl2pbip_pbipdir(tmp_path: Path) -> Path:
 
     original = mcp_server_module.StructuredLLMClient
     mcp_server_module.StructuredLLMClient = _StubClient  # type: ignore[assignment]
+    # v2.1: enable Microsoft's TOM-parser-compatible TMDL syntax so
+    # the produced .SemanticModel/ uses ``table X`` + ``column X``
+    # indented blocks instead of the legacy JSON-style syntax that
+    # Microsoft's parser rejects with ``InvalidLineType``. Without
+    # this the round-trip test fails at ``ConnectFolder`` time even
+    # though v2.0's canonical layout (database.tmdl + tables/*.tmdl
+    # + relationships.tmdl) is otherwise in place.
+    previous_ms_tmdl = os.environ.get("NL2PBIP_MICROSOFT_TMDL")
+    os.environ["NL2PBIP_MICROSOFT_TMDL"] = "1"
     try:
         result = mcp_server_module._tool_generate_report(
             prompt="Build a tiny revenue card",
@@ -678,6 +690,10 @@ def nl2pbip_pbipdir(tmp_path: Path) -> Path:
         )
     finally:
         mcp_server_module.StructuredLLMClient = original  # type: ignore[assignment]
+        if previous_ms_tmdl is None:
+            os.environ.pop("NL2PBIP_MICROSOFT_TMDL", None)
+        else:
+            os.environ["NL2PBIP_MICROSOFT_TMDL"] = previous_ms_tmdl
 
     project_path = Path(result["project_path"])
     semantic_model = next(
