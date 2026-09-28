@@ -377,8 +377,6 @@ def _eligible_type(inferred_type: str) -> bool:
 def _score_pair(
     small_col: ColumnProfile,
     large_col: ColumnProfile,
-    small_name: str,
-    large_name: str,
     name_score: float,
     overlap_score: float,
     small_is_pk: bool,
@@ -521,8 +519,6 @@ def infer_foreign_keys(
             confidence, evidence = _score_pair(
                 small_col=small_col,
                 large_col=large_col,
-                small_name=small_col.name,
-                large_name=large_col.name,
                 name_score=name_score,
                 overlap_score=overlap_score,
                 small_is_pk=small_is_pk,
