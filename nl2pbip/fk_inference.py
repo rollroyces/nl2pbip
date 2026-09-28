@@ -531,19 +531,36 @@ def infer_foreign_keys(
             if pair_key in seen_pairs:
                 continue
             seen_pairs.add(pair_key)
+            # Sample-coverage scaling (R-N-02): when the overlap was
+            # computed against the inspector's top-N examples and the
+            # underlying column has many more distinct values, the
+            # overlap ratio is only a lower bound. Scale confidence
+            # by the fraction of distinct values actually sampled
+            # so a 5-of-5M example hit doesn't emit a ~0.95-confidence
+            # hint that misleads the LLM. The evidence caveat
+            # below still flags the caveat to human readers.
+            sample_coverage: float = 1.0
+            if overlap_score > 0 and small_col.distinct_count > 0:
+                sample_coverage = min(
+                    1.0,
+                    len(_column_examples(small_col)) / small_col.distinct_count,
+                )
+                if sample_coverage < 1.0:
+                    confidence = round(confidence * sample_coverage, 4)
+                    if confidence < cfg.min_confidence:
+                        continue
             # Append a lower-bound caveat to the evidence string
             # when the overlap is computed against the examples
             # list (which only carries the top-N most frequent
             # values). The LLM uses the evidence to decide
             # whether to trust the hint.
-            if overlap_score > 0 and small_col.distinct_count > len(
-                _column_examples(small_col)
-            ):
+            if sample_coverage < 1.0 and overlap_score > 0:
                 evidence = (
                     evidence + f" (overlap computed against top-"
                     f"{len(_column_examples(small_col))} of "
                     f"{small_col.distinct_count} distinct values — "
-                    "ratio is a lower bound)"
+                    f"ratio is a lower bound; confidence scaled by "
+                    f"sample coverage {sample_coverage:.4f})"
                 )
             hints.append(
                 CardinalityHint(
