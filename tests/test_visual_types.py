@@ -22,6 +22,7 @@ Covers:
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import Any, Dict
 
@@ -229,7 +230,11 @@ class TestLayoutHelpers:
 
 
 class TestPBIRValidatorAcceptsAliases:
-    def test_table_alias_normalised_in_place(self) -> None:
+    def test_table_alias_accepted_without_mutation(self) -> None:
+        # R-N-16: validate_visual is read-only — the alias rewrite
+        # used to mutate the caller's dict. Callers that share a
+        # visual dict across re-validations now see the input
+        # unchanged.
         validator = PBIRValidator()
         visual = {
             "$schema": "http://powerbi.com/product/schema#visualContainer",
@@ -243,13 +248,14 @@ class TestPBIRValidatorAcceptsAliases:
                 }
             },
         }
+        snapshot = copy.deepcopy(visual)
         validator.validate_visual(visual, page_bounds=(1280, 720))
-        # The validator normalises the alias to the canonical form so
-        # the on-disk JSON always matches what Power BI Desktop emits.
-        assert visual["visualType"] == "tableEx"
-        assert visual["config"]["singleVisual"]["visualType"] == "tableEx"
+        # The validator MUST NOT mutate the caller's dict (R-N-16).
+        assert visual == snapshot
+        assert visual["visualType"] == "table"
+        assert visual["config"]["singleVisual"]["visualType"] == "table"
 
-    def test_matrix_alias_normalised_in_place(self) -> None:
+    def test_matrix_alias_accepted_without_mutation(self) -> None:
         validator = PBIRValidator()
         visual = {
             "$schema": "http://powerbi.com/product/schema#visualContainer",
@@ -263,8 +269,11 @@ class TestPBIRValidatorAcceptsAliases:
                 }
             },
         }
+        snapshot = copy.deepcopy(visual)
         validator.validate_visual(visual, page_bounds=(1280, 720))
-        assert visual["visualType"] == "pivotTable"
+        # R-N-16: alias is accepted but not mutated.
+        assert visual == snapshot
+        assert visual["visualType"] == "matrix"
 
     def test_unknown_type_rejected_with_helpful_error(self) -> None:
         validator = PBIRValidator()

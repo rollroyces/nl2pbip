@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence, Tuple
 
@@ -196,6 +197,14 @@ class PBIRValidator:
         (every role declares a ``queryRef`` or ``measureRef`` that
         resolves against the bound TMDL model).
 
+        R-N-16: this method is read-only — it canonicalises
+        ``visualType`` aliases (e.g. ``"table"`` → ``"tableEx"``)
+        but does so on a local deep copy of the input, never on
+        the caller's dict. Previously the method mutated
+        ``visual_json`` in place, which broke callers that passed
+        a shared visual dict and expected it unchanged after
+        validation.
+
         Parameters
         ----------
         visual_json
@@ -215,6 +224,13 @@ class PBIRValidator:
             ``path`` field points at the offending JSON path
             (e.g. ``"config/singleVisual/visualType"``).
         """
+        # R-N-16: deep-copy the input so canonicalisation never
+        # mutates the caller's dict. Callers that pass a shared
+        # visual payload (the orchestrator's planner pool, the
+        # pbir_engine's report cache) relied on validate_visual
+        # being read-only; the in-place alias rewrite broke
+        # them silently when the same dict was re-validated.
+        visual_json = copy.deepcopy(visual_json)
         # Check visualType presence BEFORE running the JSON schema
         # validator so a missing field surfaces a clearer message
         # than the jsonschema "required property" boilerplate.
