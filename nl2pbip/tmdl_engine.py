@@ -1675,7 +1675,19 @@ def load_model(
         prefer_canonical = has_database or has_tables
     if prefer_canonical:
         return _load_model_canonical(model_path)
-    # Legacy monolithic path.
+    # Legacy monolithic path. R-R-07: warn when falling back —
+    # partial-migration artifacts (empty tables/ but no database.tmdl)
+    # used to silently produce an empty model with no signal to
+    # the caller that something was off.
+    import logging
+
+    logging.getLogger(__name__).warning(
+        "Loading legacy monolithic model.tmdl from %s. "
+        "Canonical layout (database.tmdl + tables/*.tmdl) is the "
+        "default as of v2.0; use scripts/legacy_to_canonical.py "
+        "to migrate.",
+        model_path,
+    )
     model = parse_tmdl_text(model_path.read_text(encoding="utf-8"))
     roles_dir = roles_workspace_dir(model_path)
     if roles_dir.exists():
